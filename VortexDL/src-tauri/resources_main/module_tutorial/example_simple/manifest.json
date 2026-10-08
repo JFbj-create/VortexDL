@@ -1,0 +1,10 @@
+{
+  "id": "hello-world",
+  "name": "Hello World",
+  "icon": "👋",
+  "section": "工具",
+  "description": "最小可用模块示例",
+  "entry": "index.html",
+  "version": "1.0.0",
+  "author": "VortexDL Tutorial"
+}

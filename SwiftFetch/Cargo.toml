@@ -1,0 +1,91 @@
+[package]
+name = "swiftfetch"
+version = "3.0.0"
+edition = "2021"
+description = "SwiftFetch - 纯CLI高性能无UI下载内核 v3 (HTTP1/2/3+BT+FTP(S)+SFTP+WebDAV+rsync+IPFS 全协议插件化解耦版)"
+
+[workspace]
+members = [".", "plugins/hello_plugin"]
+resolver = "2"
+
+[features]
+default = ["http", "bittorrent"]
+# ===== 各下载协议 feature flag (默认只开 http + bittorrent, 其余按需开启) =====
+http = ["dep:reqwest", "reqwest/rustls-tls", "reqwest/stream", "reqwest/json"]
+http2 = ["http", "reqwest/http2"]
+http3 = ["http2", "reqwest?/http3"]    # 实验性: reqwest + quinn/h3-quinn, 需要 rustls + RUSTFLAGS='--cfg reqwest_unstable'
+bittorrent = []
+ftp = ["dep:suppaftp", "suppaftp/tokio", "suppaftp/tokio-rustls-aws-lc-rs", "suppaftp/rustls-aws-lc-rs"]  # FTP + FTPS (rustls async/sync API 都需要)
+ftps = ["ftp"]                                                       # ftps = ftp (同一 feature, suppaftp 自动启用tls)
+sftp = ["dep:openssh-sftp-client", "dep:ssh2", "ssh2/vendored-openssl"]  # SFTP over SSH (双后端可选: openssh-sftp-client 纯 Rust, ssh2 FFI libssh2; vendored-openssl 自动从源码编译 OpenSSL, 需要 perl + make)
+webdav = ["http", "dep:reqwest_dav"]     # WebDAV: PROPFIND 元数据 + HTTP GET Range 复用 http 下载内核
+rsync = ["dep:librsync", "sftp"]                 # rsync 算法: librsync (官方 C 库 FFI) + SSH 管道 (需远端有 rsync 二进制; SSH 连接复用 sftp 的 ssh2)
+ipfs = ["http"]                          # IPFS: 对接 Kubo HTTP RPC (localhost:5001) 或 HTTP Gateway 复用 http 内核
+ed2k = ["http", "dep:md4", "dep:md5"]     # eD2k (eDonkey2000): 解析 ed2k://|file|name|size|hash| URL, 分块 MD4 校验, 复用 http 内核从公开镜像下载
+all-protocols = ["http3", "ftp", "ftps", "sftp", "webdav", "rsync", "ipfs", "ed2k"]
+
+[dependencies]
+clap = { version = "4", features = ["derive"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["full"] }
+tokio-util = { version = "0.7", features = ["io", "codec"] }
+futures = "0.3"
+futures-util = "0.3"
+# ===== http family (feature-gated) =====
+# 注意: reqwest/http3 属于 reqwest 不稳定 API, 启用必须同时设置
+#       RUSTFLAGS='--cfg reqwest_unstable' (cargo build 时作为环境变量传入)
+#       所以在默认 reqwest 依赖列表里只放 json/stream/rustls-tls/cookies/压缩/socks/http2,
+#       http3 仅在显式开启 http3 feature 时附加
+reqwest = { version = "0.12", optional = true, default-features = false, features = ["json", "stream", "rustls-tls", "cookies", "gzip", "brotli", "deflate", "socks", "http2"] }
+cookie = "0.18"
+cookie_store = "0.21"
+# ===== optional protocol crates (feature-gated) =====
+suppaftp = { version = "10", optional = true, default-features = false }
+reqwest_dav = { version = "0.2", optional = true }
+openssh-sftp-client = { version = "0.15", optional = true }
+ssh2 = { version = "0.9", optional = true }
+librsync = { version = "0.2", optional = true }
+md4 = { version = "0.10", optional = true }
+md5 = { version = "0.10", optional = true, package = "md-5" }
+# ===== shared deps =====
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+anyhow = "1"
+thiserror = "1"
+bytes = "1"
+socket2 = "0.6"
+http = "1"
+hyper = { version = "1", features = ["client", "http1", "http2"] }
+hyper-rustls = "0.27"
+hyper-util = { version = "0.1", features = ["client-legacy", "tokio"] }
+url = "2"
+urlencoding = "2"
+regex = "1"
+parking_lot = "0.12"
+flume = "0.11"
+async-trait = "0.1"
+rand = "0.8"
+sha1 = "0.10"
+hex = "0.4"
+byteorder = "1"
+libloading = "0.8"
+bitflags = { version = "2", features = ["serde"] }
+
+[build-dependencies]
+fs_extra = "1"
+
+[profile.release]
+opt-level = 3
+lto = "fat"
+codegen-units = 1
+strip = true
+panic = "abort"
+
+[[bin]]
+name = "swiftfetch"
+path = "src/main.rs"
+
+[[example]]
+name = "basic_download"
+path = "examples/basic_download.rs"

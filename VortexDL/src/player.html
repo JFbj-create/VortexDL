@@ -1,0 +1,467 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>VortexDL 播放器 Player</title>
+<link rel="stylesheet" href="styles.css">
+<style>
+    /* ============================================================
+       独立播放窗口：无边框 + 透明，所有控件都浮在画面上、鼠标悬停才显形
+       ============================================================ */
+    html, body { height: 100%; margin: 0; background: transparent; overflow: hidden; }
+    body.pl-window {
+        color: var(--theme-text-primary, #e8e8ee);
+        font-family: inherit;
+        user-select: none;
+    }
+    .pl-root {
+        position: fixed;
+        inset: 0;
+        display: flex;
+        border-radius: 12px;
+        overflow: hidden;
+        background: #0a0a0e;
+        border: 1px solid rgba(255, 255, 255, .09);
+        box-sizing: border-box;
+    }
+    .pl-stage { flex: 1 1 auto; min-width: 0; display: flex; background: #000; }
+    .pl-video-box { flex: 1 1 auto; min-width: 0; position: relative; display: flex; background: #000; }
+    /* ★ video 必须绝对定位：它是有固有尺寸的替换元素，留在 flex 流里会用自己的
+       固有宽度（比如 1920）把容器撑爆，右侧面板就被顶到窗口外只剩一条缝。
+       绝对定位后它不参与 flex 尺寸计算。 */
+    .pl-video-box video {
+        position: absolute;
+        inset: 0;
+        width: 100%;
+        height: 100%;
+        min-width: 0;
+        background: #000;
+        display: block;
+    }
+    /* ★ 画布不能写死 inset:0 + 100%：那样它会把画面拉满整个盒子，而 <video> 是
+       object-fit:contain（留黑边）—— 两边几何不一致，一开超分画面就被纵向拉伸。
+       改成居中，尺寸由 anime4k.js 按源宽高比算好（见 _syncCanvasCss）。 */
+    .pl-canvas {
+        position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);
+        background: #000; z-index: 2; display: block;
+    }
+    .pl-canvas[hidden] { display: none; }
+
+    /* ---------- 悬停才显形的浮层 ---------- */
+    .pl-chrome {
+        position: absolute;
+        left: 0; right: 0;
+        z-index: 5;
+        display: flex;
+        align-items: center;
+        opacity: 0;
+        pointer-events: none;
+        transition: opacity .22s ease;
+    }
+    /* ★ 鼠标动一下（或悬停在窗口上）就显形，静止 2.6 秒淡出。
+       隐藏时 pointer-events:none，点击会穿透到视频，不会误触按钮。 */
+    .pl-root.awake .pl-chrome { opacity: 1; pointer-events: auto; }
+
+    .pl-top {
+        top: 0;
+        gap: 10px;
+        padding: 10px 12px 26px;
+        background: linear-gradient(180deg, rgba(0, 0, 0, .72), rgba(0, 0, 0, 0));
+    }
+    .pl-win-title {
+        flex: 1;
+        min-width: 0;
+        font-size: 12.5px;
+        color: #e9e9f2;
+        text-shadow: 0 1px 4px rgba(0, 0, 0, .8);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        padding-left: 2px;
+    }
+    .pl-top-right { display: flex; align-items: center; gap: 6px; flex: none; }
+
+    /* 胶囊按钮（超分 / 超帧） */
+    .pl-pill {
+        flex: none;
+        padding: 4px 10px;
+        border-radius: 999px;
+        font-size: 11.5px;
+        line-height: 1.5;
+        cursor: pointer;
+        color: #e9e9f2;
+        background: rgba(255, 255, 255, .1);
+        border: 1px solid rgba(255, 255, 255, .16);
+        backdrop-filter: blur(6px);
+        transition: background .18s, border-color .18s, color .18s;
+    }
+    .pl-pill:hover { background: rgba(255, 255, 255, .2); }
+    .pl-pill.on {
+        color: #fff;
+        background: var(--theme-primary, #7c5cff);
+        border-color: var(--theme-primary, #7c5cff);
+    }
+
+    /* 方形图标按钮（面板 / 最小化 / 最大化 / 关闭） */
+    .pl-icon {
+        flex: none;
+        width: 30px; height: 26px;
+        display: inline-flex; align-items: center; justify-content: center;
+        border-radius: 7px;
+        cursor: pointer;
+        color: #e9e9f2;
+        background: rgba(255, 255, 255, .08);
+        border: 1px solid rgba(255, 255, 255, .14);
+        backdrop-filter: blur(6px);
+        transition: background .18s, color .18s;
+    }
+    .pl-icon:hover { background: rgba(255, 255, 255, .22); }
+    .pl-icon.pl-close:hover { background: #e5484d; border-color: #e5484d; color: #fff; }
+    .pl-icon svg { width: 13px; height: 13px; }
+
+    .pl-bottom {
+        bottom: 0;
+        gap: 10px;
+        padding: 26px 14px 10px;
+        background: linear-gradient(0deg, rgba(0, 0, 0, .78), rgba(0, 0, 0, 0));
+    }
+    .pl-bottom .pl-icon { width: 32px; height: 30px; background: transparent; border-color: transparent; backdrop-filter: none; }
+    .pl-bottom .pl-icon:hover { background: rgba(255, 255, 255, .16); }
+    .pl-bottom .pl-icon svg { width: 17px; height: 17px; }
+    .pl-time {
+        flex: none; min-width: 86px;
+        font-size: 11.5px; font-variant-numeric: tabular-nums;
+        color: #e6e6ef; text-shadow: 0 1px 4px rgba(0, 0, 0, .8);
+    }
+    /* ★ 命中区 16px、视觉轨道仍是 4px：原来 input 只有 4px 高，
+       鼠标稍偏一点就点不中（用户报「拖进度条有时没反应」）。
+       range 的轨道/滑块要用伪元素画，才能做到「看着细、点着宽」。 */
+    .pl-seek {
+        flex: 1; min-width: 60px; height: 16px;
+        -webkit-appearance: none; appearance: none;
+        background: transparent; outline: none; cursor: pointer;
+    }
+    .pl-seek::-webkit-slider-runnable-track {
+        height: 4px; border-radius: 3px; background: rgba(255, 255, 255, .26);
+    }
+    .pl-seek::-webkit-slider-thumb {
+        -webkit-appearance: none; appearance: none;
+        width: 12px; height: 12px; border-radius: 50%;
+        margin-top: -4px;   /* 12px 滑块在 4px 轨道上居中 */
+        background: var(--theme-primary, #7c5cff); border: none;
+        box-shadow: 0 1px 4px rgba(0, 0, 0, .6);
+    }
+    .pl-fps {
+        flex: none; min-width: 46px; text-align: right;
+        font-size: 11px; color: #d8d8e4; text-shadow: 0 1px 4px rgba(0, 0, 0, .8);
+    }
+
+    .pl-status {
+        position: absolute;
+        left: 14px; right: 14px; bottom: 56px;
+        z-index: 4;
+        font-size: 12px;
+        color: #e2e2ec;
+        text-shadow: 0 1px 4px rgba(0, 0, 0, .95);
+        pointer-events: none;
+    }
+    .pl-status.is-err { color: #ff9a9a; }
+
+    /* ============================================================
+       右侧面板（可整块收起）
+       ------------------------------------------------------------
+       ★ 这个面板固定深色，不跟主题走：浅色主题下 --theme-text-primary 是深色，
+         配深色底会完全看不见字（实测踩过）。只借主题主色做点缀。
+       ============================================================ */
+    .pl-side {
+        flex: 0 0 316px;
+        max-width: 316px;
+        display: flex;
+        flex-direction: column;
+        background: linear-gradient(180deg, #15151d 0%, #101017 100%);
+        border-left: 1px solid rgba(255, 255, 255, .07);
+        overflow: hidden;
+    }
+    .pl-root.no-panel .pl-side { display: none; }
+
+    /* ---------- 头图：封面模糊做底 + 小海报 + 标题 ---------- */
+    .pl-hero {
+        position: relative;
+        flex: none;
+        min-height: 134px;
+        padding: 14px;
+        display: flex;
+        gap: 12px;
+        align-items: flex-end;
+        overflow: hidden;
+        border-bottom: 1px solid rgba(255, 255, 255, .06);
+    }
+    /* 用同一张封面放大模糊当底色，颜色自然过渡进面板 */
+    .pl-hero-bg {
+        position: absolute; inset: -20%;
+        background: #1a1a24 center/cover no-repeat;
+        filter: blur(24px) saturate(1.4) brightness(.62);
+        transform: scale(1.25);
+        z-index: 0;
+    }
+    .pl-hero::after {
+        content: '';
+        position: absolute; inset: 0; z-index: 1;
+        background: linear-gradient(180deg, rgba(16, 16, 23, .30) 0%, rgba(16, 16, 23, .74) 62%, #101017 100%);
+    }
+    .pl-hero-poster {
+        position: relative; z-index: 2;
+        width: 66px; height: 92px; flex: none;
+        object-fit: cover; border-radius: 9px;
+        background: #22222e;
+        box-shadow: 0 6px 18px rgba(0, 0, 0, .55), 0 0 0 1px rgba(255, 255, 255, .09);
+    }
+    .pl-hero-text { position: relative; z-index: 2; min-width: 0; padding-bottom: 3px; }
+    .pl-hero-title {
+        font-size: 15px; font-weight: 700; line-height: 1.32; color: #fff;
+        text-shadow: 0 1px 8px rgba(0, 0, 0, .7);
+        display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden;
+    }
+    .pl-hero-sub {
+        margin-top: 5px; font-size: 11.5px; line-height: 1.5;
+        color: rgba(255, 255, 255, .72);
+        display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden;
+    }
+    /* 没封面时：只留渐变底，整体矮一点 */
+    .pl-hero.no-cover { min-height: 96px; align-items: center; }
+    .pl-hero.no-cover .pl-hero-bg { background-image: none; }
+    .pl-hero.no-cover .pl-hero-poster { display: none; }
+
+    .pl-side-body {
+        flex: 1;
+        min-height: 0;
+        overflow-y: auto;
+        padding: 14px 14px 20px;
+        display: flex;
+        flex-direction: column;
+        gap: 16px;
+        scrollbar-width: thin;
+    }
+    .pl-side-body::-webkit-scrollbar { width: 8px; }
+    .pl-side-body::-webkit-scrollbar-track { background: transparent; }
+    .pl-side-body::-webkit-scrollbar-thumb {
+        background: rgba(255, 255, 255, .14);
+        border-radius: 4px;
+    }
+    .pl-side-body::-webkit-scrollbar-thumb:hover { background: var(--theme-primary, #7c5cff); }
+
+    /* 小节标题：左侧一根主题色小竖条 */
+    .pl-sec-label {
+        display: flex; align-items: center; gap: 7px;
+        font-size: 11px;
+        letter-spacing: .08em;
+        color: #8f8f9e;
+        margin-bottom: 8px;
+    }
+    .pl-sec-label::before {
+        content: '';
+        width: 3px; height: 11px; border-radius: 2px;
+        background: var(--theme-primary, #7c5cff);
+        flex: none;
+    }
+    .pl-sec-count { margin-left: auto; letter-spacing: 0; color: #6f6f7e; }
+
+    /* 本集：卡片 + 主题色左侧描边 */
+    .pl-ep-card {
+        position: relative;
+        padding: 10px 12px 10px 14px;
+        border-radius: 11px;
+        background: rgba(255, 255, 255, .04);
+        border: 1px solid rgba(255, 255, 255, .075);
+        overflow: hidden;
+    }
+    .pl-ep-card::before {
+        content: '';
+        position: absolute; left: 0; top: 0; bottom: 0; width: 2px;
+        background: var(--theme-primary, #7c5cff);
+    }
+    .pl-ep-no {
+        font-size: 12.5px;
+        font-weight: 600;
+        color: var(--theme-primary, #7c5cff);
+    }
+    .pl-ep-desc {
+        margin-top: 6px;
+        font-size: 12px;
+        line-height: 1.7;
+        color: #9a9aa8;
+        display: -webkit-box;
+        -webkit-line-clamp: 5;
+        -webkit-box-orient: vertical;
+        overflow: hidden;
+    }
+
+    .pl-row { display: flex; align-items: center; gap: 8px; }
+    .pl-src-btn {
+        flex: 1;
+        display: inline-flex; align-items: center; justify-content: space-between; gap: 8px;
+        background: rgba(255, 255, 255, .04);
+        color: #e8e8ee;
+        border: 1px solid rgba(255, 255, 255, .1);
+        border-radius: 10px;
+        padding: 8px 11px; font-size: 12px; cursor: pointer;
+        transition: border-color .18s, background .18s;
+    }
+    .pl-src-btn:hover {
+        border-color: var(--theme-primary, #7c5cff);
+        background: rgba(124, 92, 255, .12);
+    }
+    .pl-src-btn svg { width: 13px; height: 13px; opacity: .75; flex: none; }
+    .pl-src-name {
+        min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
+    .pl-select {
+        flex: 1;
+        background: rgba(255, 255, 255, .04);
+        color: #e8e8ee;
+        border: 1px solid rgba(255, 255, 255, .1);
+        border-radius: 10px;
+        padding: 8px; font-size: 12px; cursor: pointer;
+    }
+    .pl-select:focus { outline: none; border-color: var(--theme-primary, #7c5cff); }
+
+    /* 相关推荐：海报 + 标题 + 简介，悬停浮起并显示播放角标 */
+    .pl-rel-list { display: flex; flex-direction: column; gap: 8px; }
+    .pl-rel-item {
+        display: flex; gap: 10px;
+        padding: 6px;
+        border-radius: 10px;
+        cursor: pointer;
+        border: 1px solid transparent;
+        transition: background .16s, border-color .16s, transform .16s;
+    }
+    .pl-rel-item:hover {
+        background: rgba(255, 255, 255, .055);
+        border-color: rgba(255, 255, 255, .16);
+        transform: translateX(3px);
+    }
+    .pl-rel-thumb {
+        position: relative; flex: none;
+        width: 56px; height: 76px;
+        border-radius: 8px; overflow: hidden;
+        background: #1e1e29;
+    }
+    .pl-rel-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+    .pl-rel-item:hover .pl-rel-thumb::after {
+        content: '▶';
+        position: absolute; inset: 0;
+        display: flex; align-items: center; justify-content: center;
+        background: rgba(0, 0, 0, .42);
+        color: #fff; font-size: 15px;
+    }
+    .pl-rel-info { min-width: 0; align-self: center; }
+    .pl-rel-name {
+        font-size: 12.5px; line-height: 1.45;
+        color: #e8e8ee;
+        display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+    }
+    .pl-rel-desc {
+        margin-top: 4px; font-size: 11px; line-height: 1.4; color: #7f7f8e;
+        display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+    }
+    .pl-empty {
+        padding: 16px; text-align: center; font-size: 12px; color: #6f6f7e;
+        border: 1px dashed rgba(255, 255, 255, .1);
+        border-radius: 10px;
+    }
+</style>
+</head>
+<body class="pl-window">
+<div class="pl-root" id="pl-root">
+    <div class="pl-stage">
+        <div class="pl-video-box">
+            <video id="pl-video" playsinline></video>
+            <canvas id="pl-canvas" class="pl-canvas" hidden></canvas>
+
+            <!-- 顶部浮层：拖拽 + 右上角按钮组 -->
+            <div class="pl-chrome pl-top" data-tauri-drag-region>
+                <span class="pl-win-title" id="pl-win-title" data-tauri-drag-region></span>
+                <div class="pl-top-right">
+                <button class="pl-icon" id="pl-main-btn" title="回到主界面">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                         stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M3 10.5 12 3l9 7.5"/><path d="M5 9.5V21h14V9.5"/>
+                    </svg>
+                </button>
+                    <button class="pl-pill" id="pl-sr-btn" title="实时超分（Anime4K，点一下切档）">超分·关</button>
+                    <button class="pl-pill" id="pl-interp-btn" title="实时超帧（帧插值，点一下开关）">超帧·关</button>
+                    <button class="pl-icon" id="pl-panel-btn" title="显示 / 隐藏右侧面板">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><line x1="15" y1="4" x2="15" y2="20"/></svg>
+                    </button>
+                    <button class="pl-icon" id="pl-min" title="最小化">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                    </button>
+                    <button class="pl-icon" id="pl-max" title="最大化 / 还原">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="5" width="14" height="14" rx="1.5"/></svg>
+                    </button>
+                    <button class="pl-icon pl-close" id="pl-close" title="关闭">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="6" y1="6" x2="18" y2="18"/><line x1="18" y1="6" x2="6" y2="18"/></svg>
+                    </button>
+                </div>
+            </div>
+
+            <!-- 底部浮层：播放控件 -->
+            <div class="pl-chrome pl-bottom">
+                <button class="pl-icon" id="pl-toggle" title="播放 / 暂停">
+                    <svg id="pl-toggle-icon" viewBox="0 0 24 24" fill="currentColor" stroke="none"><polygon points="6 4 20 12 6 20"/></svg>
+                </button>
+                <span class="pl-time" id="pl-time">0:00 / 0:00</span>
+                <input type="range" class="pl-seek" id="pl-seek" min="0" max="1000" value="0" step="1" title="拖动跳转">
+                <button class="pl-icon" id="pl-mute" title="静音">
+                    <svg id="pl-mute-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19"/><path d="M15.5 8.5a5 5 0 0 1 0 7"/><path d="M18.5 5.5a9 9 0 0 1 0 13"/></svg>
+                </button>
+                <span class="pl-fps" id="pl-fps"></span>
+            </div>
+
+            <div class="pl-status" id="pl-status"></div>
+        </div>
+    </div>
+
+    <aside class="pl-side">
+        <div class="pl-hero" id="pl-hero">
+            <div class="pl-hero-bg" id="pl-hero-bg"></div>
+            <img class="pl-hero-poster" id="pl-hero-img" alt="" referrerpolicy="no-referrer">
+            <div class="pl-hero-text">
+                <div class="pl-hero-title" id="pl-hero-title">—</div>
+                <div class="pl-hero-sub" id="pl-hero-sub"></div>
+            </div>
+        </div>
+        <div class="pl-side-body">
+            <div>
+                <div class="pl-sec-label">本集</div>
+                <div class="pl-ep-card">
+                    <div class="pl-ep-no" id="pl-ep-no">第 1 集</div>
+                    <div class="pl-ep-desc" id="pl-ep-desc"></div>
+                </div>
+            </div>
+            <div>
+                <div class="pl-sec-label">数据源</div>
+                <button class="pl-src-btn" id="pl-src-btn" title="点击更换数据源">
+                    <span class="pl-src-name" id="pl-src-name">—</span>
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 2v6h-6"/><path d="M3 12a9 9 0 0 1 15-6.7L21 8"/><path d="M3 22v-6h6"/><path d="M21 12a9 9 0 0 1-15 6.7L3 16"/></svg>
+                </button>
+            </div>
+            <div>
+                <div class="pl-sec-label">选集</div>
+                <div class="pl-row">
+                    <select class="pl-select" id="pl-ep-select"></select>
+                </div>
+            </div>
+            <div>
+                <div class="pl-sec-label">相关推荐<span class="pl-sec-count" id="pl-rel-count"></span></div>
+                <div class="pl-rel-list" id="pl-rel-list"></div>
+            </div>
+        </div>
+    </aside>
+</div>
+<script src="vendor/hls.min.js"></script>
+<script src="anime4k.js"></script>
+<script src="player.js"></script>
+</body>
+</html>
