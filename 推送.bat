@@ -1,56 +1,61 @@
 @echo off
-chcp 65001 >nul
 setlocal
 cd /d "%~dp0"
 
 echo ============================================================
-echo  æŠŠ VortexDL å…¬å¼€æºç  + å®˜ç½‘ æ¨åˆ° GitHub
-echo  ä»“åº“: https://github.com/JFbj-create/VortexDL
+echo  °Ñ VortexDL ¹«¿ªÔ´Âë + ¹ÙÍø ÍÆµ½ GitHub
+echo  ²Ö¿â: https://github.com/JFbj-create/VortexDL
 echo ============================================================
 echo.
-echo è¯´æ˜: ç¬¬ä¸€æ¬¡æ¨ä¼šå¼¹å‡º GitHub ç™»å½•çª—å£ï¼Œç‚¹ "Sign in with your browser"
-echo       æˆæƒä¸€æ¬¡å³å¯ï¼Œä¹‹åä¸ç”¨å†ç™»ã€‚
+echo ËµÃ÷: µÚÒ»´ÎÍÆ»áµ¯³ö GitHub µÇÂ¼´°¿Ú, µã "Sign in with your browser"
+echo       ÊÚÈ¨Ò»´Î¼´¿É, Ö®ºó²»ÓÃÔÙµÇ.
+echo.
+echo Èç¹ûÄÇ¸ö´°¿ÚµãÁËÃ»·´Ó¦ / ±¨ 401, ¾ÍÓÃ"ÁîÅÆ"·½Ê½:
+echo   1) ´ò¿ª https://github.com/settings/tokens Éú³É classic token (¹´ repo È¨ÏŞ)
+echo   2) ÖØĞÂÔËĞĞ±¾½Å±¾, µ¯³öµÄÕËºÅÃÜÂë¿òÀï:
+echo        ÓÃ»§Ãû = JFbj-create
+echo        ÃÜÂë   = Õ³Ìù ghp_ ¿ªÍ·µÄÁîÅÆ (²»ÊÇÕËºÅÃÜÂë)
 echo.
 
 git remote get-url origin >nul 2>&1
-if errorlevel 1 (
-    git remote add origin https://github.com/JFbj-create/VortexDL.git
-)
+if errorlevel 1 git remote add origin https://github.com/JFbj-create/VortexDL.git
 
-echo [1/3] æ£€æŸ¥æœ¬åœ°æ”¹åŠ¨...
+echo [1/3] ¼ì²é±¾µØ¸Ä¶¯...
 git status -s
 
 echo.
-echo [2/3] æäº¤æœ¬åœ°æ”¹åŠ¨ï¼ˆå¦‚æœæœ‰ï¼‰...
+echo [2/3] Ìá½»±¾µØ¸Ä¶¯ (Èç¹ûÃ»ÓĞ¸Ä¶¯»áÌø¹ı)...
 git add -A
-git -c user.email="noreply@github.com" -c user.name="JFbj-create" commit -m "update: åŒæ­¥æœ€æ–°æ”¹åŠ¨" 2>nul
+git -c user.email="noreply@github.com" -c user.name="JFbj-create" commit -m "update: Í¬²½×îĞÂ¸Ä¶¯" >nul 2>&1
 
 echo.
-echo [3/3] æ¨é€åˆ° GitHub...
+echo [3/3] ÍÆËÍµ½ GitHub...
 git push -u origin main
-
-if errorlevel 1 (
-    echo.
-    echo !! æ¨é€å¤±è´¥ã€‚å¸¸è§åŸå› ï¼š
-    echo    1) æ²¡ç™»å½•ï¼šä¼šå¼¹å‡º "Connect to GitHub" çª—å£ï¼Œç‚¹ "Sign in with your browser"
-    echo    2) ç½‘ç»œï¼šå›½å†…ç›´è¿ github.com ä¸ç¨³å®šï¼Œå¯å¤šè¯•å‡ æ¬¡
-    echo    3) æƒé™ï¼šç¡®è®¤è¿™ä¸ªè´¦å·å¯¹ä»“åº“æœ‰å†™æƒé™
-    echo.
-    pause
-    exit /b 1
-)
+if errorlevel 1 goto failed
 
 echo.
 echo ============================================================
-echo  æ¨é€æˆåŠŸï¼
-echo  ä»“åº“: https://github.com/JFbj-create/VortexDL
+echo  ÍÆËÍ³É¹¦!
+echo  ²Ö¿â: https://github.com/JFbj-create/VortexDL
 echo.
-echo  æ¥ä¸‹æ¥ï¼ˆåœ¨ç½‘é¡µä¸Šç‚¹ä¸¤ä¸‹ï¼Œä¸€æ¬¡æ€§çš„ï¼‰ï¼š
-echo    1) å¼€å®˜ç½‘: Settings -^> Pages -^> Source é€‰ "Deploy from a branch"
-echo       Branch é€‰ mainï¼Œæ–‡ä»¶å¤¹é€‰ /docsï¼Œä¿å­˜
-echo       è¿‡ä¸€ä¸¤åˆ†é’Ÿè®¿é—®: https://jfbj-create.github.io/VortexDL/
-echo    2) ä¼ å®‰è£…åŒ…: Releases -^> Draft a new release
-echo       Tag å¡« v1.0.0ï¼Œæ ‡é¢˜å¡« "VortexDL v1.0"
-echo       æŠŠ F:\vdgame\VortexDL-Setup.exe æ‹–è¿›é™„ä»¶åŒºï¼Œå‘å¸ƒ
+echo  ½ÓÏÂÀ´Á½²½ (ÔÚÍøÒ³ÉÏµãÁ½ÏÂ, Ò»´ÎĞÔµÄ):
+echo    1) ¿ª¹ÙÍø: Settings - Pages - Source Ñ¡ "Deploy from a branch"
+echo       Branch Ñ¡ main, ÎÄ¼ş¼ĞÑ¡ /docs, ±£´æ
+echo       ¹ıÒ»Á½·ÖÖÓ·ÃÎÊ: https://jfbj-create.github.io/VortexDL/
+echo    2) ´«°²×°°ü: Ö±½ÓË«»÷ ·¢°æ.bat (×ß API ÉÏ´«, ±ÈÍøÒ³ÍÏ 200MB ÎÈ)
+echo       »òÕßÊÖ¶¯: Releases - Draft a new release, Tag Ìî v1.0.0,
+echo       °Ñ F:\vdgame\VortexDL-Setup.exe ÍÏ½ø¸½¼şÇø, ·¢²¼
 echo ============================================================
+goto end
+
+:failed
+echo.
+echo !! ÍÆËÍÊ§°Ü. ³£¼ûÔ­Òò:
+echo    1) Ã»µÇÂ¼: »áµ¯³ö "Connect to GitHub" ´°¿Ú, µã "Sign in with your browser"
+echo       ´°¿ÚÃ»·´Ó¦¾Í°´ÉÏÃæËµµÄÓÃ ghp_ ÁîÅÆµ±ÃÜÂë
+echo    2) ÍøÂç: ¹úÄÚÖ±Á¬ github.com ²»ÎÈ¶¨, ¿É¶àÊÔ¼¸´Î
+echo    3) È¨ÏŞ: È·ÈÏÕâ¸öÕËºÅ¶Ô²Ö¿âÓĞĞ´È¨ÏŞ
+echo.
+
+:end
 pause
