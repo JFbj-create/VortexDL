@@ -286,8 +286,9 @@ td .dim{color:var(--txt-dim)}
   background:linear-gradient(140deg,rgba(124,92,255,.3),rgba(176,107,255,.2));
   border:1px solid rgba(124,92,255,.34);
 }
-.cc .t{font-size:12.5px;color:var(--txt-dim)}
-.cc .v{font-size:15.5px;font-weight:700;font-variant-numeric:tabular-nums}
+.cc>span:last-child{display:flex;flex-direction:column;gap:3px;min-width:0;flex:1}
+.cc .t{font-size:12.5px;color:var(--txt-dim);display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.cc .v{font-size:15.5px;font-weight:700;font-variant-numeric:tabular-nums;display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 
 /* ---------- 页脚 ---------- */
 footer{
@@ -628,7 +629,7 @@ footer .sep{margin:0 9px;opacity:.4}
         <a class="cc reveal" id="qq-author" href="https://wpa.qq.com/msgrd?v=3&uin=1523373515&site=qq&menu=yes" target="_blank" rel="noopener">
           <span class="ic2">💬</span>
           <span>
-            <span class="t">作者 QQ · 点一下直接聊天</span>
+            <span class="t">作者 QQ · 点一下聊天</span>
             <span class="v">1523373515</span>
           </span>
         </a>
@@ -646,11 +647,11 @@ footer .sep{margin:0 9px;opacity:.4}
             <span class="v">提交 Issue</span>
           </span>
         </a>
-        <a class="cc reveal" href="https://github.com/JFbj-create/VortexDL" target="_blank" rel="noopener">
+        <a class="cc reveal" href="https://github.com/JFbj-create/VortexDL" target="_blank" rel="noopener" title="JFbj-create/VortexDL">
           <span class="ic2">⭐</span>
           <span>
             <span class="t">项目主页 · 欢迎 Star</span>
-            <span class="v">JFbj-create/VortexDL</span>
+            <span class="v">VortexDL</span>
           </span>
         </a>
       </div>
