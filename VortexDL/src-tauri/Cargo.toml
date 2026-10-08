@@ -1,0 +1,78 @@
+[package]
+name = "vortex-dl"
+version = "1.0.0"
+edition = "2021"
+description = "漩涡下载器 VortexDL - 游戏资源下载与管理工具"
+rust-version = "1.80"
+
+[[bin]]
+name = "vortex-dl"
+path = "src/main.rs"
+
+[features]
+default = ["custom-protocol", "devtools", "image-png", "image-ico", "rustls-tls", "tray-icon"]
+custom-protocol = ["tauri/custom-protocol"]
+devtools = ["tauri/devtools"]
+image-png = ["tauri/image-png"]
+image-ico = ["tauri/image-ico"]
+rustls-tls = ["tauri/rustls-tls"]
+tray-icon = ["tauri/tray-icon"]
+
+[dependencies]
+swiftfetch = { path = "../../SwiftFetch", default-features = false, features = ["http", "bittorrent"] }
+tauri = { version = "2", default-features = false, features = ["default", "compression", "image", "image-ico", "image-png", "tray-icon", "devtools", "http-range", "custom-protocol", "rustls-tls", "webview-data-url", "config-json5", "data-url"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["full"] }
+sysinfo = { version = "0.30", features = ["serde"] }
+thiserror = "1"
+anyhow = "1"
+log = "0.4"
+dirs = "5"
+regex = "1"
+parking_lot = "0.12"
+url = "2"
+urlencoding = "2"
+flume = "0.11"
+async-trait = "0.1"
+futures = "0.3"
+futures-util = "0.3"
+sha2 = "0.10"
+sha1 = "0.10"
+md-5 = "0.10"
+hex = "0.4"
+byteorder = "1"
+walkdir = "2"
+chrono = { version = "0.4", features = ["serde"] }
+infer = "0.15"
+# HTML 解析 + CSS 选择器 (html5ever 内核): 动漫数据源的 selector 引擎需要
+scraper = "0.24"
+# ★ 2026-10-07 用户要求加入: 给需要真浏览器渲染/过反爬的站点取页面用
+#   0.7 的 CDP 模型解析不了 Edge 154 的消息 (报 "data did not match any variant
+#   of untagged enum Message"), 必须用 0.9.x。
+chromiumoxide = "0.9"
+# ★ 纯 Rust 7z/zip 解压库 (替代外部 7z.exe, 静态链接进 exe, 无需额外文件)
+sevenz-rust2 = "0.22"
+zip = "2"
+reqwest = { version = "0.12", default-features = false, features = ["json", "stream", "rustls-tls", "cookies", "gzip", "brotli", "deflate", "socks", "http2"] }
+# Win32_UI_Shell / Win32_UI_WindowsAndMessaging: 修改器启动要用 ShellExecuteW 提权 (runas)
+windows-sys = { version = "0.61", features = ["Win32_System_Console", "Win32_System_Registry", "Win32_Foundation", "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging", "Win32_Globalization"] }
+# ★ 离线密钥授权: 只用于 Ed25519 **验签** (公钥在 licensing.rs)。
+#   私钥只存在于 VortexDL-Keygen 工具, 主程序物理上无法签发密钥。
+#   该版本已作为 rustls 的传递依赖存在于 Cargo.lock, 无需额外下载。
+ring = "0.17"
+
+[build-dependencies]
+tauri-build = { version = "2", default-features = false, features = [] }
+fs_extra = "1"
+walkdir = "2"
+winres = "0.1"
+
+[profile.release]
+opt-level = 2
+lto = false
+codegen-units = 16
+panic = "unwind"
+strip = false
+incremental = true
+

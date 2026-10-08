@@ -1,0 +1,49 @@
+# ===== Rust / Cargo build output =====
+/target/
+**/*.rs.bk
+
+# Binary executables (release build artifacts placed at root)
+/swiftfetch.exe
+/swiftfetch-allprotocols.exe
+
+# ===== IDE / Editor =====
+.idea/
+.vscode/
+*.iml
+*.ipr
+*.iws
+*.swp
+*.swo
+*~
+
+# ===== OS junk =====
+.DS_Store
+Thumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+
+# ===== MSYS2 / OpenSSH 工具 (解压后的二进制分发, 不上传) =====
+/tools/openssh-msys/
+
+# ===== 本地编译脚本临时日志 =====
+cargo_*.txt
+check_*.txt
+build_*.txt
+test_*.html
+
+# ===== 发布产物 =====
+/release/
+
+# ===== Test temporary files =====
+tests/msys2_home/
+tests/sshd_config
+tests/ssh_host_*_key
+tests/ssh_host_*_key.pub
+tests/*.pid
+tests/sftp_out.bin
+tests/rsync_v2.bin
+*.tmp
+*.log
+
+# ===== rsync 测试样本 (20MB, 用 tests/make_testdata.py 现生成) =====
+/tests/testdata/*.bin

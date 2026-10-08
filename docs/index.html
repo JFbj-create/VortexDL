@@ -1,0 +1,1000 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>漩涡下载器 VortexDL · 一体化游戏资源下载与管理工具</title>
+<meta name="description" content="VortexDL（漩涡下载器）—— Windows 一体化资源下载与管理工具：多源游戏资源、110MB/s 多线程下载引擎、自动解压与快捷方式、动漫追番实时超分超帧、免登录书库。免费版可用（限速 80% + 3 套主题），豪华版 5 元解锁满速与全部 77 套主题。">
+<meta name="keywords" content="VortexDL,漩涡下载器,游戏下载器,资源下载,动漫追番,超分,下载工具,Windows">
+<meta name="theme-color" content="#7c5cff">
+<meta property="og:type" content="website">
+<meta property="og:title" content="漩涡下载器 VortexDL">
+<meta property="og:description" content="找资源 → 高速下载 → 自动解压 → 建快捷方式 → 追番看剧，全串起来的一体化工具">
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@300;400;500;700;900&display=swap" rel="stylesheet">
+<style>
+/* ============================================================
+   漩涡下载器官网 · 纯静态（无服务器、无框架、无外部依赖）
+   放 GitHub Pages 即可运行。
+   ============================================================ */
+:root{
+  --bg:#0a0812;
+  --bg2:#120e1f;
+  --card:rgba(255,255,255,.045);
+  --card-bd:rgba(255,255,255,.09);
+  --txt:#e9e7f5;
+  --txt-dim:#a9a3c4;
+  --pri:#7c5cff;
+  --pri2:#b06bff;
+  --cyan:#48dbfb;
+  --pink:#ff6bd6;
+  --ok:#2ee6a8;
+  --ease:cubic-bezier(.22,.61,.36,1);
+  --maxw:1180px;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html{scroll-behavior:smooth}
+body{
+  font-family:"Noto Sans SC",-apple-system,"Segoe UI",system-ui,sans-serif;
+  background:var(--bg);color:var(--txt);
+  line-height:1.75;-webkit-font-smoothing:antialiased;
+  overflow-x:hidden;
+}
+a{color:inherit;text-decoration:none}
+img{max-width:100%;display:block}
+.wrap{max-width:var(--maxw);margin:0 auto;padding:0 22px}
+
+/* ---------- 背景光斑 ---------- */
+.bg-fx{position:fixed;inset:0;z-index:-1;overflow:hidden;pointer-events:none}
+.blob{
+  position:absolute;border-radius:50%;filter:blur(90px);opacity:.5;
+  animation:float 20s var(--ease) infinite alternate;
+}
+.blob.b1{width:620px;height:620px;background:radial-gradient(circle,#7c5cff,transparent 68%);top:-180px;left:-140px}
+.blob.b2{width:540px;height:540px;background:radial-gradient(circle,#b06bff,transparent 68%);top:32%;right:-190px;animation-delay:-6s}
+.blob.b3{width:500px;height:500px;background:radial-gradient(circle,#48dbfb,transparent 70%);bottom:-140px;left:24%;animation-delay:-12s;opacity:.32}
+@keyframes float{
+  0%{transform:translate(0,0) scale(1)}
+  50%{transform:translate(48px,-38px) scale(1.1)}
+  100%{transform:translate(-38px,32px) scale(.94)}
+}
+/* 细网格 */
+.grid-fx{
+  position:fixed;inset:0;z-index:-1;pointer-events:none;opacity:.16;
+  background-image:linear-gradient(rgba(255,255,255,.06) 1px,transparent 1px),
+                   linear-gradient(90deg,rgba(255,255,255,.06) 1px,transparent 1px);
+  background-size:56px 56px;
+  mask-image:radial-gradient(ellipse 85% 55% at 50% 0%,#000 45%,transparent 100%);
+  -webkit-mask-image:radial-gradient(ellipse 85% 55% at 50% 0%,#000 45%,transparent 100%);
+}
+
+/* ---------- 顶栏 ---------- */
+header{
+  position:sticky;top:0;z-index:50;
+  backdrop-filter:blur(18px) saturate(180%);
+  -webkit-backdrop-filter:blur(18px) saturate(180%);
+  background:rgba(10,8,18,.72);
+  border-bottom:1px solid rgba(255,255,255,.07);
+}
+.nav{display:flex;align-items:center;gap:12px;height:66px}
+.brand{display:flex;align-items:center;gap:11px;font-weight:900;font-size:17px;letter-spacing:.3px}
+.brand-mark{
+  width:34px;height:34px;border-radius:10px;flex:none;
+  background:linear-gradient(140deg,var(--pri),var(--pri2) 55%,var(--cyan));
+  display:grid;place-items:center;color:#fff;font-size:17px;font-weight:900;
+  box-shadow:0 6px 20px rgba(124,92,255,.45);
+  animation:markSpin 9s linear infinite;
+}
+@keyframes markSpin{0%{transform:rotate(0)}100%{transform:rotate(360deg)}}
+.nav-links{display:flex;gap:5px;margin-left:auto;align-items:center}
+.nav-links a{
+  padding:8px 14px;border-radius:9px;font-size:14px;color:var(--txt-dim);
+  transition:color .2s var(--ease),background .2s var(--ease);
+}
+.nav-links a:hover{color:var(--txt);background:rgba(255,255,255,.07)}
+.nav .btn-sm{margin-left:8px}
+@media(max-width:820px){.nav-links a:not(.keep){display:none}}
+
+/* ---------- 按钮 ---------- */
+.btn{
+  display:inline-flex;align-items:center;justify-content:center;gap:9px;
+  padding:14px 30px;border-radius:13px;font-size:15.5px;font-weight:700;
+  border:none;cursor:pointer;position:relative;overflow:hidden;
+  transition:transform .22s var(--ease),box-shadow .22s var(--ease),background .22s var(--ease);
+  white-space:nowrap;
+}
+.btn-pri{
+  background:linear-gradient(135deg,var(--pri),var(--pri2));
+  color:#fff;box-shadow:0 10px 30px rgba(124,92,255,.4);
+}
+.btn-pri::after{
+  content:"";position:absolute;inset:0;
+  background:linear-gradient(110deg,transparent 25%,rgba(255,255,255,.42) 50%,transparent 75%);
+  transform:translateX(-130%);
+}
+.btn-pri:hover::after{transform:translateX(130%);transition:transform .85s var(--ease)}
+.btn-pri:hover{transform:translateY(-3px);box-shadow:0 16px 40px rgba(124,92,255,.55)}
+.btn-ghost{
+  background:rgba(255,255,255,.06);color:var(--txt);
+  border:1px solid rgba(255,255,255,.13);
+}
+.btn-ghost:hover{background:rgba(255,255,255,.12);transform:translateY(-3px)}
+.btn-sm{padding:9px 18px;font-size:13.5px;border-radius:10px}
+.btn:active{transform:translateY(-1px) scale(.985)}
+
+/* ---------- Hero ---------- */
+.hero{padding:92px 0 76px;text-align:center;position:relative}
+.badge{
+  display:inline-flex;align-items:center;gap:8px;
+  padding:7px 17px;border-radius:999px;font-size:13px;
+  background:rgba(124,92,255,.15);border:1px solid rgba(124,92,255,.36);
+  color:#cdc2ff;margin-bottom:26px;
+  animation:pop .7s var(--ease) both;
+}
+.badge .dot{
+  width:7px;height:7px;border-radius:50%;background:var(--ok);
+  box-shadow:0 0 10px var(--ok);animation:pulse 2s ease-in-out infinite;
+}
+@keyframes pulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.45;transform:scale(.82)}}
+@keyframes pop{from{opacity:0;transform:translateY(14px) scale(.94)}to{opacity:1;transform:none}}
+h1{
+  font-size:clamp(36px,6.4vw,72px);font-weight:900;line-height:1.14;
+  letter-spacing:-1.4px;margin-bottom:22px;
+}
+.grad{
+  background:linear-gradient(115deg,#a78bfa,#ff6bd6 38%,#48dbfb 72%,#a78bfa);
+  background-size:280% auto;
+  -webkit-background-clip:text;background-clip:text;
+  -webkit-text-fill-color:transparent;
+  animation:shine 7s linear infinite;
+}
+@keyframes shine{to{background-position:280% center}}
+.hero p.lead{
+  font-size:clamp(15px,2.1vw,19px);color:var(--txt-dim);
+  max-width:660px;margin:0 auto 38px;
+}
+.hero .cta{display:flex;gap:14px;justify-content:center;flex-wrap:wrap;margin-bottom:16px}
+.hero .meta{font-size:13px;color:#7d7699}
+.hero .meta b{color:var(--txt-dim);font-weight:600}
+
+/* ---------- 统计条 ---------- */
+.stats{
+  display:grid;grid-template-columns:repeat(auto-fit,minmax(158px,1fr));
+  gap:14px;max-width:900px;margin:52px auto 0;
+}
+.stat{
+  background:var(--card);border:1px solid var(--card-bd);border-radius:15px;
+  padding:20px 16px;transition:transform .28s var(--ease),border-color .28s var(--ease);
+}
+.stat:hover{transform:translateY(-5px);border-color:rgba(124,92,255,.45)}
+.stat .n{
+  font-size:clamp(24px,3.4vw,32px);font-weight:900;line-height:1.15;
+  background:linear-gradient(120deg,#fff,#c9b6ff);
+  -webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent;
+}
+.stat .l{font-size:12.5px;color:var(--txt-dim);margin-top:3px}
+
+/* ---------- 通用区块 ---------- */
+section{padding:78px 0;position:relative}
+.sec-head{text-align:center;margin-bottom:52px}
+.sec-head h2{
+  font-size:clamp(26px,4.2vw,42px);font-weight:900;letter-spacing:-.7px;margin-bottom:12px;
+}
+.sec-head p{color:var(--txt-dim);font-size:15.5px;max-width:600px;margin:0 auto}
+.sec-tag{
+  display:inline-block;font-size:12px;font-weight:700;letter-spacing:1.6px;
+  color:#a794ff;text-transform:uppercase;margin-bottom:12px;
+}
+
+/* ---------- 功能卡片 ---------- */
+.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:18px}
+.card{
+  background:var(--card);border:1px solid var(--card-bd);border-radius:19px;
+  padding:28px 25px;position:relative;overflow:hidden;
+  transition:transform .3s var(--ease),border-color .3s var(--ease),box-shadow .3s var(--ease);
+}
+.card::before{
+  content:"";position:absolute;inset:0;opacity:0;
+  background:radial-gradient(400px circle at var(--mx,50%) var(--my,50%),rgba(124,92,255,.16),transparent 62%);
+  transition:opacity .35s var(--ease);
+}
+.card:hover::before{opacity:1}
+.card:hover{
+  transform:translateY(-6px);border-color:rgba(124,92,255,.42);
+  box-shadow:0 22px 50px rgba(0,0,0,.4);
+}
+.card > *{position:relative}
+.ic{
+  width:48px;height:48px;border-radius:13px;display:grid;place-items:center;
+  font-size:23px;margin-bottom:16px;
+  background:linear-gradient(140deg,rgba(124,92,255,.28),rgba(72,219,251,.18));
+  border:1px solid rgba(124,92,255,.32);
+}
+.card h3{font-size:18.5px;font-weight:700;margin-bottom:9px}
+.card p{font-size:14.5px;color:var(--txt-dim);line-height:1.7}
+.card ul{list-style:none;margin-top:13px;display:flex;flex-direction:column;gap:7px}
+.card li{
+  font-size:13.5px;color:var(--txt-dim);padding-left:20px;position:relative;
+}
+.card li::before{
+  content:"";position:absolute;left:4px;top:9px;width:6px;height:6px;border-radius:2px;
+  background:linear-gradient(135deg,var(--pri),var(--cyan));
+}
+.card .tag{
+  display:inline-block;margin-top:14px;font-size:11.5px;padding:3px 9px;border-radius:6px;
+  background:rgba(46,230,168,.14);color:#7ff0c4;border:1px solid rgba(46,230,168,.28);
+}
+
+/* ---------- 速度对比表 ---------- */
+.table-wrap{overflow-x:auto;border-radius:17px;border:1px solid var(--card-bd);background:var(--card)}
+table{width:100%;border-collapse:collapse;min-width:460px}
+th,td{padding:14px 20px;text-align:left;font-size:14.5px;border-bottom:1px solid rgba(255,255,255,.06)}
+th{font-weight:700;font-size:13px;color:var(--txt-dim);letter-spacing:.4px;background:rgba(255,255,255,.03)}
+tbody tr:last-child td{border-bottom:none}
+tbody tr{transition:background .2s var(--ease)}
+tbody tr:hover{background:rgba(124,92,255,.07)}
+td .hl{
+  font-weight:900;font-size:17px;
+  background:linear-gradient(120deg,#48dbfb,#2ee6a8);
+  -webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent;
+}
+td .dim{color:var(--txt-dim)}
+
+/* ---------- 书源表 ---------- */
+.srcs{display:grid;grid-template-columns:repeat(auto-fit,minmax(238px,1fr));gap:14px}
+.src{
+  background:var(--card);border:1px solid var(--card-bd);border-radius:15px;padding:20px;
+  transition:transform .28s var(--ease),border-color .28s var(--ease);
+}
+.src:hover{transform:translateY(-4px);border-color:rgba(124,92,255,.4)}
+.src h4{font-size:15.5px;font-weight:700;margin-bottom:7px;display:flex;align-items:center;gap:8px}
+.src .k{font-size:11.5px;padding:2px 7px;border-radius:5px;background:rgba(124,92,255,.2);color:#c3b3ff;font-weight:600}
+.src p{font-size:13.5px;color:var(--txt-dim);line-height:1.65}
+.src .yes{color:#7ff0c4;font-size:12.5px;margin-top:9px;display:block}
+
+/* ---------- 步骤 ---------- */
+.steps{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:16px;counter-reset:s}
+.step{
+  background:var(--card);border:1px solid var(--card-bd);border-radius:15px;
+  padding:24px 20px;position:relative;
+  transition:transform .28s var(--ease),border-color .28s var(--ease);
+}
+.step:hover{transform:translateY(-5px);border-color:rgba(124,92,255,.4)}
+.step::before{
+  counter-increment:s;content:counter(s);
+  position:absolute;top:-13px;left:20px;
+  width:30px;height:30px;border-radius:9px;
+  display:grid;place-items:center;font-size:14px;font-weight:900;color:#fff;
+  background:linear-gradient(135deg,var(--pri),var(--pri2));
+  box-shadow:0 5px 16px rgba(124,92,255,.45);
+}
+.step h4{font-size:15.5px;font-weight:700;margin:8px 0 7px}
+.step p{font-size:13.5px;color:var(--txt-dim)}
+
+/* ---------- 联系 ---------- */
+.contact{display:grid;grid-template-columns:repeat(auto-fit,minmax(238px,1fr));gap:16px;max-width:820px;margin:0 auto}
+.cc{
+  display:flex;align-items:center;gap:15px;padding:22px 24px;
+  background:var(--card);border:1px solid var(--card-bd);border-radius:16px;
+  transition:transform .26s var(--ease),border-color .26s var(--ease),background .26s var(--ease);
+}
+.cc:hover{transform:translateY(-5px);border-color:rgba(124,92,255,.45);background:rgba(124,92,255,.09)}
+.cc .ic2{
+  width:46px;height:46px;border-radius:13px;flex:none;display:grid;place-items:center;font-size:22px;
+  background:linear-gradient(140deg,rgba(124,92,255,.3),rgba(176,107,255,.2));
+  border:1px solid rgba(124,92,255,.34);
+}
+.cc>span:last-child{display:flex;flex-direction:column;gap:3px;min-width:0;flex:1}
+.cc .t{font-size:12.5px;color:var(--txt-dim);display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.cc .v{font-size:15.5px;font-weight:700;font-variant-numeric:tabular-nums;display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+
+/* ---------- 页脚 ---------- */
+footer{
+  border-top:1px solid rgba(255,255,255,.07);
+  padding:38px 0 46px;text-align:center;color:var(--txt-dim);font-size:13.5px;
+}
+footer a{color:#a794ff;transition:color .2s var(--ease)}
+footer a:hover{color:#cbbfff}
+footer .sep{margin:0 9px;opacity:.4}
+
+/* ---------- 下载区 ---------- */
+.dl-box{
+  max-width:740px;margin:0 auto;text-align:center;
+  background:linear-gradient(160deg,rgba(124,92,255,.13),rgba(72,219,251,.07));
+  border:1px solid rgba(124,92,255,.3);border-radius:23px;padding:46px 32px;
+  position:relative;overflow:hidden;
+}
+.dl-box::before{
+  content:"";position:absolute;top:-60%;left:-60%;width:220%;height:220%;
+  background:conic-gradient(from 0deg,transparent,rgba(124,92,255,.14),transparent 32%);
+  animation:spin 8s linear infinite;
+}
+@keyframes spin{to{transform:rotate(360deg)}}
+.dl-box > *{position:relative}
+.dl-box h2{font-size:clamp(23px,3.6vw,34px);font-weight:900;margin-bottom:13px}
+.dl-box p{color:var(--txt-dim);margin-bottom:28px;font-size:15px}
+.dl-box .btns{display:flex;gap:14px;justify-content:center;flex-wrap:wrap}
+.dl-info{margin-top:22px;font-size:12.5px;color:#7d7699;line-height:1.9}
+
+/* ---------- 滚动入场 ---------- */
+.reveal{opacity:0;transform:translateY(26px);transition:opacity .7s var(--ease),transform .7s var(--ease)}
+.reveal.in{opacity:1;transform:none}
+
+/* ---------- 回到顶部 ---------- */
+.top{
+  position:fixed;right:22px;bottom:22px;z-index:60;
+  width:46px;height:46px;border-radius:14px;display:grid;place-items:center;
+  background:linear-gradient(135deg,var(--pri),var(--pri2));color:#fff;
+  border:none;cursor:pointer;font-size:19px;
+  box-shadow:0 10px 28px rgba(124,92,255,.45);
+  opacity:0;pointer-events:none;transform:translateY(14px);
+  transition:opacity .3s var(--ease),transform .3s var(--ease);
+}
+.top.on{opacity:1;pointer-events:auto;transform:none}
+.top:hover{transform:translateY(-3px) scale(1.06)}
+
+/* ==================== 细节打磨 ==================== */
+/* 顶部阅读进度条 */
+#sprog{
+  position:fixed;top:0;left:0;height:2.5px;width:0;z-index:120;
+  background:linear-gradient(90deg,#7c5cff,#b06bff 45%,#48dbfb);
+  box-shadow:0 0 12px rgba(124,92,255,.7);
+  transition:width .1s linear;
+}
+/* 卡片依次入场（按序号错开） */
+.srcs .src:nth-child(1),.cards .card:nth-child(1){transition-delay:.02s}
+.srcs .src:nth-child(2),.cards .card:nth-child(2){transition-delay:.08s}
+.srcs .src:nth-child(3),.cards .card:nth-child(3){transition-delay:.14s}
+.srcs .src:nth-child(4),.cards .card:nth-child(4){transition-delay:.2s}
+.srcs .src:nth-child(5),.cards .card:nth-child(5){transition-delay:.26s}
+.srcs .src:nth-child(6),.cards .card:nth-child(6){transition-delay:.32s}
+/* 书源卡：左侧强调条 + 悬浮发光 */
+.src{position:relative;overflow:hidden}
+.src::before{
+  content:"";position:absolute;left:0;top:0;bottom:0;width:3px;
+  background:linear-gradient(180deg,#7c5cff,#48dbfb);
+  opacity:0;transition:opacity .28s var(--ease);
+}
+.src:hover::before{opacity:1}
+.src:hover{box-shadow:0 14px 34px rgba(0,0,0,.3)}
+.src .yes{
+  display:inline-block;margin-top:11px;padding:3px 9px;border-radius:6px;
+  background:rgba(127,240,196,.1);border:1px solid rgba(127,240,196,.22);
+}
+/* 下载框上再叠一道斜向扫光 */
+.dl-box::after{
+  content:"";position:absolute;inset:0;pointer-events:none;
+  background:linear-gradient(115deg,transparent 38%,rgba(255,255,255,.07) 50%,transparent 62%);
+  background-size:280% 100%;animation:shine 5.5s linear infinite;
+}
+.dl-box > *{position:relative;z-index:2}
+/* 段落级"极光"背景，给书源和下载区一点层次 */
+#books,#download{position:relative;overflow:hidden}
+#books::before,#download::before{
+  content:"";position:absolute;left:50%;top:-30%;width:min(1100px,140%);height:520px;
+  transform:translateX(-50%);pointer-events:none;z-index:0;
+  background:radial-gradient(ellipse at center,rgba(124,92,255,.14),transparent 62%);
+  filter:blur(8px);
+}
+#books > .wrap,#download > .wrap{position:relative;z-index:1}
+/* 上一步/下一步那种小徽标更清楚一点 */
+.step h4{letter-spacing:.2px}
+
+/* ==================== 版本与价格 ==================== */
+/* 两张卡：限宽居中，别让它们拉得太宽 */
+.price-cards{grid-template-columns:repeat(auto-fit,minmax(280px,1fr));max-width:760px;margin:0 auto}
+.price-tag{
+  font-size:13px;font-weight:800;padding:2px 9px;border-radius:7px;margin-left:4px;
+  background:rgba(124,92,255,.2);color:#c9bbff;vertical-align:middle;
+}
+.card.hot{
+  border-color:rgba(124,92,255,.55);
+  box-shadow:0 0 0 1px rgba(124,92,255,.25),0 18px 44px rgba(124,92,255,.18);
+}
+.card.hot .price-tag{background:linear-gradient(135deg,#7c5cff,#b06bff);color:#fff}
+.tag.hot-tag{background:linear-gradient(135deg,rgba(124,92,255,.28),rgba(176,107,255,.22));color:#d9ccff}
+.card li.dim{opacity:.72}
+.buy-box{
+  margin-top:22px;padding:24px 26px;border-radius:18px;
+  background:linear-gradient(140deg,rgba(124,92,255,.1),rgba(72,219,251,.05));
+  border:1px solid rgba(124,92,255,.26);
+  display:flex;flex-wrap:wrap;align-items:center;gap:16px;
+}
+.buy-txt{flex:1 1 320px;min-width:0}
+.buy-txt b{display:block;font-size:16.5px;margin-bottom:5px}
+.buy-txt span{font-size:14px;color:var(--txt-dim);line-height:1.6}
+.buy-acts{display:flex;flex-wrap:wrap;gap:10px}
+.buy-note{
+  flex:1 1 100%;margin-top:4px;padding-top:14px;
+  border-top:1px solid rgba(124,92,255,.16);
+  font-size:13px;color:var(--txt-dim);line-height:1.7;
+}
+
+@media(max-width:640px){
+  .hero{padding:62px 0 52px}
+  section{padding:56px 0}
+  .dl-box{padding:34px 20px}
+  .card{padding:23px 20px}
+  .buy-box{padding:20px 18px}
+  .buy-acts .btn{flex:1 1 auto}
+}
+@media(prefers-reduced-motion:reduce){
+  *{animation-duration:.01ms!important;animation-iteration-count:1!important;transition-duration:.01ms!important}
+  .reveal{opacity:1;transform:none}
+}
+</style>
+</head>
+<body>
+
+<div id="sprog"></div>
+<div class="bg-fx"><span class="blob b1"></span><span class="blob b2"></span><span class="blob b3"></span></div>
+<div class="grid-fx"></div>
+
+<header>
+  <div class="wrap nav">
+    <a class="brand" href="#top">
+      <span class="brand-mark">★</span>
+      <span>漩涡下载器</span>
+    </a>
+    <nav class="nav-links">
+      <a href="#features">功能</a>
+      <a href="#speed">速度</a>
+      <a href="#price">价格</a>
+      <a href="#start">上手</a>
+      <a href="#download">下载</a>
+      <a href="#contact">联系</a>
+      <a class="btn btn-pri btn-sm keep" href="#download">下载</a>
+    </nav>
+  </div>
+</header>
+
+<main id="top">
+
+  <!-- ==================== Hero ==================== -->
+  <section class="hero">
+    <div class="wrap">
+      <span class="badge"><span class="dot"></span>v1.0 正式版 · Windows 10 / 11 · 免费版可用，豪华版 5 元</span>
+      <h1>把「找资源」到「开始玩」<br><span class="grad">全部压缩成一次点击</span></h1>
+      <p class="lead">
+        多源游戏资源索引 · 自研多线程下载引擎（满速实测 <b>110 MB/s</b>）· 自动解压与快捷方式 ·
+        动漫追番实时超分超帧 · 免登录书库。一个软件，全串起来。
+      </p>
+      <div class="cta">
+        <a class="btn btn-pri" href="#download">📥 下载安装包</a>
+        <a class="btn btn-ghost" href="#price">💎 看版本与价格</a>
+      </div>
+      <p class="meta">单文件安装包 <b>约 200 MB</b> · 无需注册 · 无需登录 · 免费版即可用全部模块</p>
+
+      <div class="stats">
+        <div class="stat"><div class="n">110<span style="font-size:.55em"> MB/s</span></div><div class="l">满速实测峰值</div></div>
+        <div class="stat"><div class="n">5万+</div><div class="l">本地游戏索引</div></div>
+        <div class="stat"><div class="n">77</div><div class="l">套主题（豪华版全解锁）</div></div>
+        <div class="stat"><div class="n">7.9万</div><div class="l">书库藏书</div></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ==================== 痛点对比 ==================== -->
+  <section id="why">
+    <div class="wrap">
+      <div class="sec-head reveal">
+        <span class="sec-tag">Why VortexDL</span>
+        <h2>以前要折腾半小时，现在点一下</h2>
+        <p>找游戏资源的每一步几乎都是坑。VortexDL 把每一环都做进软件里，并且针对每一个坑做了实测优化。</p>
+      </div>
+      <div class="table-wrap reveal">
+        <table>
+          <thead>
+            <tr><th>环节</th><th>传统做法</th><th>VortexDL</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>找资源</td><td class="dim">遍地广告站、逐个翻页</td><td>内置多源本地索引，<b>离线秒搜</b></td></tr>
+            <tr><td>下载</td><td class="dim">浏览器单线程，几十 KB/s</td><td><span class="hl">110 MB/s</span> 多线程引擎</td></tr>
+            <tr><td>断点续传</td><td class="dim">断了从头来</td><td><b>分块级</b>续传，关软件也保留</td></tr>
+            <tr><td>解压</td><td class="dim">手动开压缩软件、找密码</td><td>自动解压 + 自动填密码 + 失败重试</td></tr>
+            <tr><td>启动游戏</td><td class="dim">翻目录找哪个是主程序</td><td>自动识别 + 建快捷方式（<b>名字可改</b>）</td></tr>
+            <tr><td>追番</td><td class="dim">满屏广告播放器</td><td>独立播放窗 + <b>实时超分超帧</b></td></tr>
+            <tr><td>看书</td><td class="dim">各种 App 要登录要会员</td><td>免登录书库，<b>在线读 + 下载</b></td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <!-- ==================== 功能 ==================== -->
+  <section id="features">
+    <div class="wrap">
+      <div class="sec-head reveal">
+        <span class="sec-tag">Features</span>
+        <h2>六大模块，一个入口</h2>
+        <p>不是「又一个下载器」，而是把资源获取到最终使用之间的所有环节打通。</p>
+      </div>
+      <div class="cards">
+
+        <div class="card reveal">
+          <div class="ic">🎮</div>
+          <h3>游戏资源</h3>
+          <p>多个资源源的本地索引，离线可搜、可分类浏览、封面墙展示。</p>
+          <ul>
+            <li>5 万+ 条资源索引，启动后台预热</li>
+            <li>关键词搜索 / 分类筛选 / 卡片墙</li>
+            <li>成人资源独立页面（分段配比推送）</li>
+          </ul>
+          <span class="tag">离线可搜</span>
+        </div>
+
+        <div class="card reveal">
+          <div class="ic">⚡</div>
+          <h3>下载引擎 SwiftFetch</h3>
+          <p>自研多线程分块引擎，块大小与并发数按实测速度动态调整。</p>
+          <ul>
+            <li>动态派生分块 + AIMD 自适应并发</li>
+            <li>分块级断点续传（关软件也不丢）</li>
+            <li>BitTorrent（DHT / PEX / WebSeed）</li>
+            <li>429 智能退让、卡死块自动回收</li>
+          </ul>
+          <span class="tag">满速 110 MB/s</span>
+        </div>
+
+        <div class="card reveal">
+          <div class="ic">📦</div>
+          <h3>自动解压与快捷方式</h3>
+          <p>下载完不用管，解压、找主程序、建快捷方式全部自动完成。</p>
+          <ul>
+            <li>zip / rar / 7z 纯 Rust 解压</li>
+            <li>自动填解压密码，失败自动退避重试</li>
+            <li>自动识别游戏主程序（按图标/体积/名字打分）</li>
+            <li>快捷方式名字可自己改，非法字符自动处理</li>
+          </ul>
+          <span class="tag">全自动</span>
+        </div>
+
+        <div class="card reveal">
+          <div class="ic">📺</div>
+          <h3>动漫追番</h3>
+          <p>多源并发搜索自动选源，独立播放窗口，画面实时增强。</p>
+          <ul>
+            <li>多源并发搜索 + 按标题相似度排序</li>
+            <li>播放失败自动换源（最多 3 次）</li>
+            <li><b>Anime4K 实时超分</b>（WebGL2 自定义管线）</li>
+            <li><b>实时超帧</b>：24fps 补到 60fps</li>
+            <li><b>观看进度记忆</b>：下次从上次那一秒接着看</li>
+          </ul>
+          <span class="tag">实时超分 · 超帧</span>
+        </div>
+
+        <div class="card reveal">
+          <div class="ic">📚</div>
+          <h3>书库</h3>
+          <p>免登录、免付费的在线书库，能读也能下载到本地。</p>
+          <ul>
+            <li><b>网络小说</b>：玄幻 / 都市 / 穿越 / 军史 等分类，免登录直接读</li>
+            <li>公版名著 7.9 万本（含 444 本中文经典）· Standard Ebooks 精校版</li>
+            <li>国学经典全文 + 译文 + 解析</li>
+            <li>古籍善本（可读正文 + 官方下载入口）</li>
+            <li>本地导入自己的 txt / epub，自动分章</li>
+          </ul>
+          <span class="tag">免登录</span>
+        </div>
+
+        <div class="card reveal">
+          <div class="ic">🎨</div>
+          <h3>界面与性能</h3>
+          <p>77 套配色主题（免费版 3 套，豪华版全解锁），低配机器自动降级，老电脑也能流畅跑。</p>
+          <ul>
+            <li>77 套主题（免费版 3 套 · 豪华版全解锁）</li>
+            <li>全局动效 + 液态玻璃质感</li>
+            <li><b>性能模式</b>：≤4 核或 ≤4GB 自动关闭全部模糊特效</li>
+            <li>应用内检查更新 + 系统监控</li>
+          </ul>
+          <span class="tag">低配友好</span>
+        </div>
+
+      </div>
+    </div>
+  </section>
+
+  <!-- ==================== 速度 ==================== -->
+  <section id="speed">
+    <div class="wrap">
+      <div class="sec-head reveal">
+        <span class="sec-tag">Performance</span>
+        <h2>下载速度是真的快</h2>
+        <p>同一个源站、同一台机器、同一个文件，只换下载方式。</p>
+      </div>
+      <div class="table-wrap reveal">
+        <table>
+          <thead><tr><th>下载方式</th><th>实测速度</th><th>说明</th></tr></thead>
+          <tbody>
+            <tr>
+              <td>浏览器直接下载</td>
+              <td><span class="dim">≈ 7 MB/s</span></td>
+              <td class="dim">单连接</td>
+            </tr>
+            <tr>
+              <td>早期单连接模式</td>
+              <td><span class="dim">≈ 7 MB/s</span></td>
+              <td class="dim">被服务器误判为不支持分段</td>
+            </tr>
+            <tr>
+              <td><b>VortexDL 现在的动态分块</b></td>
+              <td><span class="hl">110 MB/s</span></td>
+              <td>多线程动态分块 + 自适应并发（<b>满速档</b>）</td>
+            </tr>
+            <tr>
+              <td>VortexDL 免费版</td>
+              <td><span class="dim">≈ 88 MB/s</span></td>
+              <td class="dim">同一套引擎，按原速 80% 限速（上表数字 × 0.8）</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <p style="text-align:center;color:var(--txt-dim);font-size:13.5px;margin-top:18px">
+        * 实际速度取决于你的带宽、源站带宽与网络状况。上表是同一环境下的对照实测。<br>
+        <b>豪华版（5 元）解锁满速</b>，免费版限到原速的 80%；限的是速度比例，不是下载量。
+      </p>
+    </div>
+  </section>
+
+  <!-- ==================== 书源 ==================== -->
+  <section id="books">
+    <div class="wrap">
+      <div class="sec-head reveal">
+        <span class="sec-tag">Book Sources</span>
+        <h2>书库用的是哪些源</h2>
+        <p>全部免登录、免付费、免密钥 —— 每个源都逐个实测过能不能真正读到正文。</p>
+      </div>
+      <div class="srcs">
+        <div class="src reveal">
+          <h4>文潮小说 <span class="k">网络小说</span></h4>
+          <p>玄幻 / 都市 / 穿越 / 军史 / 网游 / 科幻 等分类的连载与完本，免登录直接读。下载会把前 200 章拼成一本 txt。</p>
+          <span class="yes">✓ 在线阅读 ✓ 下载 TXT</span>
+        </div>
+        <div class="src reveal">
+          <h4>Project Gutenberg <span class="k">公版名著</span></h4>
+          <p>7.9 万本外文名著 + <b>444 本中文经典</b>（西遊記 / 紅樓夢 / 三字經 / 山海經）。直连官网，比走第三方 API 更快更稳。</p>
+          <span class="yes">✓ 在线阅读 ✓ 下载 TXT / EPUB</span>
+        </div>
+        <div class="src reveal">
+          <h4>Standard Ebooks <span class="k">精校公版</span></h4>
+          <p>志愿者逐字校对的公版名著，排版和注释比 Gutenberg 更讲究，提供 epub / azw3 直链。</p>
+          <span class="yes">✓ 在线阅读 ✓ 下载 EPUB</span>
+        </div>
+        <div class="src reveal">
+          <h4>国学经典 <span class="k">经史子集</span></h4>
+          <p>道德经 / 论语 / 诗经 / 孙子兵法 等经典的全文，带译文与逐段解析。</p>
+          <span class="yes">✓ 在线阅读</span>
+        </div>
+        <div class="src reveal">
+          <h4>古籍善本 <span class="k">影印本</span></h4>
+          <p>古籍影印本资源，可读正文说明，并提供官方下载入口。</p>
+          <span class="yes">✓ 在线阅读 ✓ 官方下载入口</span>
+        </div>
+        <div class="src reveal">
+          <h4>本地导入 <span class="k">你自己的书</span></h4>
+          <p>把自己已有的 txt / epub 丢进书库目录，自动识别并<strong>按「第N章」分章</strong>，阅读体验和在线书一样。</p>
+          <span class="yes">✓ 自动分章 ✓ 记住读到第几章</span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ==================== 上手 ==================== -->
+  <section id="start">
+    <div class="wrap">
+      <div class="sec-head reveal">
+        <span class="sec-tag">Getting Started</span>
+        <h2>四步开始用</h2>
+      </div>
+      <div class="steps">
+        <div class="step reveal"><h4>下载安装包</h4><p>点下面的按钮，或去 GitHub Releases 下载 <code>VortexDL-Setup.exe</code>。</p></div>
+        <div class="step reveal"><h4>安装</h4><p>双击安装包，一路下一步。Windows 10 / 11 都可以。</p></div>
+        <div class="step reveal"><h4>找资源</h4><p>首页选分类或搜索，点下载。初始化索引会自动在后台完成。</p></div>
+        <div class="step reveal"><h4>开玩</h4><p>下载完自动解压、自动建桌面快捷方式。动漫和书库直接点侧边栏进。</p></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ==================== 版本与价格 ==================== -->
+  <section id="price">
+    <div class="wrap">
+      <div class="sec-head reveal">
+        <span class="sec-tag">Pricing</span>
+        <h2>版本与价格</h2>
+        <p>免费版就能用全部模块；<b>豪华版 5 元</b>解锁满速和全部主题。一次买断，不是订阅。</p>
+      </div>
+      <div class="cards price-cards">
+
+        <div class="card reveal">
+          <div class="ic">🆓</div>
+          <h3>免费版 <span class="price-tag">¥0</span></h3>
+          <p>下载即用，所有模块都能进，没有功能墙。</p>
+          <ul>
+            <li>游戏资源索引 / 搜索 / 分类浏览</li>
+            <li>下载 · 自动解压 · 桌面快捷方式</li>
+            <li>动漫追番（超分超帧）· 书库 · 修改器</li>
+            <li class="dim">下载速度<b>限到原速 80%</b></li>
+            <li class="dim">主题<b>只有 3 套</b>（紫 / 海蓝 / 薄荷）</li>
+          </ul>
+          <span class="tag">永久可用</span>
+        </div>
+
+        <div class="card reveal hot">
+          <div class="ic">💎</div>
+          <h3>豪华版 <span class="price-tag">¥5</span></h3>
+          <p><b>一次性 5 元</b>买断，之后永久可用、不用再付。</p>
+          <ul>
+            <li><b>满速下载</b> —— 不再限到 80%，能跑多快跑多快</li>
+            <li><b>全部 77 套主题</b>随便换</li>
+            <li>免费版的全部功能照样都有</li>
+            <li>重装软件 / 清配置都能恢复激活</li>
+            <li class="dim">一个密钥绑定一台设备</li>
+          </ul>
+          <span class="tag hot-tag">推荐 · 5 元买断</span>
+        </div>
+
+      </div>
+
+      <div class="buy-box reveal">
+        <div class="buy-txt">
+          <b>怎么买豪华版？</b>
+          <span>加作者 QQ 直接说「买豪华版」就行，5 元一个密钥，人工发给你。</span>
+        </div>
+        <div class="buy-acts">
+          <a class="btn btn-pri" href="https://wpa.qq.com/msgrd?v=3&uin=1523373515&site=qq&menu=yes" target="_blank" rel="noopener">💬 找作者买（QQ 1523373515）</a>
+          <a class="btn btn-ghost" href="#contact" data-qqgroup="1083613183">👥 进交流群问</a>
+        </div>
+        <p class="buy-note">
+          免费版限速是<b>软件层面按比例限速</b>（原速的 80%），不是限制你下多少东西 ——
+          下载量、文件大小、同时下载的任务数都不限。想验证速度差异，装完先跑个免费版，再买 key 对比一下就行。
+        </p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ==================== 下载 ==================== -->
+  <section id="download">
+    <div class="wrap">
+      <div class="dl-box reveal">
+        <h2>下载漩涡下载器</h2>
+        <p>免费版即可使用全部模块 · 无需注册登录 · 豪华版 5 元解锁满速与全部主题</p>
+        <div class="btns">
+          <a class="btn btn-pri" id="dl-latest" href="https://github.com/JFbj-create/VortexDL/releases/latest/download/VortexDL-Setup.exe" rel="noopener">📥 下载安装包（.exe）</a>
+          <a class="btn btn-ghost" href="https://github.com/JFbj-create/VortexDL" target="_blank" rel="noopener">📂 查看源码</a>
+        </div>
+        <div class="dl-info">
+          点上面按钮会<b>直接下载 <b>VortexDL-Setup.exe</b></b>（约 200 MB，Windows 10 / 11 64 位），
+          不是源码压缩包 —— 双击安装即可用。<br>
+          想看历史版本或校验文件，去
+          <a href="https://github.com/JFbj-create/VortexDL/releases" target="_blank" rel="noopener">Release 列表</a>。
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ==================== 联系 ==================== -->
+  <section id="contact">
+    <div class="wrap">
+      <div class="sec-head reveal">
+        <span class="sec-tag">Contact</span>
+        <h2>遇到问题？找我</h2>
+        <p>点下面的卡片直接用 QQ 找我或进群，也可以到 GitHub 提 issue。</p>
+      </div>
+      <div class="contact">
+        <a class="cc reveal" id="qq-author" href="https://wpa.qq.com/msgrd?v=3&uin=1523373515&site=qq&menu=yes" target="_blank" rel="noopener">
+          <span class="ic2">💬</span>
+          <span>
+            <span class="t">作者 QQ · 点一下聊天</span>
+            <span class="v">1523373515</span>
+          </span>
+        </a>
+        <a class="cc reveal" id="qq-group" href="#contact" data-qqgroup="1083613183" title="点击用 QQ 打开群名片加入（没装 QQ 会复制群号）">
+          <span class="ic2">👥</span>
+          <span>
+            <span class="t">QQ 交流群 · 点一下进群</span>
+            <span class="v">1083613183</span>
+          </span>
+        </a>
+        <a class="cc reveal" href="https://github.com/JFbj-create/VortexDL/issues" target="_blank" rel="noopener">
+          <span class="ic2">🐛</span>
+          <span>
+            <span class="t">问题反馈 · GitHub Issues</span>
+            <span class="v">提交 Issue</span>
+          </span>
+        </a>
+        <a class="cc reveal" href="https://github.com/JFbj-create/VortexDL" target="_blank" rel="noopener" title="JFbj-create/VortexDL">
+          <span class="ic2">⭐</span>
+          <span>
+            <span class="t">项目主页 · 欢迎 Star</span>
+            <span class="v">VortexDL</span>
+          </span>
+        </a>
+      </div>
+    </div>
+  </section>
+
+</main>
+
+<footer>
+  <div class="wrap">
+    <p>漩涡下载器 VortexDL · 免费版可用 · 豪华版 5 元买断</p>
+    <p style="margin-top:8px">
+      <a href="https://github.com/JFbj-create/VortexDL" target="_blank" rel="noopener">GitHub</a>
+      <span class="sep">·</span>
+      <a href="https://github.com/JFbj-create/VortexDL/releases/latest/download/VortexDL-Setup.exe" rel="noopener">下载</a>
+      <span class="sep">·</span>
+      <a href="https://wpa.qq.com/msgrd?v=3&uin=1523373515&site=qq&menu=yes" target="_blank" rel="noopener">作者 QQ</a>
+      <span class="sep">·</span>
+      <a href="#contact" data-qqgroup="1083613183">交流群 1083613183</a>
+    </p>
+    <p style="margin-top:14px;font-size:12.5px;opacity:.65">本软件按「现状」提供，详见证照 <a href="https://github.com/JFbj-create/VortexDL/blob/main/LICENSE.txt" target="_blank" rel="noopener">许可协议</a></p>
+  </div>
+</footer>
+
+<button class="top" id="to-top" aria-label="回到顶部">↑</button>
+
+<script>
+/* ============================================================
+   全部原生 JS，无依赖。所有外部链接都开新窗口。
+   ============================================================ */
+(function () {
+  'use strict';
+
+  /* ---------- 滚动入场 ---------- */
+  var io = null;
+  if ('IntersectionObserver' in window) {
+    io = new IntersectionObserver(function (es) {
+      es.forEach(function (e) {
+        if (e.isIntersecting) { e.target.classList.add('in'); io.unobserve(e.target); }
+      });
+    }, { threshold: .12, rootMargin: '0px 0px -40px 0px' });
+    document.querySelectorAll('.reveal').forEach(function (el) { io.observe(el); });
+  } else {
+    document.querySelectorAll('.reveal').forEach(function (el) { el.classList.add('in'); });
+  }
+
+  /* ---------- 顶部阅读进度条 ---------- */
+  var sprog = document.getElementById('sprog');
+  var onScrollProg = function () {
+    if (!sprog) return;
+    var h = document.documentElement.scrollHeight - window.innerHeight;
+    var p = h > 0 ? (window.scrollY / h) : 0;
+    sprog.style.width = (Math.min(1, Math.max(0, p)) * 100).toFixed(2) + '%';
+  };
+  window.addEventListener('scroll', onScrollProg, { passive: true });
+  window.addEventListener('resize', onScrollProg);
+  onScrollProg();
+
+  /* ---------- 卡片光跟随鼠标 ---------- */
+  document.querySelectorAll('.card').forEach(function (c) {
+    c.addEventListener('mousemove', function (e) {
+      var r = c.getBoundingClientRect();
+      c.style.setProperty('--mx', (e.clientX - r.left) + 'px');
+      c.style.setProperty('--my', (e.clientY - r.top) + 'px');
+    });
+  });
+
+  /* ---------- 回到顶部 ---------- */
+  var top = document.getElementById('to-top');
+  var onScroll = function () { top.classList.toggle('on', window.scrollY > 520); };
+  window.addEventListener('scroll', onScroll, { passive: true });
+  onScroll();
+  top.addEventListener('click', function () { window.scrollTo({ top: 0, behavior: 'smooth' }); });
+
+  /* ---------- 平滑滚动（兼容不支持 scroll-behavior 的浏览器） ---------- */
+  document.querySelectorAll('a[href^="#"]').forEach(function (a) {
+    a.addEventListener('click', function (e) {
+      var id = a.getAttribute('href');
+      if (!id || id === '#') return;
+      var t = document.querySelector(id);
+      if (!t) return;
+      e.preventDefault();
+      var y = t.getBoundingClientRect().top + window.scrollY - 76;
+      window.scrollTo({ top: y, behavior: 'smooth' });
+    });
+  });
+
+  /* ---------- 点击复制（QQ 群号等） ---------- */
+  var toast = null;
+  function showToast(msg) {
+    if (!toast) {
+      toast = document.createElement('div');
+      toast.style.cssText = 'position:fixed;left:50%;bottom:34px;transform:translateX(-50%) translateY(16px);' +
+        'background:linear-gradient(135deg,#7c5cff,#b06bff);color:#fff;padding:12px 22px;border-radius:13px;' +
+        'font-size:14px;font-weight:600;z-index:999;opacity:0;pointer-events:none;' +
+        'box-shadow:0 12px 32px rgba(124,92,255,.5);transition:opacity .28s,transform .28s;';
+      document.body.appendChild(toast);
+    }
+    toast.textContent = msg;
+    requestAnimationFrame(function () {
+      toast.style.opacity = '1';
+      toast.style.transform = 'translateX(-50%) translateY(0)';
+    });
+    clearTimeout(toast._t);
+    toast._t = setTimeout(function () {
+      toast.style.opacity = '0';
+      toast.style.transform = 'translateX(-50%) translateY(16px)';
+    }, 2800);
+  }
+  function copyText(txt, okMsg) {
+    var done = function () { showToast(okMsg); };
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(txt).then(done, function () { fallback(txt, done); });
+    } else {
+      fallback(txt, done);
+    }
+  }
+  function fallback(txt, done) {
+    try {
+      var ta = document.createElement('textarea');
+      ta.value = txt;
+      ta.style.cssText = 'position:fixed;opacity:0';
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand('copy');
+      document.body.removeChild(ta);
+      done();
+    } catch (e) { showToast('复制失败，请手动记下：' + txt); }
+  }
+  document.querySelectorAll('[data-copy]').forEach(function (el) {
+    el.addEventListener('click', function (e) {
+      e.preventDefault();
+      var v = el.getAttribute('data-copy');
+      copyText(v, '已复制：' + v + ' —— 打开 QQ「加群/找群」粘贴搜索即可');
+    });
+  });
+
+  /* ---------- QQ 群：点一下直接唤起 QQ 加群 ----------
+     mqqapi:// 是 QQ 客户端的协议，装了 QQ 会直接弹群名片；
+     没装 / 被浏览器拦时，退化为「复制群号」。两者都做，用户不会空手而归。
+     用隐藏 iframe 发起协议跳转，避免主页面被导航走。 */
+  document.querySelectorAll('[data-qqgroup]').forEach(function (el) {
+    el.addEventListener('click', function (e) {
+      e.preventDefault();
+      var gid = el.getAttribute('data-qqgroup');
+      var url = 'mqqapi://card/show_pslcard?src_type=internal&version=1'
+              + '&uin=' + gid + '&card_type=group&source=qrcode';
+      try {
+        var f = document.createElement('iframe');
+        f.style.cssText = 'display:none;width:0;height:0;border:0';
+        f.src = url;
+        document.body.appendChild(f);
+        setTimeout(function () { try { document.body.removeChild(f); } catch (err) {} }, 2500);
+      } catch (err) {
+        try { window.location.href = url; } catch (err2) {}
+      }
+      copyText(gid, '已唤起 QQ 加群，没反应就手动搜群号：' + gid);
+    });
+  });
+
+  /* ---------- 统计数字滚动 ---------- */
+  var nums = document.querySelectorAll('.stat .n');
+  var counted = false;
+  var countUp = function () {
+    if (counted) return;
+    var box = document.querySelector('.stats');
+    if (!box) return;
+    if (box.getBoundingClientRect().top > window.innerHeight - 60) return;
+    counted = true;
+    nums.forEach(function (el) {
+      var html = el.innerHTML;
+      var m = /^(\d+)([\s\S]*)$/.exec(html);
+      if (!m) return;
+      var target = parseInt(m[1], 10), suffix = m[2], t0 = performance.now();
+      var step = function (now) {
+        var p = Math.min(1, (now - t0) / 1100);
+        var eased = 1 - Math.pow(1 - p, 3);
+        el.innerHTML = Math.round(target * eased) + suffix;
+        if (p < 1) requestAnimationFrame(step);
+      };
+      requestAnimationFrame(step);
+    });
+  };
+  window.addEventListener('scroll', countUp, { passive: true });
+  countUp();
+})();
+</script>
+</body>
+</html>

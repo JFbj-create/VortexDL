@@ -1,0 +1,157 @@
+<style>
+  .dc-root {
+    padding: 28px 32px;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    color: #e8e8f0;
+    max-width: 800px;
+  }
+  .dc-root h1 { color: #a78bfa; font-size: 26px; margin: 0 0 4px; }
+  .dc-root .subtitle { color: #8b8ba0; font-size: 13px; margin-bottom: 24px; }
+  .dc-card {
+    background: rgba(255,255,255,0.04);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 12px;
+    padding: 20px;
+    margin-bottom: 16px;
+    backdrop-filter: blur(12px);
+  }
+  .dc-row {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 10px 0; border-bottom: 1px solid rgba(255,255,255,0.05);
+  }
+  .dc-row:last-child { border-bottom: none; }
+  .dc-label { color: #b8b8c8; font-size: 14px; }
+  .dc-value { color: #ddd6fe; font-size: 14px; font-weight: 600; }
+  .dc-btn {
+    background: linear-gradient(135deg, #6d28d9, #7c3aed);
+    color: #fff; border: none; padding: 10px 20px;
+    border-radius: 8px; cursor: pointer; font-size: 14px;
+    transition: all 0.2s;
+  }
+  .dc-btn:hover { background: linear-gradient(135deg, #7c3aed, #8b5cf6); transform: translateY(-1px); }
+  .dc-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+  .dc-log {
+    background: rgba(0,0,0,0.3); border-radius: 8px; padding: 12px;
+    font-family: "Cascadia Code", Consolas, monospace; font-size: 12px;
+    color: #a8ffa8; max-height: 200px; overflow-y: auto; margin-top: 12px;
+    white-space: pre-wrap; word-break: break-all;
+  }
+  .dc-spinner { display: inline-block; width: 14px; height: 14px;
+    border: 2px solid rgba(255,255,255,0.2); border-top-color: #a78bfa;
+    border-radius: 50%; animation: dc-spin 0.8s linear infinite; margin-right: 8px; }
+  @keyframes dc-spin { to { transform: rotate(360deg); } }
+</style>
+
+<div class="dc-root">
+  <h1>🧹 磁盘清理助手</h1>
+  <p class="subtitle">演示如何调用 VortexDL 主程序接口</p>
+
+  <div class="dc-card">
+    <div class="dc-row">
+      <span class="dc-label">下载目录</span>
+      <span class="dc-value" id="dc-download-dir">读取中...</span>
+    </div>
+    <div class="dc-row">
+      <span class="dc-label">解压目录</span>
+      <span class="dc-value" id="dc-extract-dir">读取中...</span>
+    </div>
+    <div class="dc-row">
+      <span class="dc-label">已安装模块数</span>
+      <span class="dc-value" id="dc-module-count">读取中...</span>
+    </div>
+  </div>
+
+  <div class="dc-card">
+    <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px;">
+      <button class="dc-btn" id="dc-refresh-btn" onclick="dcRefresh()">刷新信息</button>
+      <button class="dc-btn" id="dc-open-browser" onclick="dcOpenBrowser()">用浏览器打开下载目录</button>
+    </div>
+    <div class="dc-log" id="dc-log">$ 日志输出会显示在这里\n$ 点击上方按钮开始\n</div>
+  </div>
+</div>
+
+<script>
+  // 兼容多种 Tauri 版本的 invoke 取法
+  function dcGetInvoke() {
+    try {
+      if (window.__TAURI__ && window.__TAURI__.core && window.__TAURI__.core.invoke) {
+        return window.__TAURI__.core.invoke;
+      }
+    } catch (e) {}
+    try {
+      if (window.__TAURI_INTERNALS__ && window.__TAURI_INTERNALS__.invoke) {
+        return window.__TAURI_INTERNALS__.invoke;
+      }
+    } catch (e) {}
+    // 最终回退：window.invoke（部分 Tauri 配置）
+    return window.invoke || null;
+  }
+
+  function dcLog(msg) {
+    const el = document.getElementById('dc-log');
+    if (!el) return;
+    const ts = new Date().toLocaleTimeString();
+    el.textContent += `[${ts}] ${msg}\n`;
+    el.scrollTop = el.scrollHeight;
+  }
+
+  async function dcRefresh() {
+    const invoke = dcGetInvoke();
+    const btn = document.getElementById('dc-refresh-btn');
+    if (btn) { btn.disabled = true; btn.innerHTML = '<span class="dc-spinner"></span>刷新中'; }
+    dcLog('开始读取主程序信息...');
+
+    // 下载目录
+    try {
+      const dir = await invoke('get_setting', { key: 'download_dir' });
+      document.getElementById('dc-download-dir').textContent = dir || '(未设置)';
+      dcLog('download_dir = ' + dir);
+    } catch (e) {
+      document.getElementById('dc-download-dir').textContent = '(读取失败)';
+      dcLog('读取 download_dir 失败: ' + e);
+    }
+
+    // 解压目录
+    try {
+      const dir = await invoke('get_setting', { key: 'extract_dir' });
+      document.getElementById('dc-extract-dir').textContent = dir || '(未设置)';
+      dcLog('extract_dir = ' + dir);
+    } catch (e) {
+      document.getElementById('dc-extract-dir').textContent = '(读取失败)';
+      dcLog('读取 extract_dir 失败: ' + e);
+    }
+
+    // 模块数
+    try {
+      const count = await invoke('get_modules_count');
+      document.getElementById('dc-module-count').textContent = count + ' 个';
+      dcLog('modules count = ' + count);
+    } catch (e) {
+      document.getElementById('dc-module-count').textContent = '(读取失败)';
+      dcLog('读取模块数失败: ' + e);
+    }
+
+    if (btn) { btn.disabled = false; btn.textContent = '刷新信息'; }
+    dcLog('刷新完成');
+  }
+
+  async function dcOpenBrowser() {
+    const invoke = dcGetInvoke();
+    const btn = document.getElementById('dc-open-browser');
+    if (btn) { btn.disabled = true; }
+    try {
+      const dir = await invoke('get_setting', { key: 'download_dir' });
+      if (!dir) { dcLog('下载目录未设置，无法打开'); return; }
+      // 在 Windows 上用 explorer 打开
+      await invoke('open_external', { url: 'file:///' + dir.replace(/\\/g, '/') });
+      dcLog('已尝试打开目录: ' + dir);
+    } catch (e) {
+      dcLog('打开浏览器失败: ' + e);
+    } finally {
+      if (btn) { btn.disabled = false; }
+    }
+  }
+
+  // 模块加载时自动刷新一次
+  dcRefresh();
+</script>

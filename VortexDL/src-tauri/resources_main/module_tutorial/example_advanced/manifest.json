@@ -1,0 +1,10 @@
+{
+  "id": "disk-cleaner",
+  "name": "磁盘清理助手",
+  "icon": "🧹",
+  "section": "工具",
+  "description": "调用主程序接口扫描下载目录大小",
+  "entry": "index.html",
+  "version": "1.0.0",
+  "author": "VortexDL Tutorial"
+}

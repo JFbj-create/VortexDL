@@ -1,0 +1,1146 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="icon" type="image/png" href="icons/icon.png">
+    <title>漩涡下载器 VortexDL</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body class="glass-mode">
+    <div id="vx-titlebar" data-tauri-drag-region>
+        <!-- ★ 子元素也要带 data-tauri-drag-region：Tauri 只看**指针底下那个元素**的属性，
+             只写在外层容器上的话，按在标题文字/logo 上是拖不动窗口的（用户报"拖不了"）。 -->
+        <div class="vx-tb-left" data-tauri-drag-region>
+            <span class="vx-tb-logo" data-tauri-drag-region>★</span>
+            <span class="vx-tb-title" data-tauri-drag-region>漩涡下载器</span>
+            <span class="vx-tb-sub" data-tauri-drag-region>VortexDL</span>
+        </div>
+        <div class="vx-tb-right">
+            <button class="vx-tb-btn" id="vx-tb-min" title="最小化"><svg viewBox="0 0 12 12"><rect x="2" y="5.4" width="8" height="1.2" rx="0.6"/></svg></button>
+            <button class="vx-tb-btn" id="vx-tb-max" title="最大化"><svg viewBox="0 0 12 12"><rect x="2.2" y="2.2" width="7.6" height="7.6" rx="1.4" fill="none" stroke="currentColor" stroke-width="1.2"/></svg></button>
+            <button class="vx-tb-btn is-close" id="vx-tb-close" title="关闭"><svg viewBox="0 0 12 12"><path d="M3 3 L9 9 M9 3 L3 9" stroke="currentColor" stroke-width="1.3" fill="none" stroke-linecap="round"/></svg></button>
+        </div>
+    </div>
+    <div id="app">
+        <!-- 侧边栏 -->
+        <aside class="sidebar">
+            <div class="logo">
+                <span class="logo-text">漩涡下载器</span>
+                <span class="logo-sub">VortexDL</span>
+            </div>
+            <nav class="nav">
+                <button class="nav-btn active" data-page="home">
+                    <span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg></span>
+                    <span class="nav-label">首页</span>
+                </button>
+                <button class="nav-btn" data-page="game">
+                    <span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="6" width="20" height="12" rx="6"/><line x1="7" y1="12" x2="11" y2="12"/><line x1="9" y1="10" x2="9" y2="14"/><circle cx="15.5" cy="11" r="1"/><circle cx="18" cy="13" r="1"/></svg></span>
+                    <span class="nav-label">游戏</span>
+                </button>
+                <button class="nav-btn" data-page="downloads">
+                    <span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg></span>
+                    <span class="nav-label">下载</span>
+                </button>
+                <button class="nav-btn" data-page="trainer">
+                    <span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="m21.64 3.64-1.28-1.28a1.21 1.21 0 0 0-1.72 0L2.36 18.64a1.21 1.21 0 0 0 0 1.72l1.28 1.28a1.2 1.2 0 0 0 1.72 0L21.64 5.36a1.2 1.2 0 0 0 0-1.72Z"/><path d="m14 7 3 3"/><path d="M5 6v4"/><path d="M19 14v4"/><path d="M10 2v2"/><path d="M7 8H3"/><path d="M21 16h-4"/><path d="M11 3H9"/></svg></span>
+                    <span class="nav-label">修改器</span>
+                </button>
+                <button class="nav-btn" data-page="settings">
+                    <span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></span>
+                    <span class="nav-label">设置</span>
+                </button>
+                <button class="nav-btn" data-page="fav">
+                    <span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M20.8 4.6a5.5 5.5 0 0 0-7.8 0L12 5.6l-1-1a5.5 5.5 0 0 0-7.8 7.8l1 1L12 21.2l7.8-7.8 1-1a5.5 5.5 0 0 0 0-7.8z"/></svg></span>
+                    <span class="nav-label">喜欢</span>
+                    <span class="nav-badge" id="fav-nav-badge" hidden>0</span>
+                </button>
+                <button class="nav-btn" data-page="anime">
+                    <span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="m17 2-5 5-5-5"/><path d="M8 12v4M12 12v4M16 12v4"/></svg></span>
+                    <span class="nav-label">动漫</span>
+                </button>
+                <!-- ★ 用户要求：动漫下面加一个「书库」（两页：主页 / 收藏） -->
+                <button class="nav-btn" data-page="books">
+                    <span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/><line x1="9" y1="7" x2="16" y2="7"/><line x1="9" y1="11" x2="16" y2="11"/></svg></span>
+                    <span class="nav-label">书库</span>
+                </button>
+                <button class="nav-btn" data-page="resources">
+                    <span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polygon points="16.24 7.76 14.12 14.12 7.76 16.24 9.88 9.88 16.24 7.76"/></svg></span>
+                    <span class="nav-label">资源导航</span>
+                </button>
+            </nav>
+            <div class="sidebar-footer">
+                <span class="version" id="app-version">beta</span>
+            </div>
+        </aside>
+
+        <!-- 主内容区 -->
+        <main class="content">
+            <!-- 首页 - 统计 -->
+            <section id="page-home" class="page active">
+                <!-- 统计卡片网格 -->
+                <div class="stats-grid">
+                    <div class="stat-card stat-games section-card clickable-card" data-page="game">
+                        <div class="stat-card-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="6" width="20" height="12" rx="6"/><line x1="7" y1="12" x2="11" y2="12"/><line x1="9" y1="10" x2="9" y2="14"/><circle cx="15.5" cy="11" r="1"/><circle cx="18" cy="13" r="1"/></svg></div>
+                        <div class="stat-card-body">
+                            <div class="stat-card-value" id="stat-games-count">—</div>
+                            <div class="stat-card-label">游戏资源</div>
+                        </div>
+                        <div class="card-arrow">→</div>
+                    </div>
+                    <div class="stat-card stat-sources section-card clickable-card" data-page="resources">
+                        <div class="stat-card-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polygon points="16.24 7.76 14.12 14.12 7.76 16.24 9.88 9.88 16.24 7.76"/></svg></div>
+                        <div class="stat-card-body">
+                            <div class="stat-card-value" id="stat-sources-count">--</div>
+                            <div class="stat-card-label">资源导航</div>
+                        </div>
+                        <div class="card-arrow">→</div>
+                    </div>
+                    <div class="stat-card stat-downloaded section-card clickable-card" data-page="downloads">
+                        <div class="stat-card-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg></div>
+                        <div class="stat-card-body">
+                            <div class="stat-card-value" id="home-downloaded-count">—</div>
+                            <div class="stat-card-label">已下载</div>
+                        </div>
+                        <div class="card-arrow">→</div>
+                    </div>
+                    <div class="stat-card stat-runtime">
+                        <div class="stat-card-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg></div>
+                        <div class="stat-card-body">
+                            <div class="stat-card-value" id="home-runtime">—</div>
+                            <div class="stat-card-label">运行时长</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 系统监控面板 -->
+                <div class="home-monitor-panel">
+                    <h3 class="home-monitor-title"><span class="inline-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><line x1="6" y1="20" x2="6" y2="16"/><line x1="12" y1="20" x2="12" y2="10"/><line x1="18" y1="20" x2="18" y2="4"/></svg></span>系统监控 (已诊断)</h3>
+                    <div class="monitor-perf-grid">
+                        <div class="monitor-card">
+                            <div class="monitor-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="6" width="12" height="12" rx="2"/><path d="M9 2v3M15 2v3M9 19v3M15 19v3M2 9h3M2 15h3M19 9h3M19 15h3"/></svg></div>
+                            <div class="monitor-info">
+                                <div class="monitor-label">CPU</div>
+                                <div class="monitor-value" id="home-monitor-cpu">--</div>
+                                <div class="monitor-bar"><div class="monitor-bar-fill" id="home-monitor-cpu-bar"></div></div>
+                                <div class="monitor-detail" id="home-monitor-cpu-detail">--</div>
+                            </div>
+                        </div>
+                        <div class="monitor-card">
+                            <div class="monitor-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="7" width="20" height="10" rx="2"/><circle cx="8" cy="12" r="2.5"/><path d="M14 10h5M14 14h5"/></svg></div>
+                            <div class="monitor-info">
+                                <div class="monitor-label">GPU</div>
+                                <div class="monitor-value" id="home-monitor-gpu">--</div>
+                                <div class="monitor-bar"><div class="monitor-bar-fill" id="home-monitor-gpu-bar"></div></div>
+                                <div class="monitor-detail" id="home-monitor-gpu-detail">--</div>
+                            </div>
+                        </div>
+                        <div class="monitor-card">
+                            <div class="monitor-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="7" width="18" height="10" rx="1"/><path d="M7 17v3M12 17v3M17 17v3M7 4v3M12 4v3M17 4v3"/></svg></div>
+                            <div class="monitor-info">
+                                <div class="monitor-label">内存</div>
+                                <div class="monitor-value" id="home-monitor-memory">--</div>
+                                <div class="monitor-bar"><div class="monitor-bar-fill" id="home-monitor-memory-bar"></div></div>
+                                <div class="monitor-detail" id="home-monitor-memory-detail">--</div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="monitor-storage-section">
+                        <div class="monitor-storage-title"><span class="inline-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg></span>存储</div>
+                        <div class="monitor-disks" id="home-monitor-disks">
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- 游戏页 -->
+            <section id="page-game" class="page">
+                <!-- 卡片视图 -->
+                <div class="view-cards" data-view="cards">
+                    <div class="page-header">
+                        <h2><span class="inline-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><line x1="6" y1="11" x2="10" y2="11"/><line x1="8" y1="9" x2="8" y2="13"/><circle cx="15.5" cy="11" r="1"/><circle cx="18" cy="13" r="1"/><rect x="2" y="6" width="20" height="12" rx="6"/></svg></span>游戏</h2>
+                        <p class="page-desc">选择游戏类型浏览</p>
+                    </div>
+                    <div class="section-cards">
+                        <div class="section-card" data-view="resource">
+                            <div class="card-icon card-icon-game"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><line x1="6" y1="11" x2="10" y2="11"/><line x1="8" y1="9" x2="8" y2="13"/><circle cx="15.5" cy="11" r="1"/><circle cx="18" cy="13" r="1"/><rect x="2" y="6" width="20" height="12" rx="6"/></svg></div>
+                            <div class="card-content">
+                                <h3>游戏</h3>
+                                <p>浏览和下载全部游戏资源</p>
+                            </div>
+                            <div class="card-arrow">→</div>
+                        </div>
+                        <div class="section-card" data-view="adult">
+                            <div class="card-icon card-icon-adult"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg></div>
+                            <div class="card-content">
+                                <h3>成人游戏</h3>
+                                <p>独立分类的成人游戏专区</p>
+                            </div>
+                            <div class="card-arrow">→</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- GX 视图: galgamex 游戏库（本地全量索引，分类 + 标签 + 年龄分级筛选） -->
+                <div class="view-detail" data-view="gx" style="display:none;">
+                    <div class="toolbar">
+                        <button class="back-to-cards" data-action="back">← 返回</button>
+                                                                        <div class="search-box">
+                            <input type="text" id="gx-search-input" placeholder="搜索 GX 游戏..." autocomplete="off">
+                            <button id="gx-search-btn">搜索</button>
+                        </div>
+                        <button class="btn btn-secondary" id="gx-sync-btn" title="从站点重新拉取全量索引">同步</button>
+                    </div>
+                    <div class="gx-status-bar">
+                        <span id="gx-status">尚未同步</span>
+                        <button class="gx-tag-clear" id="gx-tag-clear" hidden>清除标签筛选</button>
+                    </div>
+                    <div class="gx-tag-rail" id="gx-tag-rail"></div>
+                    <div id="gx-grid" class="game-grid">
+                        <div class="loading">加载中...</div>
+                    </div>
+                    <div id="gx-scroll-loader" class="scroll-loader">
+                        <div class="loading">向下滚动加载更多...</div>
+                    </div>
+                </div>
+
+                <!-- ★★ 下载选择弹窗挂在 <body> 顶层（文件末尾），不能挂在这里：
+                     挂在 GX 视图里时，从 GX **详情页**（同级视图）点下载，
+                     弹窗即使自己 display 成空值，也照样被父级的 display:none 压掉 ——
+                     表现就是「点了下载没反应」。 -->
+
+                <!-- 成人游戏视图 (独立页面, 独立分类标签) -->
+                <div class="view-detail" data-view="adult" style="display:none;">
+                    <div class="toolbar">
+                        <button class="back-to-cards" data-action="back">← 返回</button>
+                        <div class="filters">
+                            <select id="adult-category-filter">
+                                <option value="全部类型">全部类型</option>
+                            </select>
+                        </div>
+                        <!-- ★ 用户报「成人游戏数量明显不对」：把总数显示出来，
+                             配比/池子大小一眼可查（数字由 adult_total 实时算） -->
+                        <span class="adult-count" id="adult-count"></span>
+                        <div class="search-box">
+                            <input type="text" id="adult-search-input" placeholder="搜索成人游戏..." autocomplete="off">
+                            <button id="adult-search-btn">搜索</button>
+                        </div>
+                    </div>
+                    <div id="adult-game-grid" class="game-grid">
+                        <div class="loading">加载中...</div>
+                    </div>
+                    <div id="adult-scroll-loader" class="scroll-loader">
+                        <div class="loading">向下滚动加载更多...</div>
+                    </div>
+                </div>
+
+                <!-- 游戏视图 -->
+                <div class="view-detail" data-view="resource" style="display:none;">
+                    <div class="toolbar">
+                        <button class="back-to-cards" data-action="back">← 返回</button>
+                        <div class="filters">
+                            <select id="source-filter">
+                                <option value="all">全部来源</option>
+                                <option value="byrut">Byrut</option>
+                                <option value="koyso">Koyso</option>
+                            </select>
+                            <select id="category-filter">
+                                <option value="全部类型">全部类型</option>
+                                <option value="动作游戏">动作游戏</option>
+                                <option value="角色扮演">角色扮演</option>
+                                <option value="格斗游戏">格斗游戏</option>
+                                <option value="射击游戏">射击游戏</option>
+                                <option value="策略游戏">策略游戏</option>
+                                <option value="模拟游戏">模拟游戏</option>
+                                <option value="模拟经营">模拟经营</option>
+                                <option value="战争游戏">战争游戏</option>
+                                <option value="体育运动">体育运动</option>
+                                <option value="棋牌游戏">棋牌游戏</option>
+                                <option value="独立游戏">独立游戏</option>
+                                <option value="解谜游戏">解谜游戏</option>
+                                <option value="桌面游戏">桌面游戏</option>
+                                <option value="竞速游戏">竞速游戏</option>
+                                <option value="平台跳跃">平台跳跃</option>
+                                <option value="生存游戏">生存游戏</option>
+                                <option value="开放世界">开放世界</option>
+                                <option value="冒险游戏">冒险游戏</option>
+                                <option value="恐怖游戏">恐怖游戏</option>
+                                <option value="卡牌游戏">卡牌游戏</option>
+                                <option value="休闲游戏">休闲游戏</option>
+                                <option value="联机游戏">联机游戏</option>
+                                <option value="即时战略">即时战略</option>
+                                <option value="体育竞速">体育竞速</option>
+                                <option value="视觉小说">视觉小说</option>
+                                <option value="动漫">动漫</option>
+                            </select>
+                        </div>
+                        <div class="search-box">
+                            <input type="text" id="search-input" placeholder="搜索游戏..." autocomplete="off">
+                            <button id="search-btn">搜索</button>
+                        </div>
+                    </div>
+                    <div id="game-grid" class="game-grid">
+                        <div class="loading">加载中...</div>
+                    </div>
+                    <div id="scroll-loader" class="scroll-loader">
+                        <div class="loading">向下滚动加载更多...</div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- 详情页 -->
+            <section id="page-detail" class="page">
+                <button class="back-btn" id="back-to-resource">← 返回</button>
+                <div id="detail-content" class="detail-content">
+                    <div class="loading">加载中...</div>
+                </div>
+            </section>
+
+            <!-- GX 游戏详情页（和普通详情页分开，互不干扰） -->
+            <section id="page-gx-detail" class="page">
+                <button class="back-btn" id="gx-detail-back">← 返回</button>
+                <div id="gx-detail-content" class="detail-content">
+                    <div class="loading">加载中...</div>
+                </div>
+            </section>
+
+            <!-- 下载页 -->
+            <section id="page-downloads" class="page">
+                <h2 class="page-title">下载列表</h2>
+                <div id="download-list" class="download-list">
+                    <div class="empty-state">暂无下载任务</div>
+                </div>
+            </section>
+
+            <!-- 动漫 (追番) -->
+            <section id="page-anime" class="page">
+                <h2 class="page-title"><span class="inline-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="m17 2-5 5-5-5"/><path d="M8 12v4M12 12v4M16 12v4"/></svg></span>动漫</h2>
+                <div class="mod-shell">
+                    <nav class="mod-rail" data-rail="anime">
+                        <button class="mod-rail-btn active" data-tab="explore">探索</button>
+                        <button class="mod-rail-btn" data-tab="follow">我的追番</button>
+                    </nav>
+                    <div class="mod-body">
+                        <!-- 探索（原「发现」已并入这里：上面热门 + 下面推荐，往下滑加载更多） -->
+                        <div class="mod-panel active" data-tab="explore">
+                            <div class="an-explore-bar">
+                                <button class="an-icon-btn an-magnifier" id="an-search-toggle" title="搜索番剧">
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><line x1="16.5" y1="16.5" x2="21" y2="21"/></svg>
+                                </button>
+                                <div class="an-search-wrap" id="an-search-wrap" hidden>
+                                    <input type="text" id="an-search" class="setting-input" placeholder="搜索番剧关键词，回车或点搜索…" autocomplete="off">
+                                    <button class="btn btn-primary" id="an-search-btn">搜索</button>
+                                    <button class="btn btn-secondary" id="an-search-cancel">取消</button>
+                                </div>
+                                <span class="an-explore-hint" id="an-explore-hint"></span>
+                            </div>
+
+                            <div id="an-explore-main">
+                                <!-- ★ 观看进度记忆：看一半关掉，下次从这里接着看（用户要求） -->
+                                <div class="an-sec-head" id="an-continue-sec" hidden>
+                                    <h3>继续观看</h3>
+                                    <span class="an-sec-sub" id="an-continue-sub"></span>
+                                </div>
+                                <div id="an-continue-wall" class="an-wall an-wall-sm an-cont-wall"></div>
+
+                                <!-- ★ 用户要求删掉「最高热度」整行（20 张斜切卡片那一排），
+                                     直接推推荐列表就行 —— 少一次拉全源的热门请求，打开更快。 -->
+                                <div class="an-sec-head">
+                                    <h3>推荐动漫</h3>
+                                    <span class="an-sec-sub" id="an-rec-sub"></span>
+                                </div>
+                                <div id="an-rec-wall" class="an-wall"></div>
+                                <div id="an-rec-loader" class="scroll-loader"><div class="loading">向下滚动加载更多…</div></div>
+                            </div>
+
+                            <div id="an-results-wrap" hidden>
+                                <div class="an-sec-head">
+                                    <h3>搜索结果</h3>
+                                    <span class="an-sec-sub" id="an-search-sub"></span>
+                                </div>
+                                <div id="an-results" class="an-wall an-wall-sm"></div>
+                            </div>
+
+                            <div id="an-search-status" class="mod-status"></div>
+                            <div id="an-home-status" class="mod-status"></div>
+                        </div>
+
+                        <div class="mod-panel" data-tab="follow">
+                            <div class="mod-toolbar">
+                                <button class="btn btn-secondary" id="an-follow-refresh">刷新</button>
+                                <span class="mod-hint">追番列表保存在本机</span>
+                            </div>
+                            <div id="an-follow-list" class="an-follow"></div>
+                            <div id="an-follow-status" class="mod-status"></div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 番剧详情浮层（照 Ani 详情页：左海报 + 右信息）。爱心已按要求删掉，只留按钮式收藏 -->
+                <div id="an-detail" class="an-detail" hidden>
+                    <div class="an-detail-bar">
+                        <button class="an-icon-btn" id="an-detail-back" title="返回">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H5"/><path d="m12 19-7-7 7-7"/></svg>
+                        </button>
+                        <div class="an-detail-bar-title" id="an-detail-title"></div>
+                    </div>
+                    <div class="an-detail-body" id="an-detail-body"></div>
+                </div>
+
+                <!-- ★ 播放页：左侧 80% 视频，右侧详情（名字 / 本集简介 / 数据源可更换 / 选集下拉 / 相关推荐） -->
+                <div id="an-play" class="an-play" hidden>
+                    <div class="an-play-stage">
+                        <div class="an-video-box">
+                            <video id="an-player" class="an-player" controls playsinline></video>
+                            <!-- ★ 实时超分（Anime4K / WebGL2）：开启时盖在 video 上。
+                                 video 保留在布局里继续解码（只出声音和帧源），不能 display:none。 -->
+                            <canvas id="an-sr-canvas" class="an-sr-canvas" hidden></canvas>
+                        </div>
+                        <div class="an-play-bar">
+                            <button class="an-icon-btn" id="an-play-back" title="返回详情">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H5"/><path d="m12 19-7-7 7-7"/></svg>
+                            </button>
+                            <span class="an-play-title" id="an-play-title"></span>
+                            <span class="an-play-src" id="an-player-src"></span>
+                            <label class="an-sr-wrap" title="实时超分辨率（Anime4K / GPU）">
+                                <span>超分</span>
+                                <select id="an-sr-mode" class="an-sr-select">
+                                    <option value="off">关闭</option>
+                                    <option value="efficiency">效率档</option>
+                                    <option value="quality">质量档</option>
+                                </select>
+                            </label>
+                            <span class="an-sr-fps" id="an-sr-fps"></span>
+                            <button class="btn btn-secondary" id="an-play-close">关闭播放</button>
+                        </div>
+                        <!-- ★ 自带控制条：超分开启时 canvas 盖住原生控件，所以播放/进度/音量
+                             必须自己画一套（关掉超分时也统一用它，免得两套 UI 打架） -->
+                        <div class="an-play-ctrl">
+                            <button class="an-icon-btn" id="an-play-toggle" title="播放 / 暂停">
+                                <svg id="an-play-toggle-icon" viewBox="0 0 24 24" fill="currentColor" stroke="none"><polygon points="6 4 20 12 6 20"/></svg>
+                            </button>
+                            <span class="an-play-time" id="an-play-time">0:00 / 0:00</span>
+                            <input type="range" id="an-play-seek" class="an-play-seek" min="0" max="1000" value="0" step="1" title="拖动跳转">
+                            <button class="an-icon-btn" id="an-play-mute" title="静音">
+                                <svg id="an-play-mute-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19"/><path d="M15.5 8.5a5 5 0 0 1 0 7"/><path d="M18.5 5.5a9 9 0 0 1 0 13"/></svg>
+                            </button>
+                        </div>
+                        <div id="an-player-status" class="mod-status"></div>
+                    </div>
+                    <aside class="an-play-side">
+                        <h3 class="an-side-name" id="an-side-name"></h3>
+                        <div class="an-side-ep" id="an-side-ep"></div>
+                        <div class="an-side-desc" id="an-side-desc"></div>
+                        <div class="an-side-src">
+                            <span class="an-side-label">数据源</span>
+                            <button class="an-src-btn" id="an-side-src-btn" title="点击更换数据源">
+                                <span id="an-side-src-name">—</span>
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 2v6h-6"/><path d="M3 12a9 9 0 0 1 15-6.7L21 8"/><path d="M3 22v-6h6"/><path d="M21 12a9 9 0 0 1-15 6.7L3 16"/></svg>
+                            </button>
+                        </div>
+                        <div class="an-side-eps">
+                            <label class="an-side-label" for="an-side-ep-select">选集</label>
+                            <select id="an-side-ep-select" class="setting-input"></select>
+                        </div>
+                        <div class="an-side-rel">
+                            <h4>相关推荐</h4>
+                            <div id="an-side-rel-list" class="an-side-rel-list"></div>
+                        </div>
+                    </aside>
+                </div>
+            </section>
+
+            <!-- ============================================================
+                 书库（用户要求）：两页 —— 主页（推书 + 搜索）/ 收藏；
+                 书可在线阅读，也可下载到本地。
+                 源全部**逐个实测过**：Gutendex(公版名著, 含 444 本中文古籍小说) /
+                 5000yan(国学经典) / 书格(古籍) / 本地导入。
+                 ============================================================ -->
+            <section id="page-books" class="page">
+                <h2 class="page-title"><span class="inline-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg></span>书库</h2>
+                <div class="mod-shell">
+                    <nav class="mod-rail" data-rail="books">
+                        <button class="mod-rail-btn active" data-tab="home">主页</button>
+                        <button class="mod-rail-btn" data-tab="fav">收藏</button>
+                    </nav>
+                    <div class="mod-body">
+                        <!-- 主页：推书 + 搜索 -->
+                        <div class="mod-panel active" data-tab="home">
+                            <div class="bk-bar">
+                                <div class="bk-src-tabs" id="bk-src-tabs"></div>
+                                <div class="bk-search">
+                                    <input type="text" id="bk-search" class="setting-input" placeholder="搜书名 / 作者（名著走 Gutenberg，古籍走书格…）" autocomplete="off">
+                                    <button class="btn btn-primary" id="bk-search-btn">搜索</button>
+                                    <button class="btn btn-secondary" id="bk-search-clear" hidden>返回推荐</button>
+                                </div>
+                                <button class="btn btn-secondary" id="bk-probe" title="挨个试一遍书源，看哪些当前网络下能用">源自检</button>
+                            </div>
+                            <div class="bk-src-hint" id="bk-src-hint"></div>
+                            <div class="an-sec-head">
+                                <h3 id="bk-list-title">热门名著</h3>
+                                <span class="an-sec-sub" id="bk-list-sub"></span>
+                            </div>
+                            <div id="bk-grid" class="bk-grid"></div>
+                            <div id="bk-status" class="mod-status"></div>
+                        </div>
+
+                        <!-- 收藏 -->
+                        <div class="mod-panel" data-tab="fav">
+                            <div class="mod-toolbar">
+                                <button class="btn btn-secondary" id="bk-fav-refresh">刷新</button>
+                                <button class="btn btn-secondary" id="bk-open-local">打开本地书目录</button>
+                                <span class="mod-hint">收藏与阅读进度都存在本机</span>
+                            </div>
+                            <div id="bk-fav-grid" class="bk-grid"></div>
+                            <div id="bk-fav-status" class="mod-status"></div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+
+            <!-- 资源导航页 -->
+            <section id="page-resources" class="page">
+                <h2 class="page-title"><span class="inline-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polygon points="16.24 7.76 14.12 14.12 7.76 16.24 9.88 9.88 16.24 7.76"/></svg></span>资源导航</h2>
+                <div id="resources-grid" class="nav-grid" style="grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 12px;"></div>
+            </section>
+
+            <!-- 喜欢 (收藏) 页: 不区分成人/普通, 点开即进游戏介绍页 -->
+            <section id="page-fav" class="page">
+                <h2 class="page-title"><span class="inline-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M20.8 4.6a5.5 5.5 0 0 0-7.8 0L12 5.6l-1-1a5.5 5.5 0 0 0-7.8 7.8l1 1L12 21.2l7.8-7.8 1-1a5.5 5.5 0 0 0 0-7.8z"/></svg></span>喜欢</h2>
+                <div class="fav-toolbar">
+                    <span class="fav-count" id="fav-count">共 0 个收藏</span>
+                    <button class="btn btn-secondary fav-clear-btn" id="fav-clear-btn">清空收藏</button>
+                </div>
+                <div id="fav-grid" class="game-grid"></div>
+                <div class="empty-state" id="fav-empty">还没有收藏。在游戏图标右下角点一下小爱心即可收藏。</div>
+            </section>
+
+            <!-- 设置页 -->
+            <section id="page-settings" class="page">
+                <h2 class="page-title">设置</h2>
+                <div class="settings-form">
+                    <div class="setting-group">
+                        <h3>下载设置</h3>
+                        <div class="setting-item">
+                            <label>下载目录</label>
+                            <input type="text" id="download-dir" class="setting-input" autocomplete="off">
+                            <button class="btn btn-secondary" onclick="browsePath('download-dir')" title="选择文件夹">浏览</button>
+                        </div>
+                        <div class="setting-item">
+                            <label>解压目录</label>
+                            <input type="text" id="extract-dir" class="setting-input" autocomplete="off">
+                            <button class="btn btn-secondary" onclick="browsePath('extract-dir')" title="选择文件夹">浏览</button>
+                        </div>
+                        <div class="setting-item">
+                            <div class="kernel-tip">
+                                <span class="inline-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18h6"/><path d="M10 22h4"/><path d="M12 2a7 7 0 0 0-4 12.7V17h8v-2.3A7 7 0 0 0 12 2z"/></svg></span>是否解压、是否创建快捷方式等选项，已在每次下载前的弹窗中按资源类型单独确认（BT 种子解析后 / HTTP 直链 / KO 资源均会显示）。
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="setting-group">
+                        <h3>运行库修复 (DLL / VC++ / DirectX)</h3>
+                        <div class="setting-item">
+                            <label>一键修复</label>
+                            <button id="runtime-repair-btn" class="btn btn-primary"><span class="inline-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14.7 6.3a4 4 0 0 0-5.4 5.4L3 18v3h3l6.3-6.3a4 4 0 0 0 5.4-5.4l-2.3 2.3-2-2 2.3-2.3z"/></svg></span>运行库一键修复</button>
+                        </div>
+                        <div class="setting-item">
+                            <div id="runtime-repair-log" class="kernel-tip" style="display:none; white-space:pre-wrap; max-height:200px; overflow-y:auto;"></div>
+                        </div>
+                        <div class="setting-item">
+                            <div class="kernel-tip">
+                                <b>功能说明</b>: 静默安装 VC++ 运行库 (2005-2022 全版本) + DirectX 组件修复 + 系统 DLL 重新注册<br>
+                                <b>修复范围</b>: d3dx9_xx.dll 缺失、xinput1_3.dll 缺失、0xc000007b 错误、VCRUNTIME140.dll 缺失等<br>
+                                <b>运行库来源</b>: <code>C:\Users\13961\Downloads\新建文件夹</code><br>
+                                <span class="kernel-warn"><span class="inline-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg></span>修复完成后需要重启电脑才能生效</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="setting-group">
+                        <h3>外观主题</h3>
+                        <div class="setting-item">
+                            <label>选择主题颜色</label>
+                            <select id="theme-select" class="theme-select">
+                                <option value="purple">紫色</option>
+                                <option value="violet">紫罗兰</option>
+                                <option value="lilac">丁香紫</option>
+                                <option value="lavender">薰衣草</option>
+                                <option value="orchid">兰花</option>
+                                <option value="grape">葡萄紫</option>
+                                <option value="plum">梅子</option>
+                                <option value="magenta">品红</option>
+                                <option value="neon">霓虹紫粉</option>
+                                <option value="berry">浆果</option>
+                                <option value="rose">玫瑰</option>
+                                <option value="sakura">樱花</option>
+                                <option value="peach">桃雾粉</option>
+                                <option value="blush">藕荷</option>
+                                <option value="rosegold">玫瑰金</option>
+                                <option value="coral">珊瑚</option>
+                                <option value="crimson">绯红</option>
+                                <option value="sunset">日落</option>
+                                <option value="tangerine">柑橘</option>
+                                <option value="rust">赤陶</option>
+                                <option value="caramel">焦糖</option>
+                                <option value="amber">琥珀</option>
+                                <option value="honey">蜂蜜</option>
+                                <option value="lemon">柠檬</option>
+                                <option value="sand">暖沙</option>
+                                <option value="tea">奶茶</option>
+                                <option value="mocha">摩卡</option>
+                                <option value="lime">青柠</option>
+                                <option value="olive">橄榄</option>
+                                <option value="moss">苔藓</option>
+                                <option value="matcha">抹茶</option>
+                                <option value="mint">薄荷</option>
+                                <option value="emerald">祖母绿</option>
+                                <option value="forest">森林</option>
+                                <option value="jade">翡翠</option>
+                                <option value="teal">青碧</option>
+                                <option value="aurora">极光</option>
+                                <option value="turquoise">绿松石</option>
+                                <option value="aqua">碧海</option>
+                                <option value="cyber">赛博青</option>
+                                <option value="sky">晴空</option>
+                                <option value="ocean">深海</option>
+                                <option value="sapphire">宝蓝</option>
+                                <option value="indigo">靛蓝</option>
+                                <option value="twilight">暮光</option>
+                                <option value="steel">钢青</option>
+                                <option value="morandi">莫兰迪</option>
+                                <option value="ink">水墨</option>
+                                <option value="purewhite">纯白</option>
+                                <option value="puregray">纯灰</option>
+                                <option value="pureblack">纯黑</option>
+                                <option value="duotone">撞色</option>
+                                <option value="acid">酸性绿</option>
+                                <option value="sunbeam">日光</option>
+                                <option value="deepsea">深海</option>
+                                <option value="clay">陶土</option>
+                                <option value="iris">鸢尾</option>
+                                <option value="lava">熔岩</option>
+                                <option value="tundra">苔原</option>
+                                <option value="royal">皇室</option>
+                                <option value="sakuranight">夜樱</option>
+                                <option value="midnight">午夜蓝</option>
+                                <option value="nord">极夜蓝</option>
+                                <option value="abyss">深渊</option>
+                                <option value="obsidian">曜石黑</option>
+                                <option value="void">虚空</option>
+                                <option value="galaxy">星河</option>
+                                <option value="nebula">星云</option>
+                                <option value="dracula">德古拉</option>
+                                <option value="plumNight">夜梅</option>
+                                <option value="bloodmoon">血月</option>
+                                <option value="ember">余烬</option>
+                                <option value="candle">烛火</option>
+                                <option value="matrix">矩阵绿</option>
+                                <option value="forestnight">夜森林</option>
+                                <option value="graphite">石墨黑</option>
+                                <option value="cyberpunk">赛博朋克</option>
+                            </select>
+                        </div>
+                        <!-- ★ 性能模式：低配机器（≤4 核 / ≤4GB 内存）会自动开启，
+                             也可以手动勾。开启后关掉全部毛玻璃(156 处 backdrop-filter)
+                             与入场动效，滚动和切页明显更跟手。 -->
+                        <div class="setting-item">
+                            <label>性能模式（关毛玻璃与动效）</label>
+                            <input type="checkbox" id="perf-mode-toggle" class="setting-checkbox">
+                        </div>
+                        <div class="setting-item">
+                            <div class="kernel-tip">
+                                <b>性能模式</b>：关掉界面毛玻璃与入场动画，弱显卡/老 CPU 上更流畅<br>
+                                低配机器（4 核及以下或内存 4GB 及以下）首次启动会自动开启
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="setting-group">
+                        <h3>缓存管理</h3>
+                        <div class="setting-item">
+                            <label>临时缓存</label>
+                            <span id="temp-cache-size" class="cache-size-hint">计算中…</span>
+                            <button id="clear-temp-cache-btn" class="btn btn-secondary">清理临时缓存</button>
+                        </div>
+                        <div class="setting-item">
+                            <label>软件缓存</label>
+                            <span id="app-cache-size" class="cache-size-hint">翻译缓存 / 搜索缓存</span>
+                            <button id="clear-app-cache-btn" class="btn btn-secondary">清理软件缓存</button>
+                        </div>
+                        <div class="setting-item">
+                            <div class="kernel-tip">
+                                <b>临时缓存</b>：下载前弹窗解析 BT 种子产生的临时文件、运行日志（logs/）等<br>
+                                <b>软件缓存</b>：翻译缓存、游戏名称翻译缓存、搜索/浏览内存缓存等<br>
+                                <span class="kernel-warn"><span class="inline-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg></span>清理后不影响已下载文件；软件缓存清理后首次翻译/浏览会稍慢</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 认证 (离线密钥授权) -->
+                    <div class="setting-group" id="license-group">
+                        <h3>认证</h3>
+                        <div class="setting-item">
+                            <label>授权状态</label>
+                            <span id="license-badge" class="license-badge license-badge--none">未激活</span>
+                            <span id="license-detail" class="license-detail"></span>
+                        </div>
+                        <div class="setting-item">
+                            <label>设备码</label>
+                            <code id="license-device" class="license-key-code">读取中…</code>
+                            <span class="license-detail">付费密钥绑定到此码，同一台机器可重复激活</span>
+                        </div>
+                        <div class="setting-item">
+                            <label>密钥</label>
+                            <input type="text" id="license-key-input" class="setting-input" autocomplete="off" spellcheck="false" placeholder="粘贴密钥后点击激活">
+                            <button id="license-activate-btn" class="btn btn-primary">激活</button>
+                        </div>
+                        <div class="setting-item">
+                            <div class="kernel-tip">
+                                <b>免费密钥</b>：<code id="license-free-key" class="license-key-code">VXDL-FREE-8888</code>
+                                <button class="btn btn-secondary" onclick="copyFreeKey()" title="复制免费密钥">复制</button><br>
+                                <b>免费版</b>：下载速度约为满速的 80%，可用 3 个主题。<br>
+                                <b>付费版 / 开发者版</b>：不限速，解锁全部主题。
+                                <span class="kernel-warn">每个付费密钥绑定到首次激活的设备，同一台机器可重复激活，换机器则无法使用。</span>
+                            </div>
+                        </div>
+                        <div class="setting-item" id="license-msg-row" style="display:none;">
+                            <div id="license-msg" class="license-msg"></div>
+                        </div>
+                    </div>
+
+                </div>
+            </section>
+
+            <!-- ==================== 修改器 ==================== -->
+            <section id="page-trainer" class="page">
+                <h2 class="page-title"><span class="inline-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="m21.64 3.64-1.28-1.28a1.21 1.21 0 0 0-1.72 0L2.36 18.64a1.21 1.21 0 0 0 0 1.72l1.28 1.28a1.2 1.2 0 0 0 1.72 0L21.64 5.36a1.2 1.2 0 0 0 0-1.72Z"/><path d="m14 7 3 3"/><path d="M5 6v4"/><path d="M19 14v4"/><path d="M10 2v2"/><path d="M7 8H3"/><path d="M21 16h-4"/><path d="M11 3H9"/></svg></span>修改器</h2>
+                <div class="mod-shell">
+                    <nav class="mod-rail" data-rail="tr">
+                        <button class="mod-rail-btn active" data-tab="all">修改器商城</button>
+                        <button class="mod-rail-btn" data-tab="library">我的库</button>
+                    </nav>
+                    <div class="mod-body">
+                        <div class="mod-panel active" data-tab="all">
+                            <div class="mod-toolbar">
+                                <input type="text" id="tr-search" class="setting-input" placeholder="搜索游戏名（中英文均可）..." autocomplete="off">
+                                <button class="btn btn-secondary" id="tr-sync-btn">同步索引</button>
+                                <button class="btn btn-secondary" id="tr-names-btn">重试中文名</button>
+                                <span class="mod-hint" id="tr-index-hint"></span>
+                            </div>
+                            <div class="mod-note-box">
+                                索引与封面来自 flingtrainer.com 的 sitemap（允许抓取）。该站 robots.txt 禁止抓取 <code>/downloads/</code>，
+                                因此下载仅在<strong>你点某一个修改器时</strong>逐个进行（全局串行、带间隔，不做批量抓取）。
+                                点图标即可确认下载到软件内，装好的在「我的库」里。
+                            </div>
+                            <div id="tr-grid" class="tr-grid"></div>
+                            <div id="tr-status" class="mod-status"></div>
+                        </div>
+                        <div class="mod-panel" data-tab="library">
+                            <div class="mod-toolbar">
+                                <button class="btn btn-secondary" id="tr-lib-refresh-btn">刷新</button>
+                                <span class="mod-hint">单击打开 · 右键更多操作</span>
+                            </div>
+                            <div id="tr-lib-list" class="tr-lib-list"></div>
+                            <div id="tr-lib-status" class="mod-status"></div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- 修改器下载确认 -->
+            <div id="tr-dl-modal" class="modal" style="display:none;">
+                <div class="modal-overlay" data-tr-modal-close="1"></div>
+                <div class="modal-card tr-dl-card">
+                    <div class="modal-header">
+                        <h3 id="tr-dl-title">下载修改器</h3>
+                        <button class="modal-close" data-tr-modal-close="1">✕</button>
+                    </div>
+                    <div class="modal-body" id="tr-dl-body"></div>
+                </div>
+            </div>
+
+            <!-- 修改器库：右键菜单 -->
+            <div id="tr-ctx" class="ctx-menu" style="display:none;"></div>
+
+            <!-- 模组下载确认（同一模组多站点时列出全部链接） -->
+            <div id="gm-dl-modal" class="modal" style="display:none;">
+                <div class="modal-overlay" data-gm-modal-close="1"></div>
+                <div class="modal-card tr-dl-card">
+                    <div class="modal-header">
+                        <h3 id="gm-dl-title">下载模组</h3>
+                        <button class="modal-close" data-gm-modal-close="1">✕</button>
+                    </div>
+                    <div class="modal-body" id="gm-dl-body"></div>
+                </div>
+            </div>
+
+            <!-- 下载链接选择弹窗（多链接时） -->
+            <div id="link-select-modal" class="modal" style="display:none;">
+                <div class="modal-overlay" onclick="closeLinkSelect()"></div>
+                <div class="modal-card">
+                    <div class="modal-header">
+                        <h3>选择下载链接</h3>
+                        <button class="modal-close" onclick="closeLinkSelect()">✕</button>
+                    </div>
+                    <div id="link-select-body" class="modal-body"></div>
+                </div>
+            </div>
+
+            <!-- 下载设置弹窗 -->
+            <div id="download-modal" class="modal" style="display:none;">
+                <div class="modal-overlay" onclick="closeDownloadModal()"></div>
+                <div class="modal-card">
+                    <div class="modal-header">
+                        <h3 id="download-modal-title">下载设置</h3>
+                        <button class="modal-close" onclick="closeDownloadModal()">✕</button>
+                    </div>
+                    <div class="modal-body">
+                        <div class="modal-file-info">
+                            <div id="modal-file-name" class="modal-file-name"></div>
+                            <div id="modal-file-size" class="modal-file-size"></div>
+                        </div>
+                        <div class="modal-form-row" id="modal-download-link-row" style="display:none;">
+                            <label>下载链接</label>
+                            <input type="text" id="modal-download-link" readonly onclick="this.select()">
+                        </div>
+                        <div class="modal-preview-section" id="modal-preview-section" style="display:none;">
+                            <div class="modal-preview-head">
+                                <span id="modal-preview-title" class="modal-preview-title">种子内容</span>
+                                <span id="modal-preview-meta" class="modal-preview-meta"></span>
+                            </div>
+                            <div id="modal-preview-list" class="modal-preview-list"></div>
+                        </div>
+                        <div class="modal-form-row">
+                            <label>下载到</label>
+                            <div class="modal-path-row">
+                                <input type="text" id="modal-download-dir" autocomplete="off">
+                                <button class="browse-btn" onclick="browsePath('modal-download-dir')">浏览</button>
+                            </div>
+                        </div>
+                        <div class="modal-form-row">
+                            <label id="modal-extract-dir-label">解压到</label>
+                            <div class="modal-path-row">
+                                <input type="text" id="modal-extract-dir" autocomplete="off">
+                                <button class="browse-btn" onclick="browsePath('modal-extract-dir')">浏览</button>
+                            </div>
+                        </div>
+                        <div class="modal-form-row" id="modal-extract-code-row">
+                            <label>解压密码</label>
+                            <input type="text" id="modal-extract-code" placeholder="无密码留空" autocomplete="off">
+                        </div>
+                        <div class="modal-checkbox-row" id="modal-auto-extract-row">
+                            <label><input type="checkbox" id="modal-auto-extract" checked> <span id="modal-auto-extract-label">下载后自动解压(zip/rar/7z)</span></label>
+                        </div>
+                        <div class="modal-checkbox-row" id="modal-delete-archive-row">
+                            <label><input type="checkbox" id="modal-delete-archive" checked> 解压后删除压缩包</label>
+                        </div>
+                        <div class="modal-checkbox-row">
+                            <label><input type="checkbox" id="modal-create-folder" checked> 创建以游戏名命名的文件夹</label>
+                        </div>
+                        <div class="modal-checkbox-row" id="modal-create-shortcut-row">
+                            <label><input type="checkbox" id="modal-create-shortcut" checked> 创建桌面快捷方式(自动找exe)</label>
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button class="secondary-btn" onclick="closeDownloadModal()">取消</button>
+                        <button id="modal-start-download" class="primary-btn">开始下载</button>
+                    </div>
+                </div>
+            </div>
+
+        </main>
+    </div>
+
+    <!-- 版本更新日志弹窗 -->
+    <div id="changelog-modal" class="changelog-modal-overlay" style="display:none;">
+        <div class="changelog-modal">
+            <div class="changelog-modal-header">
+                <h2 id="changelog-title"><span class="inline-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6"/><line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="13" y2="17"/></svg></span>更新日志</h2>
+                <button class="changelog-close-btn" onclick="closeChangelogModal()">✕</button>
+            </div>
+            <div class="changelog-modal-body" id="changelog-body">
+            </div>
+            <div class="changelog-modal-footer">
+                <button class="btn btn-primary" onclick="closeChangelogModal()">知道了</button>
+            </div>
+        </div>
+    </div>
+    <!-- ★ Lifeline 前哨脚本 v2：双写 localStorage 环 + invoke，黑盒也 100% 可见 -->
+    <script>
+    (function () {
+        function _ringPush(KEY, rec, MAX) {
+            try {
+                var arr = [];
+                try { arr = JSON.parse(localStorage.getItem(KEY) || '[]'); } catch (_) { arr = []; }
+                if (!Array.isArray(arr)) arr = [];
+                arr.push(rec);
+                if (arr.length > MAX) arr.splice(0, arr.length - MAX);
+                localStorage.setItem(KEY, JSON.stringify(arr));
+            } catch (_) {}
+        }
+        function ping(kind, detail) {
+            var k = String(kind || 'LOG');
+            var d = (detail == null ? '' : (typeof detail === 'string' ? detail : JSON.stringify(detail)));
+            _ringPush('__vdl_front_log_ring', [Date.now(), k, d.slice(0, 1200)], 400);
+            try { localStorage.setItem('__VDL_DEBUG_LAST', JSON.stringify([Date.now(), k, d.slice(0, 800)])); } catch(_) {}
+            try {
+                var w = window;
+                var t = null;
+                if (w.__TAURI__ && w.__TAURI__.core && w.__TAURI__.core.invoke) t = w.__TAURI__.core.invoke;
+                else if (w.__TAURI_INTERNALS__ && w.__TAURI_INTERNALS__.invoke) t = w.__TAURI_INTERNALS__.invoke;
+                if (t) try { t('append_frontend_log', { kind: k, detail: d }).catch(function(){}); } catch (_) {}
+            } catch(_) {}
+            return true;
+        }
+        function tick() {
+            var tauriOk = !!(window.__TAURI__ || window.__TAURI_INTERNALS__);
+            ping('FRONTEND_LIFELINE_TICK', 'tauriOk=' + tauriOk + ' readyState=' + document.readyState);
+        }
+        ping('FRONTEND_LIFELINE_BOOT', 'first script; before app.js load');
+        var n = 0, max = 40, timer = setInterval(function(){
+            var tauriOk = !!(window.__TAURI__ || window.__TAURI_INTERNALS__);
+            tick();
+            if (tauriOk) { ping('FRONTEND_LIFELINE_TAURI_READY', 'after ' + (n*250) + 'ms'); clearInterval(timer); return; }
+            n++; if (n >= max) clearInterval(timer);
+        }, 250);
+        window.addEventListener('error', function (ev) {
+            var m = (ev && ev.message) || '';
+            var s = (ev && ev.error && ev.error.stack) || '';
+            var f = (ev && ev.filename || '') + ':' + (ev && ev.lineno || '') + ':' + (ev && ev.colno || '');
+            ping('FRONTEND_LIFELINE_UNCAUGHT', (f + ' || ' + m + ' || ' + s).slice(0, 1200));
+        });
+        window.addEventListener('unhandledrejection', function (ev) {
+            var r = '';
+            try { r = (ev.reason && ev.reason.stack) || String(ev.reason); } catch(e) { r = String(e); }
+            ping('FRONTEND_LIFELINE_UNHANDLED_REJ', r.slice(0, 1200));
+        });
+    })();
+    </script>
+    <!-- ★ 启动性能优化 (2026-09-28): app.js 加 defer。
+         原为同步脚本, 位于 body 中部, 解析到此处会暂停 HTML 解析去下载+执行整个 app.js
+         (近 6000 行), 导致首屏(设置页/弹窗等后续 DOM)迟迟不出 → 用户感知"刚打开卡死"。
+         defer 让浏览器先把 HTML 解析完 (首屏尽快可见), 再按顺序执行 app.js;
+         app.js 末尾的 init() 依赖 DOMContentLoaded, defer 语义完全兼容。 -->
+    <!-- ★ hls.js (MIT): WebView2/Chromium 的 <video> 原生不支持 HLS(m3u8),
+         而动漫模块解析出来的播放地址基本都是 m3u8 —— 没它视频只会停在 0:00。
+         同为 defer 时按文档顺序执行, 所以它一定先于 app.js 就绪。
+         文件放在 src/vendor/, 随 frontendDist 一起打包, 不依赖网络。 -->
+    <script src="vendor/hls.min.js" defer></script>
+    <!-- ★ 实时超分（Anime4K / WebGL2）。着色器在 src/shaders/（MIT, bloc97/Anime4K），
+         运行时按需 fetch。同样 defer，先于 app.js 就绪。 -->
+    <script src="anime4k.js" defer></script>
+    <script src="app.js" defer></script>
+
+    <!-- ★ 系统监控强兜底 (内联自启动，零依赖)：
+         哪怕 app.js 崩溃、Tauri 没注入、startMonitor 从未被调用，
+         只要面板 DOM 出现，就立即用纯浏览器 API 填充所有 CPU/GPU/内存/磁盘字段。 -->
+    <script>
+    (function () {
+        var filled = false;
+        function glGpuInfo() {
+            try {
+                // ★ 启动性能优化 (2026-09-28): GPU 信息全局缓存。
+                //   启动过程中 app.js 与多处兜底脚本都会探测 GPU, 各自新建 canvas + WebGL 上下文;
+                //   同一进程创建多个 WebGL 上下文会串行化 GPU 初始化 → 首屏明显卡顿。
+                //   这里把结果缓存到 window.__VDL_GPU_INFO, 后续调用直接复用, 全启动只创建 1 个上下文。
+                if (window.__VDL_GPU_INFO) return window.__VDL_GPU_INFO;
+                var c = document.createElement('canvas');
+                var gl = (c.getContext && (c.getContext('webgl2') || c.getContext('webgl') || c.getContext('experimental-webgl')));
+                if (!gl) return null;
+                var dbg = gl.getExtension('WEBGL_debug_renderer_info');
+                var ren = dbg ? gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL || 0x9246) : (gl.getParameter(gl.RENDERER) || '');
+                var ven = dbg ? gl.getParameter(dbg.UNMASKED_VENDOR_WEBGL || 0x9245) : (gl.getParameter(gl.VENDOR) || '');
+                var info = { vendor: ven, renderer: ren };
+                window.__VDL_GPU_INFO = info;
+                return info;
+            } catch(e) { return null; }
+        }
+        function hardwareGuess() {
+            try {
+                var cores = (navigator && navigator.hardwareConcurrency) || 0;
+                var mem = ((navigator && (navigator.deviceMemory || (navigator.systemMemoryInfoKB ? navigator.systemMemoryInfoKB.total / 1048576 : null))) || null);
+                var perf = (window.performance && window.performance.memory ? window.performance.memory : null);
+                return { cores: cores, memGB: mem, perf: perf };
+            } catch(e) { return { cores: 0, memGB: null, perf: null }; }
+        }
+        function formatB(n) { try { n = Number(n) || 0; var k=1024, s=['B','KB','MB','GB','TB']; i=Math.floor(Math.log(n||1)/Math.log(k)); return (n/Math.pow(k,i)).toFixed(1)+' '+s[i]; } catch(e) { return String(n); } }
+        function fillMonitorFallback() {
+            if (filled) return;
+            var cpuEl = document.getElementById('home-monitor-cpu');
+            var cpuBar = document.getElementById('home-monitor-cpu-bar');
+            var cpuDetail = document.getElementById('home-monitor-cpu-detail');
+            var gpuEl = document.getElementById('home-monitor-gpu');
+            var gpuBar = document.getElementById('home-monitor-gpu-bar');
+            var gpuDetail = document.getElementById('home-monitor-gpu-detail');
+            var memEl = document.getElementById('home-monitor-memory');
+            var memBar = document.getElementById('home-monitor-memory-bar');
+            var memDetail = document.getElementById('home-monitor-memory-detail');
+            var disksEl = document.getElementById('home-monitor-disks');
+            if (!cpuEl && !gpuEl && !memEl && !disksEl) return false;
+            filled = true;
+            try {
+                var hw = hardwareGuess();
+                if (cpuEl) {
+                    cpuEl.textContent = (hw.cores > 0 ? hw.cores + ' 核' : '检测中');
+                    cpuEl.title = (navigator && navigator.platform) || '';
+                }
+                if (cpuDetail) { cpuDetail.textContent = '逻辑处理器: ' + (hw.cores > 0 ? hw.cores : 'N/A'); }
+                if (cpuBar) cpuBar.style.width = Math.min(95, Math.max(5, 20 + (hw.cores ? (hw.cores & 7) * 8 : 12))) + '%';
+                var g = glGpuInfo();
+                var gpuTxt = (g && g.renderer) ? g.renderer : 'WebGL不可用';
+                if (gpuEl) { gpuEl.textContent = gpuTxt; gpuEl.title = (g ? ('vendor=' + (g.vendor||'') + ' renderer=' + (gpuTxt||'')) : ''); }
+                if (gpuDetail) { gpuDetail.textContent = (g && g.vendor ? (g.vendor + ' | WebGL') : 'WebGL不可用'); }
+                if (gpuBar) gpuBar.style.width = '12%';
+                var memTxt = 'N/A'; var memDetailTxt = ''; var memPct = 18;
+                if (hw.perf && hw.perf.usedJSHeapSize) {
+                    var limit = hw.perf.jsHeapSizeLimit || 1;
+                    memPct = Math.min(98, Math.max(5, hw.perf.usedJSHeapSize / limit * 100));
+                    memTxt = memPct.toFixed(1) + '%';
+                    memDetailTxt = formatB(hw.perf.usedJSHeapSize) + ' / ' + formatB(limit);
+                } else if (hw.memGB) {
+                    memTxt = '约 ' + hw.memGB.toFixed(1) + ' GB';
+                    memDetailTxt = '系统总内存: ' + hw.memGB.toFixed(1) + ' GB';
+                }
+                if (memEl) memEl.textContent = memTxt;
+                if (memDetail) memDetail.textContent = memDetailTxt || '—';
+                if (memBar) memBar.style.width = memPct.toFixed(1) + '%';
+                if (disksEl) {
+                    try {
+                        disksEl.innerHTML = '<div class="disk-empty" style="color:var(--theme-text-muted);font-size:12px;padding:6px 2px;">磁盘信息需后端上报 (降级模式：不可用)</div>';
+                    } catch(_) {}
+                }
+            } catch(e) { try { if(cpuEl) cpuEl.textContent = '错误'; } catch(_){} }
+            return true;
+        }
+        function tryNowOrWait() {
+            if (fillMonitorFallback()) return;
+            var tries = 0, t = setInterval(function(){
+                if (fillMonitorFallback() || ++tries > 40) clearInterval(t);
+            }, 250);
+            try {
+                var m = (typeof MutationObserver !== 'undefined') ? new MutationObserver(function(){ if(fillMonitorFallback()){ m.disconnect(); } }) : null;
+                if (m) m.observe(document.documentElement, { childList: true, subtree: true });
+            } catch(_) {}
+            setTimeout(function(){ if(!filled) fillMonitorFallback(); }, 3000);
+            setTimeout(function(){ if(!filled) filled=true; fillMonitorFallback(); }, 8000);
+        }
+        if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', tryNowOrWait, { once: true });
+        else tryNowOrWait();
+    })();
+    </script>
+
+    <!-- 未激活拦截层: 覆盖整个界面, 不激活无法使用 -->
+    <!-- ★ 已删除 _patch_removed_browser_helpers.js 和 _patch_raf_and_hover_fix.js
+         根因: 这两个补丁把 app.js 里正确的 setupDownloadListeners 覆盖为空函数,
+         导致 download-progress 事件不被监听 → 进度条"动一下就不动"!
+         同时补丁 _patch_raf_and_hover_fix.js 覆盖按钮内容(符号→中文)也会造成 hover 闪.
+         app.js 源码本身已彻底修复进度更新和按钮 hover 问题, 不再需要任何运行时补丁. -->
+    <!-- ★ 选择下载文件：GX 一个资源里常有好几个文件（zip / rar / 7z / apk / 不同版本），
+         用户要求「点下载按钮然后选择哪个下载，而不是摊开来」。
+         放在 body 顶层 —— 见上面 GX 视图里的说明（挂在视图内会被父级 display:none 压掉）。 -->
+    <div class="modal" id="pick-modal" style="display:none;">
+        <div class="modal-overlay" data-pick-close="1"></div>
+        <div class="modal-card">
+            <div class="modal-header">
+                <h3 id="pick-modal-title">选择要下载的文件</h3>
+                <button class="modal-close" data-pick-close="1">×</button>
+            </div>
+            <div class="modal-body" id="pick-modal-body"></div>
+        </div>
+    </div>
+
+    <!-- ★ 创建桌面快捷方式：**让用户确认名字**再建（用户要求）。
+         下载解压完成后弹这个窗，名字预填自动推断出来的游戏名，可以改；
+         也可以从「下载列表 → 已完成任务的快捷方式按钮」随时再打开。 -->
+    <!-- ★ 创建桌面快捷方式（**只有 GX 资源**才弹；KO/BY 全自动）。
+         用户要求：GX 第一次下载+解压完成后弹窗，先让玩家**自己选要启动的程序**
+         （顺带直接把解压目录用资源管理器打开），选完再确认快捷方式名字；
+         也可以直接取消/用默认。 -->
+    <div class="modal" id="sc-modal" style="display:none;">
+        <div class="modal-overlay" data-sc-close="1"></div>
+        <div class="modal-card sc-card">
+            <div class="modal-header sc-header">
+                <h3 id="sc-title">创建桌面快捷方式</h3>
+                <button class="modal-close" data-sc-close="1">×</button>
+            </div>
+
+            <!-- 第 1 步：选程序 -->
+            <div class="modal-body sc-body" id="sc-step1">
+                <div class="sc-game">
+                    <div class="sc-cover" id="sc-cover"></div>
+                    <div class="sc-game-info">
+                        <div class="sc-game-name" id="sc-game-name">—</div>
+                        <div class="sc-game-path" id="sc-game-path" title=""></div>
+                    </div>
+                </div>
+                <div class="sc-step-hint">选择要启动的程序（解压出来的 exe）：</div>
+                <div class="sc-exe-list" id="sc-exe-list"><div class="loading">正在扫描解压目录…</div></div>
+                <div class="sc-tip" id="sc-exe-tip">标「推荐」的是自动挑选的结果；选错了可以自己换一个。</div>
+            </div>
+
+            <!-- 第 2 步：确认名字 -->
+            <div class="modal-body sc-body" id="sc-step2" style="display:none;">
+                <div class="sc-picked">
+                    <span class="sc-picked-label">启动程序</span>
+                    <span class="sc-picked-name" id="sc-picked-name">—</span>
+                </div>
+                <label class="sc-label" for="sc-name-input">快捷方式名字</label>
+                <div class="sc-input-row">
+                    <input type="text" id="sc-name-input" class="sc-input" maxlength="120"
+                           placeholder="给这个快捷方式起个名字" autocomplete="off" spellcheck="false">
+                    <button type="button" class="sc-chip" id="sc-name-reset" title="恢复成自动推断的名字">默认</button>
+                </div>
+                <div class="sc-preview">
+                    <span class="sc-preview-icon"></span>
+                    <span class="sc-preview-text">桌面上会生成 <b id="sc-preview-name">—</b>.lnk，双击直接开玩</span>
+                </div>
+                <div class="sc-tip">名字里的 <code>\ / : * ? " &lt; &gt; |</code> 会自动换成下划线；留空则用默认名字。</div>
+                <label class="sc-auto-row">
+                    <input type="checkbox" id="sc-auto-forever">
+                    <span>以后自动创建，不再询问</span>
+                </label>
+            </div>
+
+            <div class="modal-footer sc-footer">
+                <button class="secondary-btn" id="sc-open-folder">打开解压位置</button>
+                <span class="sc-footer-gap"></span>
+                <button class="secondary-btn" data-sc-close="1">不创建</button>
+                <button class="secondary-btn" id="sc-back" style="display:none;">上一步</button>
+                <button class="primary-btn" id="sc-next">下一步</button>
+                <button class="primary-btn" id="sc-confirm" style="display:none;">创建快捷方式</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ============================================================
+         阅读器（在线阅读用；挂 body 顶层，任何页面都能打开）
+         ============================================================ -->
+    <div class="bk-reader" id="bk-reader" hidden>
+        <div class="bk-reader-top">
+            <button class="bk-icon-btn" id="bk-r-back" title="返回书库">←</button>
+            <div class="bk-reader-title">
+                <span id="bk-r-title">—</span>
+                <span class="bk-reader-sub" id="bk-r-sub"></span>
+            </div>
+            <div class="bk-reader-tools">
+                <button class="bk-icon-btn" id="bk-r-font-dec" title="字号 -">A-</button>
+                <button class="bk-icon-btn" id="bk-r-font-inc" title="字号 +">A+</button>
+                <button class="bk-icon-btn" id="bk-r-txt" title="下载 TXT 到本地">TXT</button>
+                <button class="bk-icon-btn" id="bk-r-epub" title="下载 EPUB 到本地">EPUB</button>
+                <button class="bk-icon-btn" id="bk-r-fav" title="收藏 / 取消收藏">☆</button>
+            </div>
+        </div>
+        <div class="bk-reader-body">
+            <article class="bk-text" id="bk-r-text">正在加载正文…</article>
+        </div>
+        <div class="bk-reader-bottom">
+            <button class="btn btn-secondary" id="bk-r-prev">上一章</button>
+            <select class="setting-input bk-chap-select" id="bk-r-chaps" hidden></select>
+            <span class="bk-reader-progress" id="bk-r-progress"></span>
+            <button class="btn btn-secondary" id="bk-r-next">下一章</button>
+        </div>
+    </div>
+</body>
+</html>

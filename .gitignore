@@ -1,0 +1,35 @@
+# 构建产物
+target/
+**/target/
+*.exe
+*.dll
+*.pdb
+!src-tauri/resources_main/*.dll
+
+# 依赖与缓存
+node_modules/
+.cargo/
+__pycache__/
+*.pyc
+
+# 运行时数据（不该进仓库）
+data/
+logs/
+*.swiftfetch-resume
+config.json
+
+# 安装包
+VortexDL-Setup*.exe
+*.nsi.bak
+
+# 编辑器 / 系统
+.vscode/
+.idea/
+*.swp
+Thumbs.db
+desktop.ini
+
+# 临时脚本/输出（不发布）
+/_*.ps1
+/_*.py
+/_*.txt
