@@ -17,6 +17,9 @@ echo        用户名 = JFbj-create
 echo        密码   = 粘贴 ghp_ 开头的令牌 (不是账号密码)
 echo.
 
+rem 让 git 正常显示中文文件名 (不然 status 里是 \346\216\250 这种八进制转义)
+git config core.quotepath false >nul 2>&1
+
 git remote get-url origin >nul 2>&1
 if errorlevel 1 git remote add origin https://github.com/JFbj-create/VortexDL.git
 
