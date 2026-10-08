@@ -314,6 +314,20 @@ makensis installer.nsi
 > 📌 NSIS 脚本里的 `LICENSE.txt` 和 `installer.nsi` 自己**都必须带 UTF-8 BOM**，
 > 否则中文会变成乱码（NSIS 靠 BOM 判断编码）。
 
+### 维护者：一键发布
+
+仓库根目录有两个辅助脚本（Windows，双击即可）：
+
+| 脚本 | 作用 |
+|---|---|
+| `推送.bat` | 把源码 + 官网推到 GitHub。第一次会弹登录窗口，点「Sign in with your browser」授权一次即可 |
+| `发版.bat` | 把 `VortexDL-Setup.exe` 作为 Release 附件上传（GitHub 单文件限 100MB，安装包 200MB+ 只能走 Release 附件）。会复用 `推送.bat` 存下的凭据 |
+
+> 📌 这两个 `.bat` 存的是 **GBK + CRLF**，并且**不带 `chcp 65001`**：
+> cmd.exe 是按控制台的 OEM 代码页（中文系统 = 936）**逐行解析批处理文件**的，
+> 存成 UTF-8 会让中文行被截断成「不是内部或外部命令」。
+> 而 `发版.ps1` 相反，**必须带 UTF-8 BOM**，否则 PowerShell 5.1 按 ANSI 读，中文 here-string 直接语法报错。
+
 ---
 
 ## ❓ 常见问题

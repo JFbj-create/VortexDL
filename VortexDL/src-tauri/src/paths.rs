@@ -1,9 +1,8 @@
 //! 全局路径与通用小工具。
 //!
-//! ★ 这些原本挂在 `mc/mod.rs` 里 —— 但用户要求把「我的世界启动器」从安装包、
-//!   公开源码和介绍里排除，MC 模块整体移到了 `_removed_mc/`，
-//!   于是把**别的模块也在用**的那几个工具函数抽到这里，避免一起被删掉。
-//!   现在 gx / anime / books / trainers 都走 `crate::paths::*`。
+//! 各业务模块共用的那几个：软件目录 / 数据目录 / 复制目录 / 短 id /
+//! 长超时 HTTP 客户端 / 解压 zip。gx、anime、books、trainer 都走 `crate::paths::*`，
+//! 不各写一份。
 
 use std::path::{Path, PathBuf};
 

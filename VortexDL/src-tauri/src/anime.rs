@@ -1982,8 +1982,7 @@ pub struct FollowItem {
 }
 
 fn follow_path() -> std::path::PathBuf {
-    // ★ 原来挂在「我的世界」的游戏目录旁边（mc_root 的父目录），
-    //   那个模块已按用户要求移出安装包 → 改成走统一的数据根 <软件目录>\datanime
+    // 追番列表放统一数据根 <软件目录>\data\anime\follow.json
     crate::paths::data_dir().join("anime").join("follow.json")
 }
 
