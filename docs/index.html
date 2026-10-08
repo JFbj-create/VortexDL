@@ -388,7 +388,7 @@ footer .sep{margin:0 9px;opacity:.4}
       <div class="stats">
         <div class="stat"><div class="n">110<span style="font-size:.55em"> MB/s</span></div><div class="l">实测下载峰值</div></div>
         <div class="stat"><div class="n">5万+</div><div class="l">本地游戏索引</div></div>
-        <div class="stat"><div class="n">64</div><div class="l">套界面主题</div></div>
+        <div class="stat"><div class="n">77</div><div class="l">套界面主题</div></div>
         <div class="stat"><div class="n">7.9万</div><div class="l">书库藏书</div></div>
       </div>
     </div>
@@ -499,9 +499,9 @@ footer .sep{margin:0 9px;opacity:.4}
         <div class="card reveal">
           <div class="ic">🎨</div>
           <h3>界面与性能</h3>
-          <p>64 套配色主题，低配机器自动降级，老电脑也能流畅跑。</p>
+          <p>77 套配色主题，低配机器自动降级，老电脑也能流畅跑。</p>
           <ul>
-            <li>64 套主题（紫 / 白 / 灰 / 黑 系列）</li>
+            <li>77 套主题（紫 / 白 / 灰 / 黑 系列）</li>
             <li>全局动效 + 液态玻璃质感</li>
             <li><b>性能模式</b>：≤4 核或 ≤4GB 自动关闭全部模糊特效</li>
             <li>应用内检查更新 + 系统监控</li>
@@ -632,10 +632,10 @@ footer .sep{margin:0 9px;opacity:.4}
             <span class="v">1523373515</span>
           </span>
         </a>
-        <a class="cc reveal" id="qq-group" href="#contact" data-copy="1083613183" title="点击复制群号，在 QQ 里搜群加入">
+        <a class="cc reveal" id="qq-group" href="#contact" data-qqgroup="1083613183" title="点击用 QQ 打开群名片加入（没装 QQ 会复制群号）">
           <span class="ic2">👥</span>
           <span>
-            <span class="t">QQ 交流群 · 点一下复制群号</span>
+            <span class="t">QQ 交流群 · 点一下进群</span>
             <span class="v">1083613183</span>
           </span>
         </a>
@@ -669,7 +669,7 @@ footer .sep{margin:0 9px;opacity:.4}
       <span class="sep">·</span>
       <a href="https://wpa.qq.com/msgrd?v=3&uin=1523373515&site=qq&menu=yes" target="_blank" rel="noopener">作者 QQ</a>
       <span class="sep">·</span>
-      <a href="#contact" data-copy="1083613183">交流群 1083613183</a>
+      <a href="#contact" data-qqgroup="1083613183">交流群 1083613183</a>
     </p>
     <p style="margin-top:14px;font-size:12.5px;opacity:.65">本软件按「现状」提供，详见证照 <a href="https://github.com/JFbj-create/VortexDL/blob/main/LICENSE.txt" target="_blank" rel="noopener">许可协议</a></p>
   </div>
@@ -773,6 +773,29 @@ footer .sep{margin:0 9px;opacity:.4}
       e.preventDefault();
       var v = el.getAttribute('data-copy');
       copyText(v, '已复制：' + v + ' —— 打开 QQ「加群/找群」粘贴搜索即可');
+    });
+  });
+
+  /* ---------- QQ 群：点一下直接唤起 QQ 加群 ----------
+     mqqapi:// 是 QQ 客户端的协议，装了 QQ 会直接弹群名片；
+     没装 / 被浏览器拦时，退化为「复制群号」。两者都做，用户不会空手而归。
+     用隐藏 iframe 发起协议跳转，避免主页面被导航走。 */
+  document.querySelectorAll('[data-qqgroup]').forEach(function (el) {
+    el.addEventListener('click', function (e) {
+      e.preventDefault();
+      var gid = el.getAttribute('data-qqgroup');
+      var url = 'mqqapi://card/show_pslcard?src_type=internal&version=1'
+              + '&uin=' + gid + '&card_type=group&source=qrcode';
+      try {
+        var f = document.createElement('iframe');
+        f.style.cssText = 'display:none;width:0;height:0;border:0';
+        f.src = url;
+        document.body.appendChild(f);
+        setTimeout(function () { try { document.body.removeChild(f); } catch (err) {} }, 2500);
+      } catch (err) {
+        try { window.location.href = url; } catch (err2) {}
+      }
+      copyText(gid, '已唤起 QQ 加群，没反应就手动搜群号：' + gid);
     });
   });
 
