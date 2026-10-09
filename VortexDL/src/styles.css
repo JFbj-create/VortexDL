@@ -12103,9 +12103,20 @@ body.lite-mode .modal-overlay { background: rgba(0, 0, 0, .6); }
 
 /* ---------- 阅读器 ---------- */
 .bk-reader {
-    position: fixed; inset: 0; z-index: 9000;
+    /* ★ 必须从标题栏下面开始（和其它全屏浮层 .an-detail / #an-play 一样）。
+       原来写的是 inset: 0 —— 阅读器顶栏的 y 是 13~43，而标题栏的拖拽条
+       (#vx-titlebar::before, pointer-events:auto, z-index 10000) 覆盖 y 0~40、x 0~(宽-150)，
+       窗口按钮区又占最右边 116px；于是顶栏那一整排按钮（A-/A+/TXT/EPUB/☆/译）
+       全被盖住、点了没反应。z-index 9000 < 10000，抬多高都没用，只能让开。 */
+    position: fixed; inset: var(--vx-titlebar-h, 40px) 0 0 0; z-index: 9000;
     display: flex; flex-direction: column;
-    background: var(--theme-bg, #14121c);
+    /* ★ 底色原来写的是 var(--theme-bg, #14121c) —— 但 `--theme-bg` **全项目从未定义**
+       （CSS 里只有 --theme-bg-start/mid1../end）。于是每个主题都退化成那个近黑的兜底色，
+       而文字用的是 --theme-text-primary（浅色主题下是 #111827 近黑）→ 深底 + 深字，
+       正文基本看不见。改用 .an-detail 同款的不透明主题渐变（六段全是实色 hex，
+       浅色主题给浅底、深色主题给深底），文字颜色不用动就自动配得上了。 */
+    background: linear-gradient(160deg,
+        var(--theme-bg-start), var(--theme-bg-mid2) 45%, var(--theme-bg-end));
     color: var(--theme-text-primary, #e8e8f0);
     animation: vxFade .18s var(--vx-ease, ease);
 }
@@ -12132,6 +12143,12 @@ body.lite-mode .modal-overlay { background: rgba(0, 0, 0, .6); }
 }
 .bk-icon-btn:hover { background: color-mix(in srgb, var(--theme-primary, #7c5cff) 22%, transparent); }
 .bk-icon-btn:active { transform: scale(.95); }
+/* 「译」按钮：正在显示译文时高亮，一眼能看出当前是译文还是原文 */
+.bk-icon-btn.active {
+    background: var(--theme-primary, #7c5cff);
+    border-color: var(--theme-primary, #7c5cff);
+    color: #fff;
+}
 .bk-reader-body {
     flex: 1; overflow: auto; padding: 28px 0 40px;
     scroll-behavior: smooth;
@@ -12150,3 +12167,35 @@ body.lite-mode .modal-overlay { background: rgba(0, 0, 0, .6); }
 }
 .bk-reader-progress { flex: 1; text-align: center; font-size: 12px; opacity: .66; }
 .bk-chap-select { max-width: 260px; }
+
+
+/* ============================================================
+   补齐 6 个「有人用、但从来没定义」的主题变量
+   ------------------------------------------------------------
+   背景：全项目有 6 个 `--theme-*` 只在 `var(...)` 里被读，从来没被写过：
+
+       --theme-bg  --theme-bg-secondary  --theme-border
+       --theme-hover-bg  --theme-input-bg  --theme-text
+
+   CSS 自定义属性没定义时，`var(--x, 兜底)` 会静默取兜底值，`var(--x)` 无兜底
+   则整条声明作废 —— 都不报错，所以一直没被发现。实测后果：
+     · 书库阅读器 .bk-reader 的底色退化成近黑的 #14121c，而文字是
+       --theme-text-primary（浅色主题下 #111827 近黑）→ 深底深字，正文看不见；
+     · 修改器 .fm-status / .fm-feature-card 在浅色主题下是深色块 + 深色字；
+     · 动漫 .sc-input 在深色主题下是浅色底 + 浅色字；
+     · .modal-preview-item:hover 的悬停色、.sc-log 的边框直接失效。
+
+   这里统一按**主题感知**的方式补上（都用已有的、各主题都定义了的变量做混色，
+   不硬编码颜色），一次修掉这一整类问题，而不是继续一个个改调用点。
+
+   ★ 放在文件最末尾：`_gen_themes.js` 只重写「主题 - 紫色 (默认)」到
+     「液态玻璃自动主题化」之间那一段，写在末尾不会被重新生成时冲掉。
+   ============================================================ */
+:root {
+    --theme-bg: var(--theme-bg-start);
+    --theme-bg-secondary: color-mix(in srgb, var(--theme-text-primary) 6%, transparent);
+    --theme-border: color-mix(in srgb, var(--theme-text-primary) 14%, transparent);
+    --theme-hover-bg: color-mix(in srgb, var(--theme-text-primary) 8%, transparent);
+    --theme-input-bg: color-mix(in srgb, var(--theme-surface-alt) 60%, transparent);
+    --theme-text: var(--theme-text-primary);
+}

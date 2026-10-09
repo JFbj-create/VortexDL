@@ -7,10 +7,12 @@
 //
 // ★★ 源的选择全部按**本机实测**，不靠想当然。2026-10-09 复测结论：
 //
-//   可用（都实测走通"搜索 → 书页 → 正文"）：
-//     · **文潮小说 wcxs.net** —— 中文网络小说（玄幻/都市/穿越/军史…），
-//       免登录，能读能下。★ 正文是 Base64 混淆（`document.writeln(qsbs.bb('...'))`），
-//       必须解 base64 再 strip_tags，直接抓 HTML 只会得到导航。
+//   可用（都实测走通"搜索 → 书页 → 正文/下载"）：
+//     · **苦瓜书盘 kgbook.com** —— 中文电子书（现代/古典文学、武侠、网络小说、科幻、
+//       历史、期刊杂志…），**能直接下到 PDF / mobi / epub / txt 文件**。
+//       搜索是 POST `/e/search/index.php`（隐藏字段 tbname=download），
+//       结果页 `/e/search/result/?searchid=N`，下载 `e/DownSys/GetDown?classid=&id=&pathid=`
+//       → 302 到真实文件（实测 application/pdf, 1.24MB）。
 //     · **Project Gutenberg 官网直连**（www.gutenberg.org）—— 79k 外文名著 +
 //       **444 本中文公版书**（/browse/languages/zh）。★ 不再走 gutendex.com：
 //       那个域名从这条网络**连不上**，30s×3 重试要 92 秒才报错，
@@ -22,11 +24,19 @@
 //     · **本地导入**（txt / epub）—— 源全挂了也能用。
 //
 //   不可达/不可用（都实测过，别再往回加）：
-//     · openlibrary、archive.org、wikisource、libgen、anna's archive、好读 haodoo —— 连不上/超时；
+//     · openlibrary、archive.org、wikisource、libgen、anna's archive（.org/.se/.li 超时，
+//       .gl 只 HEAD 通、GET 超时）、好读 haodoo —— 连不上/超时；
 //     · 主流中文网文站：起点/番茄/七猫/掌阅/纵横/17K/塔读/小说阅读网 —— 要登录或纯 JS 渲染；
 //     · 笔趣阁系（bqg128 / bqgui / b520 / bige7 / 365 / xbiquge / 69shuba / 23qb /
 //       23us / bxwx / qbwx / bibqg / 飘天 / 快眼 / 书迷楼 …）—— 404 / 403 / DNS 失败 / 连接被拒；
-//     · 追书神器公开 API —— 已改成要 token。
+//     · 追书神器公开 API —— 已改成要 token；
+//     · **文潮小说 wcxs.net** —— 2026-10-09 按用户要求**移除**（"质量不高"）：内容是
+//       SEO 聚合站，书名一堆"XX笔趣阁无弹窗免费阅读"，正文也是抓来的；
+//     · 鸠摩搜书 jiumodiary.com —— 搜索框 `disabled`，**要加微信公众号拿验证码**（反爬），不做绕过；
+//     · sobooks.cc —— 搜索有**算术验证码**（"28 + 41 = ?"）；搬书匠连接被强制关闭；
+//     · 三秋书屋 d4j.cn —— 超时；MAGAZINELIB —— 下载链在 `/login/` 下，要登录；
+//     · 读者阁 duzhege.cn —— 文章页 404、下载走 OneDrive 外链；DOAJ —— 403；
+//     · 国家哲社文献中心 ncpssd.cn —— 是学术**检索**站，没有整本下载。
 //
 // ★ 超时策略（2026-10-09 改）：搜索/列表 **8 秒 × 2 次**，正文/下载 25 秒；
 //   并且**连接层错误不重试**（DNS 失败、连接被拒、TLS 握手失败都是确定性的，
@@ -152,6 +162,24 @@ fn client_fast() -> Result<reqwest::Client, String> {
 fn client_body() -> Result<reqwest::Client, String> {
     reqwest::Client::builder()
         .timeout(Duration::from_secs(25))
+        .connect_timeout(Duration::from_secs(6))
+        .user_agent(UA)
+        .danger_accept_invalid_certs(true)
+        .build()
+        .map_err(|e| format!("HTTP 客户端创建失败: {e}"))
+}
+
+/// 抓整本书文件用：**绝对不能设总超时**。
+///
+/// 实测（2026-10-09）：苦瓜书盘的源站只有 **0.32 MB/s**，一本 7.2MB 的 epub 要跑
+/// **22.3 秒**，而 `client_body()` 是 25 秒**总**超时 —— 正好卡在边界上，快一点就成功、
+/// 慢一点就在读到一半时被掐断，reqwest 报 `error decoding response body`。
+/// 这个错看着像"文件坏了"，其实是超时，而且重试 3 次会 3 次都撞同一面墙（因为总时长不变）。
+///
+/// 改成 `read_timeout`：它按**两次读到数据之间的间隔**计时，只要还在往下传就不算超时。
+fn client_download() -> Result<reqwest::Client, String> {
+    reqwest::Client::builder()
+        .read_timeout(Duration::from_secs(40))
         .connect_timeout(Duration::from_secs(6))
         .user_agent(UA)
         .danger_accept_invalid_certs(true)
@@ -666,51 +694,177 @@ fn shuge_downloads(html: &str) -> Vec<(String, String)> {
 }
 
 // ============================================================================
-// 源 3.5：文潮小说 wcxs.net（中文网络小说，免登录、能读能下）
+// 源 3.5：苦瓜书盘 kgbook.com（中文电子书，能直接下 PDF / mobi / epub / txt）
 // ----------------------------------------------------------------------------
-// ★ 2026-10-09 实测：这批候选里唯一活着的中文网文站。
-//   主流站（起点/番茄/七猫/掌阅/纵横/17K）全要登录或纯 JS；
-//   笔趣阁系（bqg128 / bqgui / b520 / bige7 / 365 / xbiquge / 69shuba /
-//   23qb / 23us / bxwx / qbwx …）实测 404 / 403 / DNS 失败 / 连接被拒。
-//   文潮小说全链路走通：搜索 → 书页 → 目录 → 章节正文。
+// ★ 2026-10-09 实测（用户给的源里唯一完整可用的中文电子书站）：
+//   搜索   POST /e/search/index.php
+//          form: keyboard=<词> show=title,booksay,bookwriter tbname=download tempid=1
+//          ★ tbname 必须是 **download**（写 news 会返回"没有搜索到相关内容"）
+//          → 302 到 /e/search/result/?searchid=N，那一页才是结果
+//   书页   GET  /{分类拼音}/{id}.html   （如 /kehuanxuanhuan/513.html）
+//          页面里有 作者/格式/语言/大小/简介
+//   下载   GET  /e/DownSys/GetDown?classid={数字}&id={id}&pathid=0
+//          → 302 到真实文件（实测 application/pdf, Content-Length 1.24MB）
+//          ★ classid 是**数字**（科幻玄幻=5），不是分类拼音，只能从书页里抠
 //
-// 结构（实测）：
-//   搜索   POST /search.html  form: keyword=xx           → 结果里是 /lishu/{slug}/
-//   分类   GET  /fenlei/1/1.html  (1玄幻 2穿越 3都市 4军史 5网游 6科幻 7灵异 8其他)
-//   书页   GET  /lishu/{slug}/                            → 书名 / 作者 / 简介 / 章节链接
-//   目录   GET  /lishu/{slug}/mulu_1.html                 → 全量章节（书页只给最近几十章）
-//   章节   GET  /lishu/{slug}/{code}.html                 → 正文在 document.writeln(qsbs.bb('BASE64')) 里
-//
-// ★ 正文是 **Base64 混淆**的（`qsbs.bb` 解码后是 <p> 段落），必须 base64 解出来再 strip_tags；
-//   直接抓 HTML 只会得到导航和"请勿开启浏览器阅读模式"那句提示。
+// 内容质量比"笔趣阁系"那种 SEO 聚合站高得多：都是正式出版物（三体/刘慈欣 这类）。
 // ============================================================================
 
-const WCXS_BASE: &str = "https://www.wcxs.net";
+const KGBOOK_BASE: &str = "https://www.kgbook.com";
 
-/// 从任意页面里抽出书籍卡片（搜索页 / 分类页 / 书页的"相关推荐"都是这个结构）。
-fn parse_wcxs_books(html: &str) -> Vec<Book> {
-    let re = regex::Regex::new(r#"(?is)<a[^>]+href="(/lishu/([a-z0-9]+)/)"[^>]*>(.*?)</a>"#).unwrap();
+/// 书籍详情（书页里才有：作者/格式/大小/简介/真实下载链）
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct KgDetail {
+    pub author: String,
+    pub format: String,
+    pub lang: String,
+    pub size: String,
+    pub desc: String,
+    /// 下载入口（GetDown，会 302 到真实文件）
+    pub dl_url: String,
+}
+
+pub async fn kgbook_search(kw: &str) -> Result<Vec<Book>, String> {
+    let html = post_form(
+        &format!("{KGBOOK_BASE}/e/search/index.php"),
+        &[
+            ("keyboard", kw.trim()),
+            ("show", "title,booksay,bookwriter"),
+            ("tbname", "download"),
+            ("tempid", "1"),
+        ],
+        Some(KGBOOK_BASE),
+    )
+    .await?;
+    let v = parse_kgbook_books(&html);
+    if v.is_empty() {
+        // 站内没搜到时它会返回一句"没有搜索到相关的内容"
+        return Err(format!("苦瓜书盘没搜到「{}」（换关键词试试）", kw.trim()));
+    }
+    Ok(v)
+}
+
+/// 苦瓜书盘「中文小说」首页要展示的分类（站点是按分类分开的，单个分类只有 20~30 本）
+pub const KGBOOK_NOVEL_CATS: &[&str] = &[
+    "kehuanxuanhuan",  // 科幻玄幻
+    "wuxiaxiaoshuo",   // 武侠小说
+    "wangluoxiaoshuo", // 网络小说
+    "xiandaiwenxue",   // 现代文学
+    "gudianwenxue",    // 古典文学
+    "waiguowenxue",    // 外国文学
+];
+/// 苦瓜书盘「期刊杂志」分类
+pub const KGBOOK_MAG_CATS: &[&str] = &["qikanzazhi"];
+
+/// 多个分类合并成一个首页列表（每个分类页独立缓存 30 分钟，第一次之后很快）
+pub async fn kgbook_home_multi(cats: &[&str]) -> Result<Vec<Book>, String> {
+    let futs: Vec<_> = cats.iter().map(|c| kgbook_home(c)).collect();
+    let mut out: Vec<Book> = Vec::new();
+    let mut seen = std::collections::HashSet::new();
+    let mut ok_any = false;
+    for r in futures::future::join_all(futs).await {
+        match r {
+            Ok(v) => {
+                ok_any = true;
+                for b in v {
+                    if seen.insert(b.key.clone()) {
+                        out.push(b);
+                    }
+                }
+            }
+            Err(e) => println!("[kgbook] 分类拉取失败: {e}"),
+        }
+    }
+    if !ok_any {
+        return Err("苦瓜书盘的分类页都拉不到（网络问题）".into());
+    }
+    out.truncate(60);
+    Ok(out)
+}
+
+/// 带分类倾向的搜索：**站内搜索 + 分类页本地匹配，只排序、不过滤**。
+///
+/// 为什么不能只靠站内搜索：苦瓜书盘的 `/e/search/` 是按 `tbname=download` 全站搜，
+/// 实测搜「读者」返回 15 条，**一条杂志都没有**（命中的是简介里带"读者"的科普书），
+/// 而杂志《读者》2009年合订本 明明在站内、搜「合订本」就能搜到。
+/// 所以这里再补一层：把目标分类页的条目按书名本地匹配一遍，命中的排最前面。
+/// 其它分类的结果一律保留 —— 一旦做硬过滤，书被归到别的分类就变成"搜不到"。
+pub async fn kgbook_search_scoped(kw: &str, cats: &[&str]) -> Result<Vec<Book>, String> {
+    let k = kw.trim().to_lowercase();
+    // 分类页本地命中（并行拉，各自有缓存）
+    let futs: Vec<_> = cats.iter().map(|c| kgbook_home(c)).collect();
+    let mut local: Vec<Book> = Vec::new();
+    for r in futures::future::join_all(futs).await {
+        if let Ok(v) = r {
+            for b in v {
+                if b.title.to_lowercase().contains(&k) {
+                    local.push(b);
+                }
+            }
+        }
+    }
+    let mut remote = kgbook_search(kw).await.unwrap_or_default();
+    let mut out: Vec<Book> = Vec::new();
+    let mut seen = std::collections::HashSet::new();
+    for b in local.into_iter().chain(remote.drain(..)) {
+        if seen.insert(b.key.clone()) {
+            out.push(b);
+        }
+    }
+    if out.is_empty() {
+        return Err(format!("苦瓜书盘没搜到「{}」（换关键词试试）", kw.trim()));
+    }
+    Ok(out)
+}
+
+/// 分类页（首页"推荐"用）。cat 传分类拼音，如 kehuanxuanhuan / xiandaiwenxue。
+pub async fn kgbook_home(cat: &str) -> Result<Vec<Book>, String> {
+    let cat = if cat.trim().is_empty() { "kehuanxuanhuan" } else { cat.trim() };
+    let url = format!("{KGBOOK_BASE}/{cat}/");
+    let key = format!("kg:home:{cat}");
+    let html = match cache().get(&key, Duration::from_secs(1800)) {
+        Some(b) => b,
+        None => {
+            let b = get_text(&url, Some(KGBOOK_BASE)).await?;
+            cache().put(&key, &b);
+            b
+        }
+    };
+    let mut v = parse_kgbook_books(&html);
+    v.truncate(48);
+    Ok(v)
+}
+
+/// 从搜索结果页 / 分类页抽书籍卡片。
+/// 链接形如 `https://kgbook.com/kehuanxuanhuan/513.html`；导航链接（e/、page/、skin/、list/）要排掉。
+fn parse_kgbook_books(html: &str) -> Vec<Book> {
+    let re = regex::Regex::new(
+        r#"(?is)<a[^>]+href="(https?://(?:www\.)?kgbook\.com/([a-z]+)/(\d+)\.html)"[^>]*>(.*?)</a>"#,
+    )
+    .unwrap();
     let mut out = Vec::new();
     let mut seen = std::collections::HashSet::new();
     for c in re.captures_iter(html) {
-        let href = c[1].to_string();
-        let slug = c[2].to_string();
-        let title = html_unescape(&strip_tags(&c[3]));
+        let url = c[1].to_string();
+        let cat = c[2].to_string();
+        let id = c[3].to_string();
+        let title = html_unescape(&strip_tags(&c[4]));
         let title = title.trim().to_string();
-        if title.chars().count() < 2 || !seen.insert(slug.clone()) {
+        // 结果页底部"热门下载"那一块也会被匹配到，书名太短的当噪声丢掉
+        if title.chars().count() < 2 || !seen.insert(url.clone()) {
             continue;
         }
         out.push(Book {
-            key: format!("wcxs:{slug}"),
-            source: "wcxs".into(),
-            source_id: slug,
-            title: title.chars().take(60).collect(),
+            key: format!("kgbook:{cat}/{id}"),
+            source: "kgbook".into(),
+            source_id: format!("{cat}/{id}"),
+            title: title.chars().take(70).collect(),
             author: String::new(),
             cover: String::new(),
             lang: "zh".into(),
-            tags: vec!["网络小说".into()],
+            tags: vec!["中文电子书".into()],
             desc: String::new(),
-            read_url: format!("{WCXS_BASE}{href}"),
+            read_url: url,
             dl_txt: String::new(),
             dl_epub: String::new(),
             popularity: 0,
@@ -720,111 +874,167 @@ fn parse_wcxs_books(html: &str) -> Vec<Book> {
     out
 }
 
-/// 分类首页（首页"推荐"用）。cat 见上面注释里的编号。
-pub async fn wcxs_home(cat: u32) -> Result<Vec<Book>, String> {
-    let cat = if (1..=8).contains(&cat) { cat } else { 1 };
-    let url = format!("{WCXS_BASE}/fenlei/{cat}/1.html");
-    let key = format!("wcxs:home:{cat}");
-    let html = match cache().get(&key, Duration::from_secs(1800)) {
-        Some(b) => b,
-        None => {
-            let b = get_text(&url, Some(WCXS_BASE)).await?;
-            cache().put(&key, &b);
-            b
-        }
+/// 拉书页，抠出作者/格式/大小/简介/下载入口。
+pub async fn kgbook_detail(book: &Book) -> Result<KgDetail, String> {
+    let html = get_text(&book.read_url, Some(KGBOOK_BASE)).await?;
+    Ok(parse_kgbook_detail(&html))
+}
+
+fn parse_kgbook_detail(html: &str) -> KgDetail {
+    let grab = |label: &str| -> String {
+        // 页面是 "作者：刘慈欣 格式：6寸pdf 语言：简体中文 大小：1.18 MB"
+        let pat = format!(r#"{}\s*[:：]\s*([^<>"'\s]{{1,24}})"#, label);
+        regex::Regex::new(&pat)
+            .ok()
+            .and_then(|re| re.captures(html).map(|c| c[1].to_string()))
+            .unwrap_or_default()
     };
-    let mut v = parse_wcxs_books(&html);
-    // 分类页把"最新章节"也放进来了，第一屏混着别的小说；截到 40 本够首页用
-    v.truncate(40);
-    Ok(v)
-}
-
-pub async fn wcxs_search(kw: &str) -> Result<Vec<Book>, String> {
-    let html = post_form(
-        &format!("{WCXS_BASE}/search.html"),
-        &[("keyword", kw.trim()), ("searchtype", "all")],
-        Some(WCXS_BASE),
-    )
-    .await?;
-    let v = parse_wcxs_books(&html);
-    if v.is_empty() {
-        return Err(format!("「{}」没搜到结果", kw.trim()));
+    // 简介：从"简介："到下一个区块标题（或页面尾部的推荐区）
+    let desc = {
+        let re = regex::Regex::new(r#"(?is)简\s*介\s*[:：]\s*(.{0,1200}?)(?:<div|<p\s+class="(?:down|tag)|热门下载|购买正版)"#).unwrap();
+        re.captures(html)
+            .map(|c| html_unescape(&strip_tags(&c[1])))
+            .unwrap_or_default()
+            .trim()
+            .to_string()
+    };
+    // 下载入口（注意 HTML 里是 &amp; 转义）
+    let dl_url = regex::Regex::new(r#"href="([^"]*DownSys/GetDown[^"]*)""#)
+        .unwrap()
+        .captures(html)
+        .map(|c| c[1].replace("&amp;", "&"))
+        .map(|u| if u.starts_with("http") { u } else { format!("{KGBOOK_BASE}{u}") })
+        .unwrap_or_default();
+    KgDetail {
+        author: grab("作者"),
+        format: grab("格式"),
+        lang: grab("语言"),
+        size: grab("大小"),
+        desc: desc.chars().take(400).collect(),
+        dl_url,
     }
-    Ok(v)
 }
 
-/// 目录页（比书页全，书页只列最近几十章）。
-pub async fn wcxs_chapters(book: &Book) -> Result<Vec<Chapter>, String> {
-    let slug = book.source_id.trim_matches('/');
-    let html = get_text(&format!("{WCXS_BASE}/lishu/{slug}/mulu_1.html"), Some(&book.read_url)).await?;
-    Ok(parse_wcxs_chapters(&html, slug))
+/// 这本书能不能在阅读器里直接读？txt / epub 可以（解出纯文本），pdf / mobi 不行。
+fn kgbook_readable(detail: &KgDetail) -> bool {
+    let f = detail.format.to_lowercase();
+    f.contains("txt") || f.contains("epub")
 }
 
-fn parse_wcxs_chapters(html: &str, slug: &str) -> Vec<Chapter> {
-    let re = regex::Regex::new(r#"(?is)<a[^>]+href="(/lishu/[a-z0-9]+/([a-z0-9_]+)\.html)"[^>]*>(.*?)</a>"#).unwrap();
-    let mut out = Vec::new();
-    let mut seen = std::collections::HashSet::new();
-    for c in re.captures_iter(html) {
-        let code = c[2].to_string();
-        if code == "mulu_1" || !seen.insert(code.clone()) {
-            continue;
-        }
-        let name = html_unescape(&strip_tags(&c[3]));
-        let name = name.trim();
-        // 目录页会混进"开始阅读""加入书架"这类按钮
-        if name.is_empty() || name == "开始阅读" || name == "章节目录" || name == "加入书架" {
-            continue;
-        }
-        out.push(Chapter {
-            index: out.len(),
-            name: name.chars().take(60).collect(),
-            url: format!("{WCXS_BASE}{}", &c[1]),
-        });
-        let _ = slug;
+/// 把苦瓜书盘的书下载到本地，返回落地路径。扩展名按 Content-Disposition / 最终 URL 猜。
+/// 抓文件字节 + 猜扩展名（在线阅读和"下载到本地"共用）。
+async fn kgbook_fetch_bytes(book: &Book, detail: &KgDetail) -> Result<(Vec<u8>, String), String> {
+    if detail.dl_url.is_empty() {
+        return Err("这个页面里没找到下载入口（站点可能改版了）".into());
     }
-    out
-}
-
-/// 章节正文：把 `document.writeln(qsbs.bb('BASE64'))` 全部解出来拼起来。
-pub async fn wcxs_content(book: &Book, chapter: Option<&Chapter>) -> Result<BookText, String> {
-    let url = chapter.map(|c| c.url.clone()).unwrap_or_else(|| book.read_url.clone());
-    let html = get_text_body(&url, Some(&book.read_url)).await?;
-    let re = regex::Regex::new(r#"qsbs\.bb\('([A-Za-z0-9+/=\s]+)'\)"#).unwrap();
-    let mut joined = String::new();
-    for c in re.captures_iter(&html) {
-        if let Some(raw) = b64_decode(&c[1]) {
-            joined.push_str(&String::from_utf8_lossy(&raw));
+    let cli = client_download()?;
+    let mut last_err = String::new();
+    // 实测：站点在 Cloudflare 后面，响应头带 `Connection: close`，7MB 的 epub 偶尔会在
+    // 传一半时断流，reqwest 报 `error decoding response body`（Python/curl 同一时刻是好的，
+    // 说明是连接被掐而不是文件坏）。所以这里**重试 2 次**，并且显式要求
+    // `Accept-Encoding: identity` —— 二进制包不要走透明 gzip，解码失败正是这句报错的头号来源。
+    for attempt in 0..3 {
+        if attempt > 0 {
+            tokio::time::sleep(Duration::from_millis(400 * attempt as u64)).await;
         }
-    }
-    // 兜底：个别页面没用混淆，就直接取正文容器
-    if joined.trim().is_empty() {
-        if let Some(c) = regex::Regex::new(r#"(?is)<div[^>]*class="rtext"[^>]*>(.*?)</div>"#)
-            .unwrap()
-            .captures(&html)
+        let resp = match cli
+            .get(&detail.dl_url)
+            .header("Referer", &book.read_url)
+            .header("Accept-Encoding", "identity")
+            .send()
+            .await
         {
-            joined = c[1].to_string();
+            Ok(r) => r,
+            Err(e) => {
+                last_err = format!("下载失败: {e}");
+                continue;
+            }
+        };
+        if !resp.status().is_success() {
+            last_err = format!("下载失败: HTTP {}", resp.status().as_u16());
+            // 4xx 重试没意义（5xx 才可能是边缘节点抽风）
+            if resp.status().as_u16() < 500 {
+                return Err(last_err);
+            }
+            continue;
+        }
+        // 扩展名：优先 Content-Disposition 里的 filename，其次最终 URL 的后缀，最后按"格式"字段
+        let cd = resp
+            .headers()
+            .get("content-disposition")
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or("")
+            .to_string();
+        let final_url = resp.url().to_string();
+        let want_len = resp.content_length();
+        let ext = guess_ext(&cd).or_else(|| guess_ext(&final_url)).unwrap_or_else(|| {
+            let f = detail.format.to_lowercase();
+            if f.contains("epub") {
+                "epub".to_string()
+            } else if f.contains("mobi") {
+                "mobi".to_string()
+            } else if f.contains("txt") {
+                "txt".to_string()
+            } else {
+                "pdf".to_string()
+            }
+        });
+        let bytes = match resp.bytes().await {
+            Ok(b) => b,
+            Err(e) => {
+                last_err = if e.is_timeout() {
+                    format!("下载超时（这个源很慢，传了一半停了）: {e}")
+                } else {
+                    format!("读取失败: {e}")
+                };
+                continue;
+            }
+        };
+        if bytes.is_empty() {
+            last_err = "下载到 0 字节（站点可能限流了）".into();
+            continue;
+        }
+        // ★ 校验长度：宁可重试也不要交出被截断的包（截断的 epub/zip 解压时会报"包坏了"）
+        if let Some(want) = want_len {
+            if (bytes.len() as u64) < want {
+                last_err = format!("文件被截断：声明 {want} 字节，实际只收到 {}", bytes.len());
+                continue;
+            }
+        }
+        return Ok((bytes.to_vec(), ext));
+    }
+    Err(last_err)
+}
+
+pub async fn kgbook_download(book: &Book, dest_dir: &str) -> Result<String, String> {
+    let detail = kgbook_detail(book).await?;
+    let (bytes, ext) = kgbook_fetch_bytes(book, &detail).await?;
+    let dir = if dest_dir.trim().is_empty() {
+        book_dir().join("local")
+    } else {
+        PathBuf::from(dest_dir)
+    };
+    std::fs::create_dir_all(&dir).map_err(|e| format!("建目录失败: {e}"))?;
+    let safe: String = book
+        .title
+        .chars()
+        .map(|c| if r#"<>:"/\|?*"#.contains(c) { '_' } else { c })
+        .collect();
+    let safe = safe.trim();
+    let safe = if safe.is_empty() { book.source_id.replace('/', "_") } else { safe.to_string() };
+    let path = dir.join(format!("{safe}.{ext}"));
+    std::fs::write(&path, &bytes).map_err(|e| format!("写文件失败: {e}"))?;
+    Ok(path.to_string_lossy().to_string())
+}
+
+fn guess_ext(s: &str) -> Option<String> {
+    let l = s.to_lowercase();
+    for e in ["epub", "mobi", "azw3", "txt", "pdf", "zip", "rar"] {
+        if l.contains(&format!(".{e}")) {
+            return Some(e.to_string());
         }
     }
-    let mut text = strip_tags(&joined);
-    // 砍掉站点塞在正文前后的提示
-    for cut in ["请勿开启浏览器阅读模式", "文潮小说～", "文潮小说 >", "上一章", "下一章"] {
-        if let Some(i) = text.find(cut) {
-            text = text[i + cut.len()..].to_string();
-        }
-    }
-    text = text.trim().to_string();
-    if text.chars().count() < 20 {
-        return Err("这一章没取到正文（站点可能改版了）".into());
-    }
-    Ok(BookText {
-        title: chapter.map(|c| c.name.clone()).unwrap_or_else(|| book.title.clone()),
-        author: book.author.clone(),
-        text: text.chars().take(200_000).collect(),
-        chapters: Vec::new(),
-        chapter_index: chapter.map(|c| c.index).unwrap_or(0),
-        has_next: false,
-        has_prev: false,
-    })
+    None
 }
 
 // ============================================================================
@@ -1108,8 +1318,6 @@ async fn gutenberg_many(lang: Option<&str>, pages: u32) -> Result<Vec<Book>, Str
 pub async fn home(section: &str) -> Result<Vec<Book>, String> {
     match section {
         "zh" => gutenberg_many(Some("zh"), 3).await,
-        // 中文网络小说（文潮小说）—— 用户要的"小说"，玄幻分类打底
-        "novel" => wcxs_home(1).await,
         "guoxue" => {
             // 国学经典：直接搜"经""子"这类拿不到列表，用固定关键词凑一页
             let mut out = Vec::new();
@@ -1124,6 +1332,10 @@ pub async fn home(section: &str) -> Result<Vec<Book>, String> {
             }
             Ok(out)
         }
+        // 中文电子书（苦瓜书盘）—— 用户要的"小说"，科幻玄幻分类打底
+        "novel" => kgbook_home_multi(KGBOOK_NOVEL_CATS).await,
+        // 期刊杂志（苦瓜书盘的期刊杂志分类，PDF）
+        "magazine" => kgbook_home_multi(KGBOOK_MAG_CATS).await,
         "local" => Ok(local_scan(&book_dir().join("local"))),
         // 默认：热门（按下载量）
         _ => gutenberg_many(None, 3).await,
@@ -1132,7 +1344,9 @@ pub async fn home(section: &str) -> Result<Vec<Book>, String> {
 
 pub async fn search(source: &str, kw: &str, page: u32) -> Result<Vec<Book>, String> {
     match source {
-        "wcxs" => wcxs_search(kw).await,
+        "kgbook" => kgbook_search(kw).await,
+        "novel" => kgbook_search_scoped(kw, KGBOOK_NOVEL_CATS).await,
+        "magazine" => kgbook_search_scoped(kw, KGBOOK_MAG_CATS).await,
         "se" => se_search(kw).await,
         "guoxue" => guoxue_search(kw).await,
         "shuge" => shuge_search(kw).await,
@@ -1150,7 +1364,11 @@ pub async fn search(source: &str, kw: &str, page: u32) -> Result<Vec<Book>, Stri
 /// 章节表：单文件源给一章；文潮小说给真目录。
 pub async fn chapters(book: &Book) -> Result<Vec<Chapter>, String> {
     match book.source.as_str() {
-        "wcxs" => wcxs_chapters(book).await,
+        "kgbook" => Ok(vec![Chapter {
+            index: 0,
+            name: "整本（txt/epub 可在线读，PDF/MOBI 请下载）".into(),
+            url: book.read_url.clone(),
+        }]),
         "gutenberg" => Ok(vec![Chapter {
             index: 0,
             name: "全文（Gutenberg 单文件）".into(),
@@ -1170,18 +1388,37 @@ pub async fn content(book: &Book, chapter_index: usize) -> Result<BookText, Stri
         return read_local(&book.local_path, Some(chapter_index));
     }
     match book.source.as_str() {
-        "se" => se_content(book).await,
-        "wcxs" => {
-            // 先拿目录，再按 index 定位到具体那一章
-            let chs = wcxs_chapters(book).await?;
-            let ch = chs.get(chapter_index).ok_or_else(|| format!("没有第 {} 章", chapter_index + 1))?;
-            let mut t = wcxs_content(book, Some(ch)).await?;
-            t.chapters = chs;
-            t.chapter_index = chapter_index;
-            t.has_next = chapter_index + 1 < t.chapters.len();
-            t.has_prev = chapter_index > 0;
-            Ok(t)
+        // 苦瓜书盘：txt/epub 能解出纯文本直接读；pdf/mobi 阅读器读不了，提示去下载
+        "kgbook" => {
+            let detail = kgbook_detail(book).await?;
+            if !kgbook_readable(&detail) {
+                return Err(format!(
+                    "这本是 {} 格式，阅读器读不了 —— 点「下载」拿到文件后用本地阅读器打开（作者：{}）",
+                    if detail.format.is_empty() { "PDF/MOBI".to_string() } else { detail.format.clone() },
+                    if detail.author.is_empty() { "未知" } else { &detail.author }
+                ));
+            }
+            let (bytes, ext) = kgbook_fetch_bytes(book, &detail).await?;
+            let text = if ext == "epub" {
+                epub_to_text(&bytes)?
+            } else {
+                decode_body(&bytes)
+            };
+            let text = text.trim().to_string();
+            if text.chars().count() < 50 {
+                return Err("这个文件里没抽出正文（可能是扫描版）".into());
+            }
+            Ok(BookText {
+                title: book.title.clone(),
+                author: detail.author.clone(),
+                text: text.chars().take(400_000).collect(),
+                chapters: Vec::new(),
+                chapter_index: 0,
+                has_next: false,
+                has_prev: false,
+            })
         }
+        "se" => se_content(book).await,
         "shuge" => shuge_content(&book.read_url).await,
         "guoxue" => {
             let html = get_text(&book.read_url, Some(GUOXUE_BASE)).await?;
@@ -1274,13 +1511,9 @@ pub async fn content(book: &Book, chapter_index: usize) -> Result<BookText, Stri
 
 /// 下载到本地（书库目录或用户指定目录）
 pub async fn download(book: &Book, format: &str, dest_dir: &str) -> Result<String, String> {
-    // 网络小说源没有"整本直链"，只能把章节挨个抓下来拼成 txt。
-    // 章数可能上千，这里限 200 章 + 并发 6，避免点一下卡几分钟。
-    if book.source == "wcxs" {
-        if format == "epub" {
-            return Err("网络小说源没有 epub，选 txt 就行".into());
-        }
-        return download_wcxs_txt(book, dest_dir).await;
+    // 苦瓜书盘：书页里才有真实下载链，单独走一条
+    if book.source == "kgbook" {
+        return kgbook_download(book, dest_dir).await;
     }
     let url = match format {
         "epub" => {
@@ -1311,67 +1544,21 @@ pub async fn download(book: &Book, format: &str, dest_dir: &str) -> Result<Strin
     let safe = safe.trim();
     let safe = if safe.is_empty() { book.source_id.clone() } else { safe.to_string() };
     let path = dir.join(format!("{safe}.{ext}"));
-    let cli = client_body()?;
+    let cli = client_download()?;
     let resp = cli.get(&url).send().await.map_err(|e| format!("下载失败: {e}"))?;
     if !resp.status().is_success() {
         return Err(format!("下载失败: HTTP {}", resp.status().as_u16()));
     }
-    let bytes = resp.bytes().await.map_err(|e| format!("读取失败: {e}"))?;
+    let want_len = resp.content_length();
+    let bytes = resp.bytes().await.map_err(|e| {
+        if e.is_timeout() { format!("下载超时（这个源很慢）: {e}") } else { format!("读取失败: {e}") }
+    })?;
+    if let Some(w) = want_len {
+        if (bytes.len() as u64) < w {
+            return Err(format!("文件被截断：声明 {w} 字节，实际只收到 {}", bytes.len()));
+        }
+    }
     std::fs::write(&path, &bytes).map_err(|e| format!("写文件失败: {e}"))?;
-    Ok(path.to_string_lossy().to_string())
-}
-
-/// 网络小说：把章节抓下来拼成一本 txt（上限 200 章，并发 6）。
-async fn download_wcxs_txt(book: &Book, dest_dir: &str) -> Result<String, String> {
-    const MAX_CH: usize = 200;
-    const CONC: usize = 6;
-
-    let chs = wcxs_chapters(book).await?;
-    if chs.is_empty() {
-        return Err("这本书没抓到章节目录".into());
-    }
-    let take = chs.len().min(MAX_CH);
-    let mut body = String::new();
-    body.push_str(&format!("《{}》\n\n", book.title));
-    if !book.author.is_empty() {
-        body.push_str(&format!("作者：{}\n\n", book.author));
-    }
-    body.push_str(&format!(
-        "（本文件含前 {} 章，共 {} 章；来源：文潮小说）\n\n",
-        take,
-        chs.len()
-    ));
-
-    for chunk in chs[..take].chunks(CONC) {
-        let mut futs = Vec::new();
-        for ch in chunk {
-            futs.push(wcxs_content(book, Some(ch)));
-        }
-        for (ch, r) in chunk.iter().zip(futures::future::join_all(futs).await) {
-            body.push_str(&format!("{}\n\n", ch.name));
-            match r {
-                Ok(t) => body.push_str(&t.text),
-                Err(e) => body.push_str(&format!("（这一章没抓到：{e}）")),
-            }
-            body.push_str("\n\n");
-        }
-    }
-
-    let dir = if dest_dir.trim().is_empty() {
-        book_dir().join("local")
-    } else {
-        PathBuf::from(dest_dir)
-    };
-    std::fs::create_dir_all(&dir).map_err(|e| format!("建目录失败: {e}"))?;
-    let safe: String = book
-        .title
-        .chars()
-        .map(|c| if r#"<>:"/\|?*"#.contains(c) { '_' } else { c })
-        .collect();
-    let safe = safe.trim();
-    let safe = if safe.is_empty() { book.source_id.clone() } else { safe.to_string() };
-    let path = dir.join(format!("{safe}.txt"));
-    std::fs::write(&path, body.as_bytes()).map_err(|e| format!("写文件失败: {e}"))?;
     Ok(path.to_string_lossy().to_string())
 }
 
@@ -1462,7 +1649,9 @@ pub async fn book_probe(source: String) -> Result<serde_json::Value, String> {
     let (kw, sec) = match source.as_str() {
         "guoxue" => ("道德经", "guoxue"),
         "shuge" => ("论语", "shuge"),
-        "wcxs" => ("斗破苍穹", "wcxs"),
+        "kgbook" => ("三体", "kgbook"),
+        "novel" => ("三体", "novel"),
+        "magazine" => ("读者", "magazine"),
         "se" => ("sherlock", "se"),
         "local" => ("", "local"),
         _ => ("holmes", "gutenberg"),
@@ -1476,6 +1665,31 @@ pub async fn book_probe(source: String) -> Result<serde_json::Value, String> {
         })),
         Err(e) => Ok(serde_json::json!({ "source": sec, "ok": false, "count": 0, "ms": ms, "error": e })),
     }
+}
+
+/// 把正文翻译成目标语言（默认中文）—— 用户要的"英文书要能翻译"。
+///
+/// 复用 `game_translator` 那套引擎链与本地缓存，所以：
+///   · 引擎回退：腾讯 transmart → 有道 aidemo → MyMemory → 有道词典 → Google（被墙会熔断跳过）
+///   · 译文按 `lang+原文` 的 SHA-256 落盘到 translations.json，**同一章再看是秒开**
+///   · 已经是中文的段落会被跳过（不会把中文再翻一遍）
+///
+/// ★ 按**行**提交而不是整章提交：既保住原文段落结构，也让引擎的"批量合并"
+///   生效（多条短文本拼成一次请求，请求数下降一个数量级）。
+#[tauri::command]
+pub async fn book_translate(text: String, target: Option<String>) -> Result<String, String> {
+    let target = target.unwrap_or_else(|| "zh-CN".into());
+    if text.trim().is_empty() {
+        return Ok(text);
+    }
+    // 逐行提交；空行会被原样透传（引擎层对空白文本直接返回原文）
+    let lines: Vec<String> = text.split('\n').map(|l| l.to_string()).collect();
+    let out = crate::game_translator::translate_texts(&lines, &target).await;
+    if out.len() != lines.len() {
+        // 理论上不会发生；真发生了就原样返回，别把正文搞乱
+        return Ok(text);
+    }
+    Ok(out.join("\n"))
 }
 
 // ============================================================================
@@ -1542,21 +1756,6 @@ bG8=").unwrap()).unwrap(), "hello");
         let html = r#"<a href="/ebooks/25328">豆棚閒話</a><a href="/ebooks/24225">戲中戲</a>"#;
         let v = parse_gutenberg_list(html);
         assert!(v.is_empty(), "结构不匹配时应返回空，交给上层换源: {v:?}");
-    }
-
-    #[test]
-    fn test_parse_wcxs_search_fragment() {
-        let html = r#"
-          <div class="sr-item"><a href="/lishu/msuydce/">师妹竟是满级大佬</a></div>
-          <div class="sr-item"><a href="/lishu/ciptxqc/">爱填满空白小说原版完整</a></div>
-          <a href="/lishu/msuydce/">师妹竟是满级大佬</a>
-        "#;
-        let v = parse_wcxs_books(html);
-        assert_eq!(v.len(), 2, "重复链接要去重: {v:?}");
-        assert_eq!(v[0].key, "wcxs:msuydce");
-        assert_eq!(v[0].title, "师妹竟是满级大佬");
-        assert_eq!(v[0].source, "wcxs");
-        assert!(v[0].read_url.contains("/lishu/msuydce/"));
     }
 
     #[test]
@@ -1679,37 +1878,6 @@ bG8=").unwrap()).unwrap(), "hello");
         }
     }
 
-    /// 文潮小说（中文网络小说）：搜索 → 目录 → 正文（Base64 混淆那条链路）
-    #[test]
-    #[ignore]
-    fn live_wcxs_read_one() {
-        let list = match rt().block_on(wcxs_search("斗破苍穹")) {
-            Ok(v) => v,
-            Err(e) => { println!("[live] 文潮搜索失败: {e}"); return; }
-        };
-        println!("[live] 文潮搜到 {} 条", list.len());
-        for b in list.iter().take(3) {
-            println!("   {} -> {}", b.title, b.read_url);
-        }
-        let Some(b) = list.first() else { println!("[live] 没搜到"); return };
-        let chs = match rt().block_on(wcxs_chapters(b)) {
-            Ok(v) => v,
-            Err(e) => { println!("[live] 取目录失败: {e}"); return; }
-        };
-        println!("[live] 目录 {} 章，第 1 章: {}", chs.len(), chs.first().map(|c| c.name.clone()).unwrap_or_default());
-        assert!(!chs.is_empty(), "目录不该是空的");
-        // 挑中间一章（第 1 章常常是"作品相关"）
-        let pick = chs.len() / 2;
-        match rt().block_on(wcxs_content(b, chs.get(pick))) {
-            Ok(t) => {
-                println!("[live] 第 {} 章正文 {} 字：{}", pick + 1, t.text.chars().count(),
-                    t.text.chars().take(80).collect::<String>());
-                assert!(t.text.chars().count() > 200, "正文太短，base64 那条链路可能坏了");
-            }
-            Err(e) => panic!("[live] 取正文失败: {e}"),
-        }
-    }
-
     /// Standard Ebooks：搜索 → 整本正文
     #[test]
     #[ignore]
@@ -1731,6 +1899,129 @@ bG8=").unwrap()).unwrap(), "hello");
             }
             Err(e) => panic!("[live] SE 取正文失败: {e}"),
         }
+    }
+
+    /// 苦瓜书盘：搜索 → 书页详情 → 抓文件 → 抽正文
+    #[test]
+    #[ignore]
+    fn live_kgbook_read_one() {
+        // 三体那几本都是 pdf/mobi（阅读器读不了），所以再搜几个关键词，
+        // 专门找一本 txt/epub 的把"抓文件 → 抽正文"这条链路也跑通。
+        let mut list = Vec::new();
+        for kw in ["三体", "红楼梦", "鲁迅"] {
+            match rt().block_on(kgbook_search(kw)) {
+                Ok(v) => {
+                    println!("[live] 苦瓜书盘搜「{kw}」到 {} 本", v.len());
+                    list.extend(v);
+                }
+                Err(e) => println!("[live] 搜「{kw}」失败: {e}"),
+            }
+        }
+        assert!(!list.is_empty(), "苦瓜书盘一个关键词都搜不到？");
+        for b in list.iter().take(8) {
+            println!("   {} -> {}", b.title, b.read_url);
+        }
+        let mut got_detail = false;
+        let mut read_ok = false;
+        // 先把 txt/epub 的挑出来（pdf/mobi 阅读器读不了，不测那条）
+        let mut readable: Vec<(Book, KgDetail)> = Vec::new();
+        for b in list.iter().take(24) {
+            let d = match rt().block_on(kgbook_detail(b)) {
+                Ok(d) => d,
+                Err(e) => { println!("   详情失败 {}: {e}", b.title); continue; }
+            };
+            println!("   {} | 作者={} 格式={} 大小={} 下载链={}",
+                b.title, d.author, d.format, d.size,
+                if d.dl_url.is_empty() { "无" } else { "有" });
+            assert!(!d.dl_url.is_empty(), "书页里应该能抠到下载入口");
+            got_detail = true;
+            if kgbook_readable(&d) {
+                readable.push((b.clone(), d));
+            }
+        }
+        // 挑一本文件大一点的 epub —— 大文件才容易碰到"传一半断流"，正是要覆盖的场景
+        readable.sort_by_key(|(_, d)| std::cmp::Reverse(d.size.len()));
+        for (b, d) in readable.iter().take(4) {
+            match rt().block_on(kgbook_fetch_bytes(b, d)) {
+                Ok((bytes, ext)) => {
+                    println!("   ★ 抓到 {} 字节, ext={}", bytes.len(), ext);
+                    assert!(bytes.len() > 2000, "文件太小，肯定不对");
+                    let text = if ext == "epub" {
+                        epub_to_text(&bytes).unwrap_or_default()
+                    } else {
+                        decode_body(&bytes)
+                    };
+                    println!("   ★ 抽到正文 {} 字：{}", text.chars().count(),
+                        text.chars().take(60).collect::<String>().replace('\n', " "));
+                    if text.chars().count() > 100 {
+                        read_ok = true;
+                        break;
+                    }
+                }
+                Err(e) => println!("   抓文件失败 {}: {e}", b.title),
+            }
+        }
+        assert!(got_detail, "至少要有一本拿到详情");
+        assert!(read_ok, "txt/epub 在线阅读链路必须通（抓文件 → 抽正文）");
+        println!("[live] txt/epub 在线阅读链路: ✅ 通");
+    }
+
+    /// 前端 chip 对应的两条链路：中文小说(novel) / 期刊杂志(magazine)
+    /// 首页拉分类 + 搜索（搜索只排序不过滤，保证"搜得到"）
+    #[test]
+    #[ignore]
+    fn live_book_chips() {
+        for sec in ["novel", "magazine"] {
+            match rt().block_on(home(sec)) {
+                Ok(v) => {
+                    println!("[live] 首页 {sec}: {} 本", v.len());
+                    for b in v.iter().take(3) { println!("   {} -> {}", b.title, b.read_url); }
+                    assert!(!v.is_empty(), "{sec} 首页不该是空的");
+                }
+                Err(e) => panic!("[live] {sec} 首页失败: {e}"),
+            }
+        }
+        // 期刊：搜"读者"。站内搜索对"读者"一条杂志都不返回（命中的是简介里带"读者"的科普书），
+        // 必须靠分类页本地匹配补上 —— 这条断言就是防这个回归的。
+        match rt().block_on(search("magazine", "读者", 1)) {
+            Ok(v) => {
+                println!("[live] 期刊搜「读者」: {} 条", v.len());
+                for b in v.iter().take(5) { println!("   {} ({})", b.title, b.key); }
+                let mag = v.iter().filter(|b| b.key.starts_with("kgbook:qikanzazhi/")).count();
+                println!("[live] 其中杂志分类 {mag} 条，第一条 = {}", v.first().map(|b| b.title.clone()).unwrap_or_default());
+                assert!(mag > 0, "「读者」搜不到任何杂志分类的书 = 分类页本地匹配失效");
+                assert!(v[0].key.starts_with("kgbook:qikanzazhi/"), "杂志命中必须排最前面");
+            }
+            Err(e) => panic!("[live] 期刊搜「读者」失败: {e}"),
+        }
+        // 小说：搜"三体"必须有结果（这是用户最直接的抱怨：搜不到）
+        match rt().block_on(search("novel", "三体", 1)) {
+            Ok(v) => {
+                println!("[live] 小说搜「三体」: {} 条", v.len());
+                for b in v.iter().take(4) { println!("   {} ({})", b.title, b.key); }
+                assert!(!v.is_empty(), "「三体」都搜不到就说明搜源又坏了");
+            }
+            Err(e) => panic!("[live] 小说搜「三体」失败: {e}"),
+        }
+    }
+
+    /// 翻译链：英文 → 中文（复用 game_translator 的引擎链）
+    #[test]
+    #[ignore]
+    fn live_translate_chain() {
+        let en = "It was the best of times, it was the worst of times.".to_string();
+        let out = rt().block_on(crate::game_translator::translate_texts(&[en.clone()], "zh-CN"));
+        println!("[live] 原文: {en}");
+        println!("[live] 译文: {}", out.first().cloned().unwrap_or_default());
+        let t = out.first().cloned().unwrap_or_default();
+        assert!(!t.is_empty(), "翻译不该为空");
+        assert!(t.chars().any(|c| matches!(c, '\u{4E00}'..='\u{9FFF}')), "译文里应该有汉字: {t}");
+        // 多行也要能保住结构
+        let multi: Vec<String> = vec!["Hello world.".into(), "".into(), "Good night.".into()];
+        let o2 = rt().block_on(crate::game_translator::translate_texts(&multi, "zh-CN"));
+        println!("[live] 多行: {:?}", o2);
+        assert_eq!(o2.len(), 3, "行数要保住");
+        assert_eq!(o2[1], "", "空行原样透传");
     }
 
     /// 国学经典（5000yan）：搜索 + 正文

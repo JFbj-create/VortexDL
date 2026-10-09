@@ -39,8 +39,25 @@ pub struct TranslateReport {
 //   - 后续打开: 缓存命中直接返回, 只对新出现的游戏联网翻译
 //   - best_engine 记录最近成功的引擎, 下次启动优先从它开始
 
-// 引擎编号: 0=googleapis 1=clients5 2=mymemory
-const ENGINE_COUNT: u8 = 3;
+// 引擎编号: 0=youdao词典 1=mymemory 2=googleapis 3=腾讯transmart 4=有道aidemo
+// ★ 2026-10-09 实测（本机网络）：
+//   · Google 两个端点**全被墙**（translate.googleapis.com / clients5 都超时）
+//   · 新增两个国内免费引擎：**腾讯 transmart**（能吞 4000 字、0.2s）、**有道 aidemo**（~1000 字）
+//   · MyMemory 单次只能 ~450 字，**超了不报错而是静默截断**（1200 字进去只回 58 字），
+//     所以必须按引擎声明"安全长度"，超限的引擎**直接跳过**，别让它吐出半截译文。
+const ENGINE_COUNT: u8 = 5;
+
+/// 每个引擎单次请求的**安全字符数**（实测边界，别调大）
+fn engine_max_chars(idx: u8) -> usize {
+    match idx {
+        0 => 120,   // 有道词典（适合游戏名/短语）
+        1 => 450,   // MyMemory：超了静默截断
+        2 => 1800,  // Google gtx
+        3 => 4000,  // 腾讯 transmart：实测 4000 字正常
+        4 => 900,   // 有道 aidemo：1200 就开始返回空
+        _ => 450,
+    }
+}
 
 #[derive(Serialize, Deserialize)]
 struct CacheFile {
@@ -291,6 +308,69 @@ async fn mymemory_translate(text: &str, tl: &str) -> Result<String, String> {
     Ok(t.to_string())
 }
 
+// 腾讯交互翻译 (transmart) —— 免密钥, 实测**能吞 4000 字**、0.2s 返回, 是长文本首选
+// 响应: {"header":{"ret_code":"succ"},"auto_translation":["译文"],"src_lang":"en"}
+async fn tencent_translate(text: &str, tl: &str) -> Result<String, String> {
+    let target = if tl.starts_with("zh") { "zh".to_string() } else { tl.to_string() };
+    let body = serde_json::json!({
+        "header": { "fn": "auto_translation", "client_key": "browser-chrome-110.0.0" },
+        "type": "plain",
+        "model_category": "normal",
+        "source": { "lang": "auto", "text_list": [text] },
+        "target": { "lang": target },
+    });
+    let resp = http_client()
+        .post("https://transmart.qq.com/api/imt")
+        .header("Content-Type", "application/json")
+        .header("Accept", "application/json, */*")
+        .body(body.to_string())
+        .send().await
+        .map_err(|e| e.to_string())?;
+    if !resp.status().is_success() {
+        return Err(format!("HTTP {}", resp.status()));
+    }
+    let s = resp.text().await.map_err(|e| e.to_string())?;
+    let v: serde_json::Value = serde_json::from_str(&s).map_err(|e| e.to_string())?;
+    let code = v.get("header").and_then(|h| h.get("ret_code")).and_then(|x| x.as_str()).unwrap_or("");
+    if code != "succ" {
+        return Err(format!("ret_code={code}"));
+    }
+    let out = v.get("auto_translation")
+        .and_then(|x| x.as_array())
+        .and_then(|a| a.first())
+        .and_then(|x| x.as_str())
+        .unwrap_or("")
+        .to_string();
+    if out.trim().is_empty() { Err("empty result".into()) } else { Ok(out) }
+}
+
+// 有道 aidemo (免密钥, 整句/整段) —— 实测 ~1000 字上限, 1200 起返回空
+// 响应: {"translation":["译文"]}
+async fn youdao_aidemo_translate(text: &str, tl: &str) -> Result<String, String> {
+    let target = if tl.starts_with("zh") { "zh-CHS" } else { tl };
+    let url = format!(
+        "https://aidemo.youdao.com/trans?q={}&from=auto&to={}",
+        urlencoding::encode(text),
+        target
+    );
+    let resp = http_client().get(&url)
+        .header("Accept", "application/json, */*")
+        .send().await
+        .map_err(|e| e.to_string())?;
+    if !resp.status().is_success() {
+        return Err(format!("HTTP {}", resp.status()));
+    }
+    let s = resp.text().await.map_err(|e| e.to_string())?;
+    let v: serde_json::Value = serde_json::from_str(&s).map_err(|e| e.to_string())?;
+    let out = v.get("translation")
+        .and_then(|x| x.as_array())
+        .and_then(|a| a.first())
+        .and_then(|x| x.as_str())
+        .unwrap_or("")
+        .to_string();
+    if out.trim().is_empty() { Err("empty result".into()) } else { Ok(out) }
+}
+
 // 有道词典 API (免密钥, 适合游戏名/短语翻译)
 // 响应: web_trans.web-translation[0].trans[0].value
 async fn youdao_translate(text: &str, tl: &str) -> Result<String, String> {
@@ -360,6 +440,8 @@ async fn engine_translate(idx: u8, text: &str, tl: &str) -> Result<String, Strin
     match idx {
         0 => youdao_translate(text, tl).await,
         1 => mymemory_translate(text, tl).await,
+        3 => tencent_translate(text, tl).await,
+        4 => youdao_aidemo_translate(text, tl).await,
         _ => google_gtx_translate("translate.googleapis.com", text, tl).await,
     }
 }
@@ -397,12 +479,18 @@ async fn engine_translate_batch(idx: u8, texts: &[String], tl: &str) -> Result<V
 
 // 回退链: 从最近成功的引擎开始依次尝试, 成功即记住 (省去反复撞被墙端点的超时)
 // 熔断中的引擎直接跳过
+// ★ 超过引擎安全长度的**也跳过** —— 否则 MyMemory 会静默截断, 给出半截译文还不报错
 async fn translate_via_chain(text: &str, tl: &str) -> Result<String, String> {
     let start = store().best_engine.load(Ordering::Relaxed);
+    let n = text.chars().count();
     let mut last_err = String::new();
     for i in 0..ENGINE_COUNT {
         let idx = (start + i) % ENGINE_COUNT;
         if breaker_blocked(idx) { continue; }
+        if n > engine_max_chars(idx) {
+            last_err = format!("engine{}: 文本 {} 字超过该引擎上限 {}", idx, n, engine_max_chars(idx));
+            continue;
+        }
         match engine_translate(idx, text, tl).await {
             Ok(t) => {
                 store().best_engine.store(idx, Ordering::Relaxed);
@@ -421,10 +509,15 @@ async fn translate_via_chain(text: &str, tl: &str) -> Result<String, String> {
 // 回退链 (批量版): 批量失败时上层再逐条走 translate_via_chain
 async fn translate_via_chain_batch(texts: &[String], tl: &str) -> Result<Vec<String>, String> {
     let start = store().best_engine.load(Ordering::Relaxed);
+    let n: usize = texts.iter().map(|t| t.chars().count()).sum::<usize>() + texts.len();
     let mut last_err = String::new();
     for i in 0..ENGINE_COUNT {
         let idx = (start + i) % ENGINE_COUNT;
         if breaker_blocked(idx) { continue; }
+        if n > engine_max_chars(idx) {
+            last_err = format!("engine{}: 批量 {} 字超过该引擎上限 {}", idx, n, engine_max_chars(idx));
+            continue;
+        }
         match engine_translate_batch(idx, texts, tl).await {
             Ok(v) => {
                 store().best_engine.store(idx, Ordering::Relaxed);

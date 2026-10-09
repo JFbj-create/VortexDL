@@ -10469,11 +10469,14 @@ window.__vxAn = (function () {
    ------------------------------------------------------------
    两页：主页（推书 + 搜索）/ 收藏；书可在线阅读，也可下载到本地。
    ★ 源全部逐个实测过（见 books.rs 顶部注释）：
-     · gutenberg — Project Gutenberg（Gutendex 开放 API）：外文名著 79k +
-       **中文公版书 444 本**（西遊記 / 紅樓夢 / 警世通言 / 唐诗三百首 …）
+     · kgbook    — 苦瓜书盘（中文电子书：小说 / 期刊杂志，免登录，能搜能读能下）
+     · gutenberg — Project Gutenberg 官网直连：外文名著 79k + 中文公版书 444 本
+     · se        — Standard Ebooks 精校外文公版书
      · guoxue    — 5000yan.com 国学经典全文
      · shuge     — 书格 shuge.org 古籍善本（可读正文 + 下载 PDF）
      · local     — 本地导入（把 txt/epub 丢进 <软件目录>\data\books\local）
+   ★ 阅读器右上「译」按钮 = 在线英译中（走 book_translate → game_translator 引擎链），
+     按段落切块逐块翻，带进度、可中断，译文按「书#章」在内存里缓存。
    收藏和阅读进度都存 localStorage（同源共享，不占后端）。
    ============================================================ */
 window.__vxBk = (function () {
@@ -10484,9 +10487,11 @@ window.__vxBk = (function () {
     const FONT_KEY = 'vortex_book_font';
 
     const SOURCES = [
-        // 用户要的「小说」放第一个：中文网络小说，免登录，能读能下
-        { id: 'wcxs', name: '网络小说', home: 'novel', needKw: false,
-          hint: '文潮小说：玄幻 / 都市 / 穿越 / 军史 … 免登录，在线阅读；下载会把前 200 章拼成一本 txt' },
+        // 用户要的「小说」放第一个：苦瓜书盘，中文电子书，免登录，能搜能读能下
+        { id: 'kgbook', name: '中文小说', home: 'novel', needKw: false,
+          hint: '苦瓜书盘：科幻玄幻 / 武侠 / 现代文学 / 古典文学 / 外国文学 … 免登录，搜到的都是中文书，txt/epub 可直接在线阅读' },
+        { id: 'magazine', name: '期刊杂志', home: 'magazine', needKw: false,
+          hint: '苦瓜书盘「期刊杂志」分类：各类杂志的 PDF 电子版，点「下载」存到本地' },
         { id: 'gutenberg', name: '热门名著', home: 'popular', needKw: false,
           hint: 'Project Gutenberg 官网直连，按下载量排序（外文名著为主，能读能下 epub/txt）' },
         { id: 'gutenberg_zh', name: '中文经典', home: 'zh', needKw: false,
@@ -10503,13 +10508,17 @@ window.__vxBk = (function () {
 
     let inited = false;
     let bound = false;
-    let curSource = 'gutenberg';
+    let curSource = 'kgbook';
     let curBooks = [];
     let searching = false;
     let favs = [];
     let readerBook = null;
     let readerText = null;
     let fontSize = 17;
+    // 译文状态：transOn = 当前显示的是译文；transCache 按「书#章」缓存，切回原文再切回来不用重翻
+    let transOn = false;
+    let transCache = {};
+    let transStop = false;
 
     const $ = (id) => document.getElementById(id);
     const esc = (v) => String(v == null ? '' : v)
@@ -10731,12 +10740,101 @@ window.__vxBk = (function () {
         btn.title = on ? '取消收藏' : '收藏';
     }
 
+    // ---------------- 英译中 ----------------
+    // 后端 book_translate 走的是 game_translator 的引擎链（腾讯 transmart / 有道 / Google），
+    // 单次请求越长越容易撞引擎上限，所以这里按段落切块（每块 ≤1500 字）逐块翻，
+    // 好处是能显示"第几块/共几块"，用户看得见进度，不是干等。
+    function syncTransBtn() {
+        const b = $('bk-r-trans');
+        if (!b) return;
+        b.classList.toggle('active', transOn);
+        b.title = transOn ? '显示原文' : '英译中（在线翻译当前章节）';
+    }
+    function transKey() {
+        if (!readerBook || !readerText) return null;
+        return readerBook.key + '#' + (readerText.chapter_index || 0);
+    }
+    function showReaderText(text, note) {
+        const t = $('bk-r-text');
+        if (!t) return;
+        t.textContent = text;
+        t.scrollTop = 0;
+        const p = $('bk-r-progress');
+        if (p && note) p.textContent = note;
+    }
+    async function toggleTranslate() {
+        if (!readerText) return;
+        if (transOn) {                       // 还原原文
+            transStop = true;
+            transOn = false;
+            syncTransBtn();
+            showReaderText(readerText.text || '', ((readerText.text || '').length) + ' 字（原文）');
+            return;
+        }
+        const body = (readerText.text || '').trim();
+        if (!body) { showToast('这一章没有正文可翻译'); return; }
+        const key = transKey();
+        if (key && transCache[key]) {        // 翻过了，直接用
+            transOn = true;
+            syncTransBtn();
+            showReaderText(transCache[key], '译文 ' + transCache[key].length + ' 字');
+            return;
+        }
+        transOn = true;
+        transStop = false;
+        syncTransBtn();
+        // 按段落攒块
+        const chunks = [];
+        let cur = '', curLen = 0;
+        (body.split('\n')).forEach(function (p) {
+            const n = p.length + 1;
+            if (cur && curLen + n > 1500) { chunks.push(cur); cur = ''; curLen = 0; }
+            cur += p + '\n';
+            curLen += n;
+        });
+        if (cur) chunks.push(cur);
+        showReaderText(body, '正在翻译… 共 ' + chunks.length + ' 段');
+        const out = [];
+        let failed = 0;
+        for (let i = 0; i < chunks.length; i++) {
+            if (transStop || !readerBook) { syncTransBtn(); return; }
+            const p = $('bk-r-progress');
+            if (p) p.textContent = '翻译中 ' + (i + 1) + '/' + chunks.length + ' 段…（再点「译」可中断）';
+            let r = null;
+            try { r = await invoke('book_translate', { text: chunks[i], target: 'zh-CN' }); } catch (e) { r = null; }
+            if (!r || r === chunks[i]) { failed++; r = chunks[i]; }
+            out.push(r);
+            // 边翻边显示，长章节不用等全部翻完才看到东西
+            const done = out.join('');
+            if (!transStop) showReaderText(done, '翻译中 ' + (i + 1) + '/' + chunks.length + ' 段…');
+        }
+        if (transStop) { syncTransBtn(); return; }
+        const joined = out.join('');
+        if (failed === chunks.length) {
+            transOn = false;
+            transStop = true;
+            syncTransBtn();
+            showReaderText(body, ((body.length)) + ' 字（原文）');
+            frontLog('BOOK_TRANS_FAIL', (readerBook ? readerBook.title : '') + ' 全部 ' + chunks.length + ' 段翻译失败');
+            showToast('翻译失败：翻译引擎都连不上（网络问题），已显示原文', 'error', 5200);
+            return;
+        }
+        if (key) transCache[key] = joined;
+        showReaderText(joined, '译文 ' + joined.length + ' 字' + (failed ? '（' + failed + ' 段未译）' : ''));
+        if (failed) showToast('有 ' + failed + ' 段没翻出来（引擎限流），已保留原文', 'error', 4200);
+        frontLog('BOOK_TRANS_OK', (readerBook ? readerBook.title : '') + ' chunks=' + chunks.length + ' failed=' + failed);
+    }
+
     async function openReader(book, chapter) {
         if (!book) return;
         readerBook = book;
+        // 换书/换章一律回到原文态，别让上一章的译文串到这一章
+        transOn = false;
+        transStop = true;
         const rd = $('bk-reader');
         if (!rd) return;
         rd.hidden = false;
+        syncTransBtn();
         $('bk-r-title').textContent = book.title || '';
         $('bk-r-sub').textContent = book.author || '';
         $('bk-r-text').textContent = '正在加载正文…';
@@ -10778,6 +10876,8 @@ window.__vxBk = (function () {
     function closeReader() {
         const rd = $('bk-reader');
         if (rd) rd.hidden = true;
+        transStop = true;
+        transOn = false;
         readerBook = null;
         readerText = null;
     }
@@ -10817,7 +10917,7 @@ window.__vxBk = (function () {
     /// 源自检：挨个打一次，把结果列出来（用户报"某源不能用"时一眼看出是网络还是站点问题）
     async function probeSources() {
         setStatus('bk-status', '正在挨个检测书源…', '');
-        const ids = ['wcxs', 'gutenberg', 'se', 'guoxue', 'shuge', 'local'];
+        const ids = ['kgbook', 'novel', 'magazine', 'gutenberg', 'se', 'guoxue', 'shuge', 'local'];
         const rows = [];
         for (const id of ids) {
             try {
@@ -10850,6 +10950,7 @@ window.__vxBk = (function () {
         on('bk-r-txt', 'click', function () { downloadBook(readerBook, 'txt'); });
         on('bk-r-epub', 'click', function () { downloadBook(readerBook, 'epub'); });
         on('bk-r-fav', 'click', function () { if (readerBook) toggleFav(readerBook); });
+        on('bk-r-trans', 'click', toggleTranslate);
         on('bk-r-prev', 'click', function () {
             const t = readerText; if (!t || !readerBook) return;
             openReader(readerBook, Math.max(0, (t.chapter_index || 0) - 1));
