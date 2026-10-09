@@ -22,6 +22,7 @@ mod game_translator;
 mod licensing;
 mod paths;
 mod books;
+mod mobi;
 mod search_engine;
 mod snapshot;
 mod system_monitor;

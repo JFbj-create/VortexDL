@@ -12031,6 +12031,22 @@ body.lite-mode .modal-overlay { background: rgba(0, 0, 0, .6); }
 }
 .bk-search { display: flex; gap: 8px; flex: 1; min-width: 260px; }
 .bk-search .setting-input { flex: 1; min-width: 140px; }
+/* 分类下拉（替代原来那排 chip —— 用户嫌"分这么多"） */
+.bk-cat { display: flex; align-items: center; gap: 6px; flex: none; }
+.bk-cat > span { font-size: 12px; opacity: .62; white-space: nowrap; }
+.bk-cat .setting-input { min-width: 190px; max-width: 260px; }
+/* 快捷搜索示例 */
+.bk-quick { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin: -4px 0 10px; }
+.bk-quick-label { font-size: 11.5px; opacity: .55; }
+.bk-quick-btn {
+    padding: 3px 10px; border-radius: 999px; cursor: pointer;
+    font-size: 11.5px; color: inherit;
+    border: 1px solid color-mix(in srgb, var(--theme-primary, #7c5cff) 34%, transparent);
+    background: color-mix(in srgb, var(--theme-primary, #7c5cff) 10%, transparent);
+    transition: background .15s var(--vx-ease, ease), transform .12s var(--vx-ease, ease);
+}
+.bk-quick-btn:hover { background: color-mix(in srgb, var(--theme-primary, #7c5cff) 26%, transparent); }
+.bk-quick-btn:active { transform: scale(.95); }
 .bk-src-hint { font-size: 11.5px; opacity: .58; margin-bottom: 12px; line-height: 1.5; }
 
 .bk-grid {

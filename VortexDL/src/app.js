@@ -10486,31 +10486,48 @@ window.__vxBk = (function () {
     const PROG_KEY = 'vortex_book_progress';
     const FONT_KEY = 'vortex_book_font';
 
+    // ★ 分类只有一个下拉（原来铺了 8 个 chip，用户嫌"分这么多，就搜索就行"）。
+    //   id 同时是 book_home(section) 和 book_search(source) 的入参：
+    //   · home  = 这个分类的"推荐"用哪个 section（null = 需要搜索 / 走默认推荐）
+    //   · needKw= 这个源没有推荐列表，进页面时用一个默认词先搜一次，别让页面空着
+    //   · kw    = needKw 时用的默认词
     const SOURCES = [
-        // 用户要的「小说」放第一个：苦瓜书盘，中文电子书，免登录，能搜能读能下
-        { id: 'kgbook', name: '中文小说', home: 'novel', needKw: false,
-          hint: '苦瓜书盘：科幻玄幻 / 武侠 / 现代文学 / 古典文学 / 外国文学 … 免登录，搜到的都是中文书，txt/epub 可直接在线阅读' },
+        { id: 'all', name: '全部（推荐）', home: null, needKw: false,
+          hint: '一次搜所有源：中文电子书 + 网络小说 + 外文名著，最省事' },
+        { id: 'webnovel', name: '网络小说（龙族 / 九州缥缈录…）', home: 'webnovel', needKw: false,
+          hint: '无忧书城：中文网络小说在线阅读，龙族 1/4/5、江南 / 我吃西红柿 / 天蚕土豆…' },
+        { id: 'kgbook', name: '中文电子书（正式出版物）', home: 'novel', needKw: false,
+          hint: '苦瓜书盘：科幻玄幻 / 武侠 / 现代文学 / 古典文学 / 外国文学，txt/epub/mobi 都能直接读' },
         { id: 'magazine', name: '期刊杂志', home: 'magazine', needKw: false,
-          hint: '苦瓜书盘「期刊杂志」分类：各类杂志的 PDF 电子版，点「下载」存到本地' },
-        { id: 'gutenberg', name: '热门名著', home: 'popular', needKw: false,
-          hint: 'Project Gutenberg 官网直连，按下载量排序（外文名著为主，能读能下 epub/txt）' },
-        { id: 'gutenberg_zh', name: '中文经典', home: 'zh', needKw: false,
+          hint: '苦瓜书盘「期刊杂志」：读者 / 三联生活周刊 等 PDF 电子版' },
+        { id: 'gutenberg', name: '外文名著（Gutenberg）', home: 'popular', needKw: false,
+          hint: 'Project Gutenberg 官网直连，按下载量排序；英文书可以点阅读器右上「译」翻成中文' },
+        { id: 'gutenberg_zh', name: '中文公版书', home: 'zh', needKw: false,
           hint: 'Gutenberg 上的中文公版书 444 本：西遊記 / 紅樓夢 / 三字經 / 山海經 …' },
-        { id: 'se', name: '精校名著', home: null, needKw: true, kw: 'sherlock',
-          hint: 'Standard Ebooks：排版精校的外文公版书，可下 epub（需要搜索）' },
         { id: 'guoxue', name: '国学经典', home: 'guoxue', needKw: false,
           hint: '5000yan.com：道德经 / 论语 / 诗经 等全文' },
+        { id: 'se', name: '精校名著（英文）', home: null, needKw: true, kw: 'sherlock',
+          hint: 'Standard Ebooks：排版精校的外文公版书，可下 epub（需要搜索）' },
         { id: 'shuge', name: '古籍善本', home: null, needKw: true, kw: '论语',
           hint: '书格 shuge.org：古籍影印本，正文可读，页内可下 PDF（需要搜索）' },
-        { id: 'local', name: '本地书', home: 'local', needKw: false,
-          hint: '放在 <软件目录>\\data\\books\\local 里的 txt / epub' },
+        { id: 'local', name: '我的书（本地导入）', home: 'local', needKw: false,
+          hint: '放在 <软件目录>\\data\\books\\local 里的 txt / epub / mobi' },
     ];
+
+    /// 快捷搜索示例：让用户一眼看到"搜得到"，点了直接搜
+    const QUICK = ['龙族', '窄门', '三体', '红楼梦', '安娜·卡列尼娜'];
 
     let inited = false;
     let bound = false;
-    let curSource = 'kgbook';
+    // ★ 默认「全部（推荐）」：搜索一次搜所有源（用户报"要搜的搜不到"，
+    //   根因是每个源各搜各的、还得自己选对源），首页给中文小说打底的推荐。
+    let curSource = 'all';
     let curBooks = [];
     let searching = false;
+    // ★ 请求序号：首页推荐和搜索是两个异步流程，谁后返回谁渲染。
+    //   用户点"快捷搜索"时首页推荐常常还在路上，返回后会把搜索结果整个覆盖掉
+    //   （表现为"点了龙族却看到推荐列表"）。每次发起请求都 +1，返回时对不上就丢弃。
+    let reqSeq = 0;
     let favs = [];
     let readerBook = null;
     let readerText = null;
@@ -10570,14 +10587,29 @@ window.__vxBk = (function () {
     }
 
     // ---------------- 渲染 ----------------
-    /// 封面：有图用图；没有就用书名首字做色块（Gutenberg 大多没封面）
+    /// 取"有意义的第一个字"当占位封面。
+    /// ★ 原来直接 `title.charAt(0)`，于是《读者》2009年合订本 的封面就是个大「《」，
+    ///   用户报"图标不对"。这里跳过书名号/引号/括号/空白/数字开头这类没信息量的字符。
+    function coverLetter(title) {
+        const t = String(title || '').trim();
+        const skip = '《》〈〉「」『』【】（）()[]{}""\'\'""\'`*·-—–_.,:;!?、，。：；！？…　 \t0123456789';
+        for (let i = 0; i < t.length; i++) {
+            const c = t[i];
+            if (skip.indexOf(c) >= 0) continue;
+            // 跳过 ASCII 字母数字（英文书名的首字母不好看，用汉字/其它字符更直观）
+            if (/[A-Za-z0-9]/.test(c)) continue;
+            return c;
+        }
+        return t.charAt(0) || '书';
+    }
+    /// 封面：有图用图；没有就用书名首字做色块（Gutenberg / 无忧书城 大多没封面）
     function coverHtml(b) {
         if (b.cover) {
             return '<img class="bk-cover-img" loading="lazy" src="' + esc(b.cover) +
                 '" onerror="this.replaceWith(Object.assign(document.createElement(\'div\'),{className:\'bk-cover-letter\',textContent:\'' +
-                esc((b.title || '书').charAt(0)) + '\'}))">';
+                esc(coverLetter(b.title)) + '\'}))">';
         }
-        const ch = (b.title || '书').charAt(0);
+        const ch = coverLetter(b.title);
         const hue = Math.abs(hashStr(b.title || '')) % 360;
         return '<div class="bk-cover-letter" style="--bk-h:' + hue + '">' + esc(ch) + '</div>';
     }
@@ -10619,16 +10651,33 @@ window.__vxBk = (function () {
         g.innerHTML = list.map(function (b) { return cardHtml(b, inFavTab); }).join('');
     }
 
+    /// 分类下拉 + 快捷搜索示例（替代原来那一排 chip）
     function renderSrcTabs() {
-        const box = $('bk-src-tabs');
-        if (!box) return;
-        box.innerHTML = SOURCES.map(function (s) {
-            return '<button class="bk-src-chip' + (s.id === curSource ? ' active' : '') +
-                '" data-bk-src="' + s.id + '" title="' + esc(s.hint) + '">' + esc(s.name) + '</button>';
-        }).join('');
+        const sel = $('bk-cat');
+        if (sel) {
+            sel.innerHTML = SOURCES.map(function (s) {
+                return '<option value="' + s.id + '"' + (s.id === curSource ? ' selected' : '') + '>' +
+                    esc(s.name) + '</option>';
+            }).join('');
+        }
+        const q = $('bk-quick');
+        if (q) {
+            q.innerHTML = '<span class="bk-quick-label">试试：</span>' + QUICK.map(function (k) {
+                return '<button class="bk-quick-btn" data-bk-kw="' + esc(k) + '">' + esc(k) + '</button>';
+            }).join('');
+        }
         const s = SOURCES.find(function (x) { return x.id === curSource; });
         const hint = $('bk-src-hint');
         if (hint) hint.textContent = s ? s.hint : '';
+    }
+
+    /// 只刷新提示文字（切分类时用）
+    function refreshHint() {
+        const s = SOURCES.find(function (x) { return x.id === curSource; });
+        const hint = $('bk-src-hint');
+        if (hint) hint.textContent = s ? s.hint : '';
+        const sel = $('bk-cat');
+        if (sel && sel.value !== curSource) sel.value = curSource;
     }
 
     // 加载中显示「已 N 秒」—— 用户报「卡在搜索源出不来」时，页面只有一句
@@ -10658,6 +10707,7 @@ window.__vxBk = (function () {
 
     // ---------------- 数据 ----------------
     async function loadHome() {
+        const my = ++reqSeq;
         const src = SOURCES.find(function (s) { return s.id === curSource; });
         const title = $('bk-list-title');
         const sub = $('bk-list-sub');
@@ -10676,46 +10726,54 @@ window.__vxBk = (function () {
                 if (sub) sub.textContent = '这个源需要搜索，先给你看「' + kw + '」的结果';
                 list = await invoke('book_search', { source: src.id, keyword: kw, page: 1 }) || [];
             } else {
-                list = await invoke('book_home', { section: src && src.home ? src.home : 'popular' }) || [];
+                // 没有 home 的（"全部"这种）直接把 id 当 section 传，后端走默认"推荐"
+                list = await invoke('book_home', { section: (src && src.home) ? src.home : curSource }) || [];
             }
+            if (my !== reqSeq) return;   // 已被更新的请求取代（比如用户先点了搜索）
             curBooks = list;
             stopBusy();
             renderGrid(curBooks, 'bk-grid');
             if (sub) sub.textContent = list.length ? ('共 ' + list.length + ' 本') : '';
             if (!list.length) setStatus('bk-status', '这个源没返回内容 —— 可能是网络问题，点右上「源自检」看看', 'err');
         } catch (e) {
+            if (my !== reqSeq) return;
             const msg = String(e && e.message ? e.message : e);
             stopBusy();
             $('bk-grid').innerHTML = '<div class="mod-empty">加载失败：' + esc(msg) + '</div>';
-            setStatus('bk-status', '换个源试试（右上「源自检」能一次看出哪个源通），或点「重试」', 'err');
+            setStatus('bk-status', '换个分类试试（右上「源自检」能一次看出哪个源通），或直接搜书名', 'err');
         }
     }
 
-    async function doSearch() {
-        const kw = ($('bk-search') || {}).value || '';
-        if (!kw.trim()) { showToast('请输入书名或作者'); return; }
+    async function doSearch(kwOverride) {
+        const my = ++reqSeq;
+        const kw = (kwOverride != null) ? kwOverride : (($('bk-search') || {}).value || '');
+        if (!String(kw).trim()) { showToast('请输入书名或作者'); return; }
+        const box = $('bk-search');
+        if (box && box.value !== kw) box.value = kw;
         const src = curSource === 'gutenberg_zh' ? 'gutenberg' : curSource;
         const title = $('bk-list-title');
         const sub = $('bk-list-sub');
         const sc = $('bk-search-clear');
-        if (title) title.textContent = '搜索结果：' + kw.trim();
+        if (title) title.textContent = '搜索结果：' + String(kw).trim();
         if (sub) sub.textContent = '';
         if (sc) sc.hidden = false;
         setBusy(true, '正在搜索…');
         setStatus('bk-status', '');
         searching = true;
         try {
-            const list = await invoke('book_search', { source: src, keyword: kw.trim(), page: 1 }) || [];
+            const list = await invoke('book_search', { source: src, keyword: String(kw).trim(), page: 1 }) || [];
+            if (my !== reqSeq) return;
             curBooks = list;
             stopBusy();
             renderGrid(curBooks, 'bk-grid');
             if (sub) sub.textContent = '共 ' + list.length + ' 本';
-            if (!list.length) setStatus('bk-status', '没搜到 —— 换个关键词，或换个源再试', 'err');
+            if (!list.length) setStatus('bk-status', '没搜到 —— 换个关键词，或把分类改成「全部（推荐）」再搜一次', 'err');
         } catch (e) {
+            if (my !== reqSeq) return;
             const msg = String(e && e.message ? e.message : e);
             stopBusy();
             $('bk-grid').innerHTML = '<div class="mod-empty">搜索失败：' + esc(msg) + '</div>';
-            setStatus('bk-status', '换个源试试（右上「源自检」能一次看出哪个源通）', 'err');
+            setStatus('bk-status', '把分类改成「全部（推荐）」再搜一次试试', 'err');
         }
     }
 
@@ -10917,7 +10975,7 @@ window.__vxBk = (function () {
     /// 源自检：挨个打一次，把结果列出来（用户报"某源不能用"时一眼看出是网络还是站点问题）
     async function probeSources() {
         setStatus('bk-status', '正在挨个检测书源…', '');
-        const ids = ['kgbook', 'novel', 'magazine', 'gutenberg', 'se', 'guoxue', 'shuge', 'local'];
+        const ids = ['all', 'kgbook', 'novel', 'webnovel', 'magazine', 'gutenberg', 'se', 'guoxue', 'shuge', 'local'];
         const rows = [];
         for (const id of ids) {
             try {
@@ -10935,10 +10993,16 @@ window.__vxBk = (function () {
     // ---------------- 绑定 ----------------
     function bind() {
         const on = function (id, ev, fn) { const el = $(id); if (el) el.addEventListener(ev, fn); };
-        on('bk-search-btn', 'click', doSearch);
+        on('bk-search-btn', 'click', function () { doSearch(); });
         on('bk-search', 'keydown', function (e) { if (e.key === 'Enter') doSearch(); });
         on('bk-search-clear', 'click', loadHome);
         on('bk-probe', 'click', probeSources);
+        // 分类下拉（替代原来那排 chip）
+        on('bk-cat', 'change', function (e) {
+            curSource = e.target.value || 'all';
+            refreshHint();
+            loadHome();
+        });
         on('bk-fav-refresh', 'click', function () { loadFavs(); renderGrid(favs, 'bk-fav-grid', true); });
         on('bk-open-local', 'click', async function () {
             try { await invoke('book_open_local_dir'); showToast('已打开本地书目录，把 txt/epub 丢进去即可'); }
@@ -10966,8 +11030,8 @@ window.__vxBk = (function () {
         // 侧边栏「书库」的二级标签由通用 rail 处理；这里只管页面内点击
         document.addEventListener('click', function (e) {
             if (!e.target || !e.target.closest) return;
-            const src = e.target.closest('[data-bk-src]');
-            if (src) { curSource = src.dataset.bkSrc; renderSrcTabs(); loadHome(); return; }
+            const qk = e.target.closest('[data-bk-kw]');
+            if (qk) { doSearch(qk.dataset.bkKw); return; }
             const rd = e.target.closest('[data-bk-read]');
             if (rd) { openReader(findBook(rd.dataset.bkRead), null); return; }
             const dl = e.target.closest('[data-bk-dl]');

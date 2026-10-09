@@ -8,11 +8,17 @@
 // ★★ 源的选择全部按**本机实测**，不靠想当然。2026-10-09 复测结论：
 //
 //   可用（都实测走通"搜索 → 书页 → 正文/下载"）：
+//     · **无忧书城 wyshu.com** —— 中文**网络小说在线阅读**（龙族 1/4/5、九州缥缈录、
+//       江南 / 我吃西红柿 / 天蚕土豆 …）。搜索 `GET /?s=<词>`、分类 `/yq//ds//kh/`、
+//       目录 `/wl/{slug}/`、正文 `/wl/{slug}/{id}.html` 的 `<div class="article-post">`。
+//       ★ 加这个源是因为用户点名要《龙族》，而苦瓜书盘上搜「龙族」「火之晨曦」
+//       「九州缥缈录」**全是 0 条**（它只收正式出版物）。
 //     · **苦瓜书盘 kgbook.com** —— 中文电子书（现代/古典文学、武侠、网络小说、科幻、
 //       历史、期刊杂志…），**能直接下到 PDF / mobi / epub / txt 文件**。
 //       搜索是 POST `/e/search/index.php`（隐藏字段 tbname=download），
 //       结果页 `/e/search/result/?searchid=N`，下载 `e/DownSys/GetDown?classid=&id=&pathid=`
 //       → 302 到真实文件（实测 application/pdf, 1.24MB）。
+//       ★ **封面只有书页有**（分类页/结果页都没有图），所以列表出来后要并发补一次详情页。
 //     · **Project Gutenberg 官网直连**（www.gutenberg.org）—— 79k 外文名著 +
 //       **444 本中文公版书**（/browse/languages/zh）。★ 不再走 gutendex.com：
 //       那个域名从这条网络**连不上**，30s×3 重试要 92 秒才报错，
@@ -21,7 +27,12 @@
 //       epub 直链 + `/text/single-page` 一次给整本正文。
 //     · **5000yan.com** —— 国学经典全文（道德经 / 论语 / 诗经）。
 //     · **书格 shuge.org** —— 古籍善本，正文可读 + 页内 PDF。
-//     · **本地导入**（txt / epub）—— 源全挂了也能用。
+//     · **本地导入**（txt / epub / **mobi / azw3**）—— 源全挂了也能用。
+//
+// ★ 在线阅读支持的格式（2026-10-09 起）：txt / epub / **mobi（含 azw3）**。
+//   mobi 是用户报的「读不了 mobi 格式」—— 自己按 PalmDOC 格式解（`src/mobi.rs`，无新依赖），
+//   苦瓜书盘上一大半中文书是 mobi（例如《窄门》）。只有 6寸pdf 还读不了（没有 PDF 文本层解析器），
+//   那种会提示"点下载到本地看"。
 //
 //   不可达/不可用（都实测过，别再往回加）：
 //     · openlibrary、archive.org、wikisource、libgen、anna's archive（.org/.se/.li 超时，
@@ -722,6 +733,8 @@ pub struct KgDetail {
     pub desc: String,
     /// 下载入口（GetDown，会 302 到真实文件）
     pub dl_url: String,
+    /// 封面图绝对地址（书页里的 `<img src="/d/file/....jpg" width="130">`）
+    pub cover: String,
 }
 
 pub async fn kgbook_search(kw: &str) -> Result<Vec<Book>, String> {
@@ -905,6 +918,14 @@ fn parse_kgbook_detail(html: &str) -> KgDetail {
         .map(|c| c[1].replace("&amp;", "&"))
         .map(|u| if u.starts_with("http") { u } else { format!("{KGBOOK_BASE}{u}") })
         .unwrap_or_default();
+    // 封面：书页里 `<img src="/d/file/201103/xxx.jpg" border="0" width="130" />`
+    // （★ 分类页和搜索结果页**都没有图**，只有书页有 —— 所以封面必须靠详情页补）
+    let cover = regex::Regex::new(r#"<img[^>]+src="([^"]*?/d/file/[^"]+?\.(?:jpg|jpeg|png|gif|webp))""#)
+        .unwrap()
+        .captures(html)
+        .map(|c| c[1].to_string())
+        .map(|u| if u.starts_with("http") { u } else { format!("{KGBOOK_BASE}{u}") })
+        .unwrap_or_default();
     KgDetail {
         author: grab("作者"),
         format: grab("格式"),
@@ -912,13 +933,98 @@ fn parse_kgbook_detail(html: &str) -> KgDetail {
         size: grab("大小"),
         desc: desc.chars().take(400).collect(),
         dl_url,
+        cover,
     }
 }
 
-/// 这本书能不能在阅读器里直接读？txt / epub 可以（解出纯文本），pdf / mobi 不行。
+/// 给一批书补封面（列表接口拿不到封面，只有书页有）。
+///
+/// 为什么要并发：一本一个详情页，串行 18 本要 10 秒以上；并发 8 路大概 1~2 秒。
+/// 详情页本身有 30 分钟 TTL 缓存，所以同一批书再进一次不会再打网络。
+/// `max` 用来限制"只给可见的前 N 本补"，避免翻到 60 本时打 60 个请求。
+pub async fn kgbook_fill_covers(books: &mut [Book], max: usize) {
+    let todo: Vec<usize> = books
+        .iter()
+        .enumerate()
+        .filter(|(_, b)| b.cover.is_empty())
+        .map(|(i, _)| i)
+        .take(max)
+        .collect();
+    if todo.is_empty() {
+        return;
+    }
+    let futs: Vec<_> = todo
+        .iter()
+        .map(|&i| {
+            let b = books[i].clone();
+            async move { (i, kgbook_detail(&b).await.map(|d| d.cover).unwrap_or_default()) }
+        })
+        .collect();
+    for (i, cover) in futures::future::join_all(futs).await {
+        if !cover.is_empty() {
+            books[i].cover = cover;
+        }
+    }
+}
+
+/// 这本书能不能在阅读器里直接读？
+/// txt / epub / **mobi**（含 azw3，同一套 PalmDOC 解压）可以解出纯文本；
+/// pdf / 6寸pdf 不行（没有 PDF 文本层解析器），只能下载到本地看。
 fn kgbook_readable(detail: &KgDetail) -> bool {
     let f = detail.format.to_lowercase();
-    f.contains("txt") || f.contains("epub")
+    f.contains("txt") || f.contains("epub") || f.contains("mobi") || f.contains("azw")
+}
+
+/// 把抓到的文件字节解成纯文本。返回 None 表示这个格式读不了（交给调用方报"请下载"）。
+/// 抽出来是为了让"在线阅读"和"下载后抽正文"用同一套逻辑。
+fn extract_book_text(bytes: &[u8], ext: &str) -> Option<String> {
+    match ext {
+        "epub" => epub_to_text(bytes).ok(),
+        "mobi" | "azw" | "azw3" => {
+            let raw = crate::mobi::mobi_text_bytes(bytes).ok()?;
+            Some(clean_book_html(&decode_body(&raw)))
+        }
+        "txt" => Some(decode_body(bytes)),
+        _ => None,
+    }
+}
+
+/// 解出来的正文是 HTML（mobi 里带 `<p>` / `<mbp:pagebreak/>` 这些），清一遍。
+fn clean_book_html(html: &str) -> String {
+    let mut s = html.to_string();
+    // script / style 整块去掉（regex 不支持反向引用，两个分开写）
+    for pat in [r"(?is)<script[^>]*>.*?</script>", r"(?is)<style[^>]*>.*?</style>"] {
+        if let Ok(re) = regex::Regex::new(pat) {
+            s = re.replace_all(&s, "").to_string();
+        }
+    }
+    // 换行标签换成真换行，其余标签直接去掉
+    for (pat, rep) in [
+        (r"(?i)<\s*br\s*/?>", "\n"),
+        (r"(?i)</\s*(?:p|div|h[1-6]|li|tr)\s*>", "\n\n"),
+    ] {
+        if let Ok(re) = regex::Regex::new(pat) {
+            s = re.replace_all(&s, rep).to_string();
+        }
+    }
+    let t = html_unescape(&strip_tags(&s));
+    // 压缩连续空行
+    let mut out = String::with_capacity(t.len());
+    let mut blank = 0;
+    for line in t.lines() {
+        let l = line.trim_end();
+        if l.trim().is_empty() {
+            blank += 1;
+            if blank > 1 {
+                continue;
+            }
+        } else {
+            blank = 0;
+        }
+        out.push_str(l);
+        out.push('\n');
+    }
+    out.trim().to_string()
 }
 
 /// 把苦瓜书盘的书下载到本地，返回落地路径。扩展名按 Content-Disposition / 最终 URL 猜。
@@ -1038,7 +1144,347 @@ fn guess_ext(s: &str) -> Option<String> {
 }
 
 // ============================================================================
-// 源 3.6：Standard Ebooks（外文名著，排版精校 + epub 直链）
+// 源 3.6：无忧书城 wyshu.com（中文网络小说在线阅读）
+// ----------------------------------------------------------------------------
+// ★ 2026-10-09 加：用户要「龙族」这种中文小说，苦瓜书盘上没有（搜「龙族」「火之晨曦」
+//   「九州缥缈录」全是 0 条）。实测这个站能拿到，而且结构很规整：
+//
+//   搜索   GET /?s=<词>            → 结果列表
+//          `<a href="/wl/{slug}/">书名</a> <span>作者</span>`
+//   分类   GET /yq/ /ds/ /kh/      （言情 / 都市文学 / 科幻小说）
+//   目录   GET /wl/{slug}/         → `<a href="/wl/{slug}/{id}.html" title="章节名">`
+//   正文   GET /wl/{slug}/{id}.html → `<div class="article-post">…<p>…</p>…</div>`
+//
+//   ★ 各卷是**独立的书**（longzu1huozhichenxi / longzu4aodingzhiyuan /
+//     longzu5daowangzhedeguilai …），搜索「龙族」会一次列出全部卷。
+//   ★ 目录页只给站点已有的章节（龙族1 只有 12 章、龙族4 全 17 章、龙族5 全 153 章），
+//     缺章是站点本身没有，不是解析问题。
+//   ★ 翻页不用站点的"上一章/下一章"链接（那套标记不稳定），直接用目录里的下标 ±1，
+//     所以 `content()` 每次都把整份目录一起返回给前端。
+// ============================================================================
+
+const WYSHU_BASE: &str = "https://www.wyshu.com";
+
+/// 分类拼音 → 中文名（首页用）
+/// ★ `wl` 就是"网络小说"分类（100 本，江南的龙族 1/4/5、九州缥缈录 都在最前面）
+pub const WYSHU_CATS: &[(&str, &str)] = &[
+    ("wl", "网络小说"),
+    ("kh", "科幻小说"),
+    ("yq", "言情小说"),
+    ("ds", "都市文学"),
+];
+
+/// 这本书自己的路径前缀（书页和章节页的路径是 `{前缀}{id}.html`）。
+/// ★ 前缀**不是固定的**：龙族在 `/wl/longzu4.../`，安德的影子在 `/kh/andedeyingzi/` ——
+///   首页/搜索给 `/wl/` 形状，分类页给 `/{分类}/{slug}/` 形状，而且 `/wl/{slug}/`
+///   对后者是 **404**。所以只能从 book.read_url 里取前缀，不能硬编码。
+fn wyshu_prefix(read_url: &str) -> String {
+    let p = read_url.strip_prefix(WYSHU_BASE).unwrap_or(read_url);
+    let p = p.split(['?', '#']).next().unwrap_or(p);
+    if p.ends_with('/') { p.to_string() } else { format!("{p}/") }
+}
+
+/// ★★ 这个站的**站内搜索接口是坏的**，必须自己建索引：
+///   · `/?s=<词>` 是**假搜索** —— 实测搜「龙族」和搜「zzzzqqqq」返回的是**同一页**
+///     （都是全站目录 185 本），拿它当搜索用会"搜什么都返回一大堆"；
+///   · 真搜索表单指向 `POST /e/search/index.php`，但**对非浏览器客户端一律 403**
+///     （带 cookie 会话、带 Referer 都试过，还是 403 —— 是 WAF 挡的，不做绕过）。
+///
+/// 好在全站书目**可枚举**：9 个分类页（wl/wx/xd/kh/wg/ds/yq/ys/xy）每个正好 100 本，
+/// `index_2.html` 不再新增 → 实测去重后 **898 本**。所以把 9 个分类页合成一份索引
+/// （缓存 30 分钟），搜索就在本地按书名/作者做包含匹配。第一次搜多花 1~2 秒建索引。
+async fn wyshu_index() -> Result<Vec<Book>, String> {
+    const KEY: &str = "wyshu:index";
+    if let Some(s) = cache().get(KEY, Duration::from_secs(1800)) {
+        if let Ok(v) = serde_json::from_str::<Vec<Book>>(&s) {
+            if !v.is_empty() {
+                return Ok(v);
+            }
+        }
+    }
+    let futs: Vec<_> = WYSHU_CATS.iter().map(|(c, _)| wyshu_home(c)).collect();
+    let mut out: Vec<Book> = Vec::new();
+    let mut seen = std::collections::HashSet::new();
+    let mut ok_any = false;
+    for r in futures::future::join_all(futs).await {
+        if let Ok(v) = r {
+            ok_any = true;
+            for b in v {
+                if seen.insert(b.source_id.clone()) {
+                    out.push(b);
+                }
+            }
+        }
+    }
+    if !ok_any {
+        return Err("无忧书城一个分类页都拉不到（网络问题）".into());
+    }
+    if let Ok(s) = serde_json::to_string(&out) {
+        cache().put(KEY, &s);
+    }
+    Ok(out)
+}
+
+/// 本地搜索：按书名 / 作者包含匹配。
+pub async fn wyshu_search(kw: &str) -> Result<Vec<Book>, String> {
+    let k = kw.trim().to_lowercase();
+    if k.is_empty() {
+        return Ok(Vec::new());
+    }
+    let idx = wyshu_index().await?;
+    let hits: Vec<Book> = idx
+        .into_iter()
+        .filter(|b| b.title.to_lowercase().contains(&k) || b.author.to_lowercase().contains(&k))
+        .collect();
+    if hits.is_empty() {
+        return Err(format!(
+            "无忧书城（{} 本）里没搜到「{}」—— 换关键词，或去「中文电子书」分类看看",
+            WYSHU_CATS.len() * 100,
+            kw.trim()
+        ));
+    }
+    Ok(hits)
+}
+
+/// 分类页
+pub async fn wyshu_home(cat: &str) -> Result<Vec<Book>, String> {
+    let cat = if cat.trim().is_empty() { "wl" } else { cat.trim() };
+    let url = format!("{WYSHU_BASE}/{cat}/");
+    let key = format!("wyshu:home:{cat}");
+    let html = match cache().get(&key, Duration::from_secs(1800)) {
+        Some(b) => b,
+        None => {
+            let b = get_text(&url, Some(WYSHU_BASE)).await?;
+            cache().put(&key, &b);
+            b
+        }
+    };
+    let mut v = parse_wyshu_books(&html);
+    // ★ 不要截断太狠：分类页就是 100 本一页，而全站索引（wyshu_index）要靠这里拿全，
+    //   截到 60 会每个分类少 40 本（用户搜的书可能正好在被截掉的那部分）。
+    v.truncate(100);
+    Ok(v)
+}
+
+/// 从搜索结果 / 分类页抽书。结果项形如：
+///   `<h3 class="h5 text-truncate mw-100"><a href="/wl/{slug}/" class="text-dark">书名</a>
+///    <span class="text-black-50 h6">作者</span></h3>`
+/// ★ 书页路径有两种形状，都要认：
+///   `/wl/{slug}/`（首页 / 搜索结果）与 `/{2字母分类}/{slug}/`（分类页，如 `/kh/andedeyingzi/`）。
+fn parse_wyshu_books(html: &str) -> Vec<Book> {
+    const NOT_BOOK: &[&str] = &["js", "cs", "im", "us", "as", "st", "fo", "up"];
+    let re = regex::Regex::new(
+        r#"(?is)<a\s+href="/([a-z0-9]{2})/([A-Za-z0-9_\-]{2,60})/"[^>]*>(.*?)</a>(?:\s*<span[^>]*>(.*?)</span>)?"#,
+    )
+    .unwrap();
+    let mut out = Vec::new();
+    let mut seen = std::collections::HashSet::new();
+    for c in re.captures_iter(html) {
+        let cat = c[1].to_string();
+        let slug = c[2].to_string();
+        if NOT_BOOK.contains(&cat.as_str()) || !seen.insert(slug.clone()) {
+            continue;
+        }
+        let title = html_unescape(&strip_tags(&c[3])).trim().to_string();
+        if title.chars().count() < 2 || title.chars().count() > 60 {
+            continue;
+        }
+        let author = c
+            .get(4)
+            .map(|m| html_unescape(&strip_tags(m.as_str())).trim().to_string())
+            .unwrap_or_default();
+        out.push(Book {
+            key: format!("wyshu:{slug}"),
+            source: "wyshu".into(),
+            source_id: slug.clone(),
+            title,
+            author,
+            cover: String::new(),
+            lang: "zh".into(),
+            tags: vec!["网络小说".into()],
+            desc: String::new(),
+            read_url: format!("{WYSHU_BASE}/{cat}/{slug}/"),
+            dl_txt: String::new(),
+            dl_epub: String::new(),
+            popularity: 0,
+            local_path: String::new(),
+        });
+    }
+    out
+}
+
+/// 目录：`<a href="{前缀}{id}.html" title="章节名">章节名</a>`
+pub async fn wyshu_chapters(book: &Book) -> Result<Vec<Chapter>, String> {
+    let prefix = wyshu_prefix(&book.read_url);
+    let key = format!("wyshu:toc:{}", book.source_id);
+    let html = match cache().get(&key, Duration::from_secs(3600)) {
+        Some(b) => b,
+        None => {
+            let b = get_text(&book.read_url, Some(WYSHU_BASE)).await?;
+            cache().put(&key, &b);
+            b
+        }
+    };
+    let re = regex::Regex::new(&format!(
+        r#"(?is)<a\s+href="{}([0-9]+)\.html"[^>]*?(?:title="([^"]*)")?[^>]*>(.*?)</a>"#,
+        regex::escape(&prefix)
+    ))
+    .unwrap();
+    let mut out = Vec::new();
+    let mut seen = std::collections::HashSet::new();
+    for c in re.captures_iter(&html) {
+        let id = c[1].to_string();
+        if !seen.insert(id.clone()) {
+            continue;
+        }
+        let name = c
+            .get(2)
+            .filter(|m| !m.as_str().trim().is_empty())
+            .map(|m| m.as_str().to_string())
+            .unwrap_or_else(|| html_unescape(&strip_tags(&c[3])));
+        let name = html_unescape(&strip_tags(&name)).trim().to_string();
+        out.push(Chapter {
+            index: out.len(),
+            name,
+            url: format!("{WYSHU_BASE}{prefix}{id}.html"),
+        });
+    }
+    if out.is_empty() {
+        return Err("这个书页里没找到目录（站点可能改版了）".into());
+    }
+    Ok(out)
+}
+
+/// 按 class 名取出一个容器元素的内容（**按标签配平**，不是"匹配到第一个 </div>"）。
+///
+/// 为什么不能只写正则：无忧书城同一套模板里，正文容器**有的页是 `<div>` 有的页是
+/// `<article>`**（龙族1 是 div、龙族4 是 article —— 实测踩到），而且惰性匹配
+/// `([\s\S]*?)</div>` 在容器是 article 时会一路吃穿到后面的 div 里去。
+/// 这里先由 `class="..."` 回溯出真正的标签名，再数 `<tag` / `</tag` 配对。
+fn extract_container(html: &str, class_name: &str) -> Option<String> {
+    let needle = format!("class=\"");
+    let mut from = 0usize;
+    loop {
+        let ci = html[from..].find(&needle)? + from;
+        let vstart = ci + needle.len();
+        let vend = html[vstart..].find('"')? + vstart;
+        let classes = &html[vstart..vend];
+        let hit = classes.split_whitespace().any(|c| c == class_name);
+        // 开标签起点：从 ci 往前找最近的 '<'
+        let tag_open = html[..ci].rfind('<')?;
+        // 只在同一标签内找 class（避免跨标签误命中）
+        if hit && !html[tag_open..ci].contains('>') {
+            let rest = &html[tag_open + 1..];
+            let name: String = rest
+                .chars()
+                .take_while(|c| c.is_ascii_alphanumeric())
+                .collect::<String>()
+                .to_lowercase();
+            if name.is_empty() {
+                return None;
+            }
+            // 跳过开标签本身
+            let gt = html[tag_open..].find('>')? + tag_open + 1;
+            let open_pat = format!("<{name}");
+            let close_pat = format!("</{name}");
+            let mut depth = 1i32;
+            let mut i = gt;
+            while i < html.len() {
+                let no = html[i..].find(&open_pat).map(|k| k + i);
+                let nc = html[i..].find(&close_pat).map(|k| k + i);
+                match (no, nc) {
+                    (_, None) => break,
+                    (Some(o), Some(c)) if o < c => {
+                        // `<name` 后面必须是空白或 '>' 才算同一个标签（避免 <articleX>）
+                        let after = html.as_bytes().get(o + open_pat.len()).copied();
+                        if matches!(after, Some(b' ') | Some(b'>') | Some(b'\n') | Some(b'\r') | Some(b'\t')) {
+                            depth += 1;
+                        }
+                        i = o + open_pat.len();
+                    }
+                    (_, Some(c)) => {
+                        depth -= 1;
+                        if depth == 0 {
+                            return Some(html[gt..c].to_string());
+                        }
+                        i = c + close_pat.len();
+                    }
+                }
+            }
+            return Some(html[gt..].to_string());
+        }
+        from = vend;
+    }
+}
+
+async fn wyshu_content(book: &Book, chapter_index: usize) -> Result<BookText, String> {
+    let chapters = wyshu_chapters(book).await?;
+    let idx = chapter_index.min(chapters.len().saturating_sub(1));
+    let ch = &chapters[idx];
+    let html = get_text(&ch.url, Some(&book.read_url)).await?;
+    let body = wyshu_body(&html);
+    if body.trim().is_empty() {
+        return Err("这一章没抽到正文（站点可能改版了）".into());
+    }
+    let mut text = clean_book_html(&body);
+    // 砍掉站点挂在正文尾部的推广/导航
+    for cut in ["无忧书城", "上一章", "下一章", "加入书签", "推荐阅读", "章节报错"] {
+        if let Some(i) = text.find(cut) {
+            text.truncate(i);
+        }
+    }
+    let text = text.trim().to_string();
+    if text.chars().count() < 20 {
+        return Err("这一章正文太短，可能没抽对".into());
+    }
+    Ok(BookText {
+        title: ch.name.clone(),
+        author: book.author.clone(),
+        text,
+        has_prev: idx > 0,
+        has_next: idx + 1 < chapters.len(),
+        chapter_index: idx,
+        chapters,
+    })
+}
+
+/// 章节页 → 正文 HTML（在线读和整本下载共用一套）
+fn wyshu_body(html: &str) -> String {
+    extract_container(html, "article-post").unwrap_or_default()
+}
+
+/// 整本下载：逐章抓下来拼成一个 txt（站点没有整本直链）。
+/// ★ 上限 300 章：龙族5 有 153 章，够用；再长的不下，免得打几百个请求。
+async fn wyshu_download_txt(book: &Book, dest_dir: &str) -> Result<String, String> {
+    let chapters = wyshu_chapters(book).await?;
+    let total = chapters.len().min(300);
+    let mut parts: Vec<String> = Vec::with_capacity(total);
+    parts.push(format!("{}\n作者：{}\n来源：无忧书城\n\n", book.title, book.author));
+    for ch in chapters.iter().take(total) {
+        match get_text(&ch.url, Some(&book.read_url)).await {
+            Ok(html) => {
+                let mut t = clean_book_html(&wyshu_body(&html));
+                for cut in ["无忧书城", "上一章", "下一章", "加入书签", "推荐阅读", "章节报错"] {
+                    if let Some(i) = t.find(cut) {
+                        t.truncate(i);
+                    }
+                }
+                parts.push(format!("\n\n{}\n\n{}", ch.name, t.trim()));
+            }
+            Err(e) => parts.push(format!("\n\n{}\n\n（这一章没抓到：{e}）", ch.name)),
+        }
+    }
+    let all = parts.join("");
+    let dir = if dest_dir.trim().is_empty() { book_dir().join("local") } else { PathBuf::from(dest_dir) };
+    std::fs::create_dir_all(&dir).map_err(|e| format!("建目录失败: {e}"))?;
+    let safe: String = book.title.chars().map(|c| if r#"<>:"/\|?*"#.contains(c) { '_' } else { c }).collect();
+    let path = dir.join(format!("{}.txt", safe.trim()));
+    std::fs::write(&path, all.as_bytes()).map_err(|e| format!("写文件失败: {e}"))?;
+    Ok(path.to_string_lossy().to_string())
+}
+
+// ============================================================================
+// 源 3.7：Standard Ebooks（外文名著，排版精校 + epub 直链）
 // ----------------------------------------------------------------------------
 // 实测：搜索 `GET /ebooks?query=x` → 结果 href `/ebooks/{author}/{slug}`；
 //   详情页有 `<h1>书名`、封面 `/images/covers/{author}_{slug}/.../cover.jpg`、
@@ -1139,8 +1585,11 @@ pub async fn se_content(book: &Book) -> Result<BookText, String> {
 }
 
 // ============================================================================
-// 源 4：本地导入（txt / epub）—— 源全挂了也能用
+// 源 4：本地导入（txt / epub / mobi）—— 源全挂了也能用
 // ============================================================================
+
+/// 本地书认这些扩展名（mobi 是本轮加的：用户报"读不了 mobi"，自己下的 mobi 也该能读）
+pub const LOCAL_EXTS: &[&str] = &["txt", "epub", "mobi", "azw3"];
 
 pub fn local_scan(dir: &Path) -> Vec<Book> {
     let mut out = Vec::new();
@@ -1148,7 +1597,7 @@ pub fn local_scan(dir: &Path) -> Vec<Book> {
     for e in rd.flatten() {
         let p = e.path();
         let ext = p.extension().and_then(|x| x.to_str()).unwrap_or("").to_lowercase();
-        if !matches!(ext.as_str(), "txt" | "epub") {
+        if !LOCAL_EXTS.contains(&ext.as_str()) {
             continue;
         }
         let name = p.file_stem().and_then(|x| x.to_str()).unwrap_or("未命名").to_string();
@@ -1161,7 +1610,7 @@ pub fn local_scan(dir: &Path) -> Vec<Book> {
             author: String::new(),
             cover: String::new(),
             lang: "zh".into(),
-            tags: vec![if ext == "epub" { "EPUB".into() } else { "TXT".into() }],
+            tags: vec![ext.to_uppercase()],
             desc: format!("本地文件 · {}", human_size(size)),
             read_url: String::new(),
             dl_txt: String::new(),
@@ -1214,10 +1663,13 @@ pub fn read_local(path: &str, chapter_index: Option<usize>) -> Result<BookText, 
     let ext = p.extension().and_then(|x| x.to_str()).unwrap_or("").to_lowercase();
     let title = p.file_stem().and_then(|x| x.to_str()).unwrap_or("未命名").to_string();
     let raw = std::fs::read(&p).map_err(|e| format!("读取失败: {e}"))?;
-    let text = if ext == "epub" {
-        epub_to_text(&raw)?
-    } else {
-        decode_body(&raw)
+    let text = match ext.as_str() {
+        "epub" => epub_to_text(&raw)?,
+        "mobi" | "azw" | "azw3" => {
+            let b = crate::mobi::mobi_text_bytes(&raw)?;
+            clean_book_html(&decode_body(&b))
+        }
+        _ => decode_body(&raw),
     };
     let marks = split_chapters(&text);
     if marks.is_empty() {
@@ -1332,20 +1784,82 @@ pub async fn home(section: &str) -> Result<Vec<Book>, String> {
             }
             Ok(out)
         }
-        // 中文电子书（苦瓜书盘）—— 用户要的"小说"，科幻玄幻分类打底
+        // 中文电子书（苦瓜书盘）—— 正式出版物，科幻玄幻分类打底
         "novel" => kgbook_home_multi(KGBOOK_NOVEL_CATS).await,
+        // 网络小说（无忧书城）—— 龙族 / 九州缥缈录 这类
+        "webnovel" => wyshu_home("wl").await,
         // 期刊杂志（苦瓜书盘的期刊杂志分类，PDF）
         "magazine" => kgbook_home_multi(KGBOOK_MAG_CATS).await,
         "local" => Ok(local_scan(&book_dir().join("local"))),
-        // 默认：热门（按下载量）
-        _ => gutenberg_many(None, 3).await,
+        // ★ 默认首页：网络小说 + 中文电子书各一半。
+        //   原来默认是 Gutenberg 外文名著，用户反馈"所有书都是英文"，所以改成中文优先。
+        _ => {
+            let (a, b) = futures::join!(wyshu_home("wl"), kgbook_home_multi(&["kehuanxuanhuan", "xiandaiwenxue"]));
+            let mut out = Vec::new();
+            if let Ok(mut v) = a {
+                v.truncate(10);
+                out.append(&mut v);
+            }
+            if let Ok(mut v) = b {
+                v.truncate(8);
+                out.append(&mut v);
+            }
+            if out.is_empty() {
+                return Err("推荐列表拉不到（网络问题），直接搜书名试试".into());
+            }
+            Ok(out)
+        }
     }
 }
 
 pub async fn search(source: &str, kw: &str, page: u32) -> Result<Vec<Book>, String> {
     match source {
+        // ★ 默认搜索：**一次搜所有源**再合并。
+        //   用户报"要搜的搜不到"，根因是每个源各搜各的、用户不知道该选哪个；
+        //   三个源并行打，最慢的那个决定总耗时（~2 秒），但一次就能搜到。
+        "all" => {
+            let kw = kw.trim();
+            let jobs = vec![
+                Box::pin(kgbook_search(kw)) as std::pin::Pin<Box<dyn std::future::Future<Output = Result<Vec<Book>, String>> + Send>>,
+                Box::pin(wyshu_search(kw)),
+                Box::pin(gutenberg_list(kw, None, page)),
+            ];
+            let mut out = Vec::new();
+            let mut errs: Vec<String> = Vec::new();
+            for r in futures::future::join_all(jobs).await {
+                match r {
+                    Ok(mut v) => out.append(&mut v),
+                    Err(e) => errs.push(e),
+                }
+            }
+            if out.is_empty() {
+                return Err(if errs.is_empty() {
+                    format!("没搜到「{kw}」")
+                } else {
+                    errs.join("；")
+                });
+            }
+            // ★ 书名里带关键词的排最前面。
+            //   苦瓜书盘的站内搜索是**模糊**的（搜「龙族」会把简介里带"龙"的魔兽世界、
+            //   创龙传一起返回），而用户要的是"龙族"本身。按"书名命中 > 作者命中 > 其它"
+            //   排一遍，用户一眼就能看到自己要的那本。
+            let k = kw.to_lowercase();
+            out.sort_by_key(|b| {
+                let t = b.title.to_lowercase();
+                let a = b.author.to_lowercase();
+                if t.contains(&k) {
+                    0
+                } else if a.contains(&k) {
+                    1
+                } else {
+                    2
+                }
+            });
+            Ok(out)
+        }
         "kgbook" => kgbook_search(kw).await,
         "novel" => kgbook_search_scoped(kw, KGBOOK_NOVEL_CATS).await,
+        "webnovel" => wyshu_search(kw).await,
         "magazine" => kgbook_search_scoped(kw, KGBOOK_MAG_CATS).await,
         "se" => se_search(kw).await,
         "guoxue" => guoxue_search(kw).await,
@@ -1361,12 +1875,13 @@ pub async fn search(source: &str, kw: &str, page: u32) -> Result<Vec<Book>, Stri
     }
 }
 
-/// 章节表：单文件源给一章；文潮小说给真目录。
+/// 章节表：单文件源给一章；无忧书城给真目录。
 pub async fn chapters(book: &Book) -> Result<Vec<Chapter>, String> {
     match book.source.as_str() {
+        "wyshu" => wyshu_chapters(book).await,
         "kgbook" => Ok(vec![Chapter {
             index: 0,
-            name: "整本（txt/epub 可在线读，PDF/MOBI 请下载）".into(),
+            name: "整本（txt/epub/mobi 可在线读，PDF 请下载）".into(),
             url: book.read_url.clone(),
         }]),
         "gutenberg" => Ok(vec![Chapter {
@@ -1388,22 +1903,21 @@ pub async fn content(book: &Book, chapter_index: usize) -> Result<BookText, Stri
         return read_local(&book.local_path, Some(chapter_index));
     }
     match book.source.as_str() {
-        // 苦瓜书盘：txt/epub 能解出纯文本直接读；pdf/mobi 阅读器读不了，提示去下载
+        // 苦瓜书盘：txt / epub / mobi 都能解出纯文本直接读；
+        // 6寸pdf 没有文本层解析器，只能提示去下载。
         "kgbook" => {
             let detail = kgbook_detail(book).await?;
             if !kgbook_readable(&detail) {
                 return Err(format!(
                     "这本是 {} 格式，阅读器读不了 —— 点「下载」拿到文件后用本地阅读器打开（作者：{}）",
-                    if detail.format.is_empty() { "PDF/MOBI".to_string() } else { detail.format.clone() },
+                    if detail.format.is_empty() { "PDF".to_string() } else { detail.format.clone() },
                     if detail.author.is_empty() { "未知" } else { &detail.author }
                 ));
             }
             let (bytes, ext) = kgbook_fetch_bytes(book, &detail).await?;
-            let text = if ext == "epub" {
-                epub_to_text(&bytes)?
-            } else {
-                decode_body(&bytes)
-            };
+            let text = extract_book_text(&bytes, &ext).ok_or_else(|| {
+                format!("这个 {ext} 文件没能抽出正文（可能是扫描版或加密的）")
+            })?;
             let text = text.trim().to_string();
             if text.chars().count() < 50 {
                 return Err("这个文件里没抽出正文（可能是扫描版）".into());
@@ -1419,6 +1933,7 @@ pub async fn content(book: &Book, chapter_index: usize) -> Result<BookText, Stri
             })
         }
         "se" => se_content(book).await,
+        "wyshu" => wyshu_content(book, chapter_index).await,
         "shuge" => shuge_content(&book.read_url).await,
         "guoxue" => {
             let html = get_text(&book.read_url, Some(GUOXUE_BASE)).await?;
@@ -1515,6 +2030,10 @@ pub async fn download(book: &Book, format: &str, dest_dir: &str) -> Result<Strin
     if book.source == "kgbook" {
         return kgbook_download(book, dest_dir).await;
     }
+    // 无忧书城：没有整本直链，逐章抓下来拼成一本 txt
+    if book.source == "wyshu" {
+        return wyshu_download_txt(book, dest_dir).await;
+    }
     let url = match format {
         "epub" => {
             if book.dl_epub.is_empty() {
@@ -1572,9 +2091,17 @@ pub async fn extra_downloads(url: &str) -> Result<Vec<(String, String)>, String>
 // Tauri 命令
 // ============================================================================
 
+/// 首页一次给几本。用户反馈"推荐这么多太麻烦了"，从 60 收到 18。
+const HOME_LIMIT: usize = 18;
+/// 补封面的上限：一本一个详情页请求，只给可见的前 N 本补
+const COVER_LIMIT: usize = 18;
+
 #[tauri::command]
 pub async fn book_home(section: String) -> Result<Vec<Book>, String> {
-    home(&section).await
+    let mut v = home(&section).await?;
+    v.truncate(HOME_LIMIT);
+    kgbook_fill_covers(&mut v, COVER_LIMIT).await;
+    Ok(v)
 }
 
 #[tauri::command]
@@ -1582,7 +2109,11 @@ pub async fn book_search(source: String, keyword: String, page: Option<u32>) -> 
     if keyword.trim().is_empty() {
         return Ok(Vec::new());
     }
-    search(&source, &keyword, page.unwrap_or(1)).await
+    let mut v = search(&source, &keyword, page.unwrap_or(1)).await?;
+    // 合并搜索可能一次给几十上百条，留 60 条够翻；封面只给前 18 本补
+    v.truncate(60);
+    kgbook_fill_covers(&mut v, COVER_LIMIT).await;
+    Ok(v)
 }
 
 #[tauri::command]
@@ -1632,7 +2163,7 @@ pub async fn book_import(paths: Vec<String>) -> Result<usize, String> {
         let src = PathBuf::from(&p);
         let Some(name) = src.file_name() else { continue };
         let ext = src.extension().and_then(|x| x.to_str()).unwrap_or("").to_lowercase();
-        if !matches!(ext.as_str(), "txt" | "epub") {
+        if !LOCAL_EXTS.contains(&ext.as_str()) {
             continue;
         }
         if std::fs::copy(&src, dst.join(name)).is_ok() {
@@ -1651,7 +2182,9 @@ pub async fn book_probe(source: String) -> Result<serde_json::Value, String> {
         "shuge" => ("论语", "shuge"),
         "kgbook" => ("三体", "kgbook"),
         "novel" => ("三体", "novel"),
+        "webnovel" => ("龙族", "webnovel"),
         "magazine" => ("读者", "magazine"),
+        "all" => ("龙族", "all"),
         "se" => ("sherlock", "se"),
         "local" => ("", "local"),
         _ => ("holmes", "gutenberg"),
@@ -1964,6 +2497,120 @@ bG8=").unwrap()).unwrap(), "hello");
         assert!(got_detail, "至少要有一本拿到详情");
         assert!(read_ok, "txt/epub 在线阅读链路必须通（抓文件 → 抽正文）");
         println!("[live] txt/epub 在线阅读链路: ✅ 通");
+    }
+
+    /// 无忧书城（中文网络小说）：搜索「龙族」→ 目录 → 抽正文
+    #[test]
+    #[ignore]
+    fn live_wyshu_read_one() {
+        let list = match rt().block_on(wyshu_search("龙族")) {
+            Ok(v) => v,
+            Err(e) => panic!("[live] 无忧书城搜「龙族」失败: {e}"),
+        };
+        println!("[live] 无忧书城搜「龙族」到 {} 本", list.len());
+        for b in list.iter().take(8) {
+            println!("   {} / {} -> {}", b.title, b.author, b.read_url);
+        }
+        assert!(
+            list.iter().any(|b| b.title.contains("龙族")),
+            "搜「龙族」必须能搜到龙族本体"
+        );
+        let Some(b) = list.iter().find(|b| b.title.contains("龙族")) else { return };
+        let toc = match rt().block_on(wyshu_chapters(b)) {
+            Ok(v) => v,
+            Err(e) => panic!("[live] 取目录失败: {e}"),
+        };
+        println!("[live] 《{}》目录 {} 章，首={} 末={}", b.title, toc.len(), toc[0].name, toc.last().unwrap().name);
+        assert!(toc.len() >= 5, "目录太短，肯定不对");
+        let t = match rt().block_on(wyshu_content(b, 0)) {
+            Ok(t) => t,
+            Err(e) => panic!("[live] 取正文失败: {e}"),
+        };
+        println!("[live] 第 1 章「{}」{} 字：{}", t.title, t.text.chars().count(),
+            t.text.chars().take(60).collect::<String>().replace('\n', " "));
+        assert!(t.text.chars().count() > 300, "正文太短，肯定没抽对");
+        assert_eq!(t.chapters.len(), toc.len(), "正文里要带整份目录（前端靠它翻页）");
+        // 翻到第 2 章也要能读到
+        let t2 = rt().block_on(wyshu_content(b, 1)).expect("第 2 章要能读");
+        println!("[live] 第 2 章「{}」{} 字", t2.title, t2.text.chars().count());
+        assert!(t2.text.chars().count() > 300);
+    }
+
+    /// mobi 解析：在苦瓜书盘找一本 mobi 的书（《窄门》就是 mobi），走"抓文件 → 抽正文"
+    #[test]
+    #[ignore]
+    fn live_mobi_read_one() {
+        let mut list = Vec::new();
+        for kw in ["窄门", "红楼梦", "呐喊"] {
+            if let Ok(v) = rt().block_on(kgbook_search(kw)) {
+                list.extend(v);
+            }
+        }
+        assert!(!list.is_empty(), "苦瓜书盘搜不到书？");
+        let mut ok = false;
+        for b in list.iter().take(24) {
+            let Ok(d) = rt().block_on(kgbook_detail(b)) else { continue };
+            if !d.format.to_lowercase().contains("mobi") {
+                continue;
+            }
+            println!("[live] mobi 样本: {} | 格式={} 大小={}", b.title, d.format, d.size);
+            match rt().block_on(kgbook_fetch_bytes(b, &d)) {
+                Ok((bytes, ext)) => {
+                    println!("   抓到 {} 字节, ext={}", bytes.len(), ext);
+                    match crate::mobi::mobi_text_bytes(&bytes) {
+                        Ok(raw) => {
+                            let text = clean_book_html(&decode_body(&raw));
+                            println!("   ★ mobi 解出正文 {} 字：{}", text.chars().count(),
+                                text.chars().take(60).collect::<String>().replace('\n', " "));
+                            if text.chars().count() > 200 {
+                                ok = true;
+                                break;
+                            }
+                        }
+                        Err(e) => println!("   mobi 解析失败: {e}"),
+                    }
+                }
+                Err(e) => println!("   抓文件失败: {e}"),
+            }
+        }
+        assert!(ok, "至少要有本 mobi 能解出正文（用户报「读不了 mobi」就是这条）");
+    }
+
+    /// 封面：列表接口拿不到图（分类页/结果页都没有 <img>），只能靠详情页补。
+    /// 这条就是防"封面又变成空"的回归。
+    #[test]
+    #[ignore]
+    fn live_kgbook_covers() {
+        let mut v = rt().block_on(kgbook_home("kehuanxuanhuan")).expect("分类页要能拉到");
+        assert!(!v.is_empty());
+        let before = v.iter().filter(|b| !b.cover.is_empty()).count();
+        println!("[live] 补封面之前有图的: {before}/{}", v.len());
+        rt().block_on(kgbook_fill_covers(&mut v, 12));
+        let got: Vec<_> = v.iter().filter(|b| !b.cover.is_empty()).collect();
+        println!("[live] 补完之后有图的: {}/{}", got.len(), v.len());
+        for b in got.iter().take(5) {
+            println!("   {} -> {}", b.title, b.cover);
+        }
+        assert!(!got.is_empty(), "一本书的封面都补不到 = 详情页解析坏了");
+        assert!(got[0].cover.starts_with("http"), "封面必须是绝对地址: {}", got[0].cover);
+        // 封面图本身要能下（200 + 是图片）。★ 整个请求链都要在 block_on 里 —— 
+        // reqwest 的 send() 必须在 tokio 运行时上下文里调用，否则报 "there is no reactor running"。
+        let r = rt().block_on(async {
+            let cli = client_fast()?;
+            cli.get(&got[0].cover)
+                .header("Referer", KGBOOK_BASE)
+                .send()
+                .await
+                .map_err(|e| format!("{e}"))
+        });
+        match r {
+            Ok(resp) => {
+                println!("[live] 封面 HTTP {} content-type={:?}", resp.status().as_u16(),
+                    resp.headers().get("content-type").and_then(|v| v.to_str().ok()));
+                assert!(resp.status().is_success(), "封面图要能下");
+            }
+            Err(e) => panic!("封面图请求失败: {e}"),
+        }
     }
 
     /// 前端 chip 对应的两条链路：中文小说(novel) / 期刊杂志(magazine)

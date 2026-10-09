@@ -467,14 +467,19 @@
                         <!-- 主页：推书 + 搜索 -->
                         <div class="mod-panel active" data-tab="home">
                             <div class="bk-bar">
-                                <div class="bk-src-tabs" id="bk-src-tabs"></div>
                                 <div class="bk-search">
-                                    <input type="text" id="bk-search" class="setting-input" placeholder="搜书名 / 作者（名著走 Gutenberg，古籍走书格…）" autocomplete="off">
+                                    <input type="text" id="bk-search" class="setting-input" placeholder="搜书名 / 作者 —— 龙族、窄门、三体、红楼梦…" autocomplete="off">
                                     <button class="btn btn-primary" id="bk-search-btn">搜索</button>
                                     <button class="btn btn-secondary" id="bk-search-clear" hidden>返回推荐</button>
                                 </div>
+                                <!-- ★ 分类收进一个下拉：原来铺 8 个 chip，用户嫌"分这么多" -->
+                                <label class="bk-cat">
+                                    <span>分类</span>
+                                    <select id="bk-cat" class="setting-input"></select>
+                                </label>
                                 <button class="btn btn-secondary" id="bk-probe" title="挨个试一遍书源，看哪些当前网络下能用">源自检</button>
                             </div>
+                            <div class="bk-quick" id="bk-quick"></div>
                             <div class="bk-src-hint" id="bk-src-hint"></div>
                             <div class="an-sec-head">
                                 <h3 id="bk-list-title">热门名著</h3>
