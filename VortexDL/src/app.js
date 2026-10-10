@@ -864,6 +864,12 @@ const NAV_ICON_SVG = {
     '🔐': '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>',
     '📋': '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="8" y="2" width="8" height="4" rx="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/></svg>',
     '📦': '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg>',
+    // ★ 2026-10-10: 下面 3 个之前**没登记**，NAV_RESOURCES 里用到它们时全部退回
+    //   NAV_ICON_FALLBACK（地球图标）→ 用户报"部分图标不对"（Animeko/Veyra/Magpie
+    //   显示成同一个地球）。以后往 NAV_RESOURCES 加新 emoji，这里必须同步加。
+    '🎬': '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="7" y1="3" x2="7" y2="21"/><line x1="17" y1="3" x2="17" y2="21"/><line x1="2" y1="10" x2="22" y2="10"/></svg>',
+    '🐦': '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M16 7h.01"/><path d="M3.4 14.6 2 20l5.4-1.4a9 9 0 1 0-4-4z"/></svg>',
+    '🌸': '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M12 9c0-3 1-5 3-5s2 3-1 5c3-2 6-1 6 1s-3 2-6 0c3 2 3 5 1 6s-3-1-3-4c0 3-1 5-3 5s-2-3 1-5c-3 2-6 1-6-1s3-2 6 0c-3-2-3-5-1-6s3 1 3 4z"/></svg>',
 };
 const NAV_ICON_FALLBACK = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><line x1="3" y1="12" x2="21" y2="12"/></svg>';
 
@@ -1051,6 +1057,119 @@ function showToast(msg, kind, ms) {
         console.warn('[toast]', msg, e);
     }
 }
+
+/* ============================================================
+   应用内弹窗 —— 替代原生 alert / confirm / prompt
+   ------------------------------------------------------------
+   ★ 为什么必须换掉 (用户原话: "整体不要出现 edge 浏览器这样的弹窗"):
+   WebView2 里的 alert/confirm/prompt 走的是 **Chromium 自己的对话框**：
+   白底、系统字体、左上角还带域名/来源字样 —— 跟 Edge 弹的一模一样，
+   和本软件的液态玻璃主题完全不搭，还会**阻塞整个渲染线程**（弹窗期间动画全停）。
+   这里用应用自己的 .modal-card 画：跟随主题、有进出动画、不阻塞。
+   ============================================================ */
+function vxDialog(opts) {
+    opts = opts || {};
+    return new Promise(function (resolve) {
+        const wrap = document.createElement('div');
+        wrap.className = 'vx-dialog';
+        const isPrompt = opts.type === 'prompt';
+        const isConfirm = opts.type === 'confirm' || isPrompt;
+        const danger = !!opts.danger;
+
+        const overlay = document.createElement('div');
+        overlay.className = 'vx-dialog-overlay';
+        const card = document.createElement('div');
+        card.className = 'vx-dialog-card' + (danger ? ' is-danger' : '');
+
+        const head = document.createElement('div');
+        head.className = 'vx-dialog-head';
+        head.textContent = opts.title || (isConfirm ? '确认' : '提示');
+
+        const body = document.createElement('div');
+        body.className = 'vx-dialog-body';
+        // 用 textContent 而不是 innerHTML: 消息里常带文件名/URL, 别当 HTML 执行
+        body.textContent = String(opts.message == null ? '' : opts.message);
+
+        card.appendChild(head);
+        card.appendChild(body);
+
+        let input = null;
+        if (isPrompt) {
+            input = document.createElement('input');
+            input.className = 'setting-input vx-dialog-input';
+            input.type = 'text';
+            input.value = opts.value == null ? '' : String(opts.value);
+            if (opts.placeholder) input.placeholder = String(opts.placeholder);
+            card.appendChild(input);
+        }
+
+        const foot = document.createElement('div');
+        foot.className = 'vx-dialog-foot';
+        let done = false;
+        const finish = function (val) {
+            if (done) return;
+            done = true;
+            document.removeEventListener('keydown', onKey, true);
+            card.classList.add('is-out');
+            overlay.classList.add('is-out');
+            setTimeout(function () { try { wrap.remove(); } catch (_) {} }, 180);
+            resolve(val);
+        };
+
+        if (isConfirm) {
+            const cancel = document.createElement('button');
+            cancel.className = 'btn btn-secondary';
+            cancel.textContent = opts.cancelText || '取消';
+            cancel.addEventListener('click', function () { finish(isPrompt ? null : false); });
+            foot.appendChild(cancel);
+        }
+        const ok = document.createElement('button');
+        ok.className = 'btn ' + (danger ? 'btn-danger' : 'btn-primary');
+        ok.textContent = opts.okText || (isConfirm ? '确定' : '知道了');
+        ok.addEventListener('click', function () {
+            finish(isPrompt ? String(input.value) : true);
+        });
+        foot.appendChild(ok);
+        card.appendChild(foot);
+
+        overlay.addEventListener('click', function () { finish(isPrompt ? null : false); });
+
+        const onKey = function (e) {
+            if (e.key === 'Escape') { e.stopPropagation(); finish(isPrompt ? null : false); }
+            else if (e.key === 'Enter' && (isPrompt || opts.type !== 'alert')) {
+                e.stopPropagation();
+                finish(isPrompt ? String(input.value) : true);
+            }
+        };
+        document.addEventListener('keydown', onKey, true);
+
+        wrap.appendChild(overlay);
+        wrap.appendChild(card);
+        document.body.appendChild(wrap);
+        requestAnimationFrame(function () { wrap.classList.add('is-in'); });
+        setTimeout(function () {
+            if (isPrompt && input) { try { input.focus(); input.select(); } catch (_) {} }
+            else { try { ok.focus(); } catch (_) {} }
+        }, 30);
+    });
+}
+
+/// 应用内提示框（替代 alert）。**故意不返回 Promise 给旧代码**：调用点都是 `alert(msg)`，
+/// 换成 `vxAlert(msg)` 后不 await 也没关系（弹窗自己会关）。
+function vxAlert(message, opts) {
+    return vxDialog(Object.assign({ type: 'alert', message: message }, opts || {}));
+}
+/// 应用内确认框（替代 confirm），返回 Promise<boolean>。
+function vxConfirm(message, opts) {
+    return vxDialog(Object.assign({ type: 'confirm', message: message }, opts || {}));
+}
+/// 应用内输入框（替代 prompt），返回 Promise<string|null>。
+function vxPrompt(message, value, opts) {
+    return vxDialog(Object.assign({ type: 'prompt', message: message, value: value }, opts || {}));
+}
+window.vxAlert = vxAlert;
+window.vxConfirm = vxConfirm;
+window.vxPrompt = vxPrompt;
 
 // 判断字符串是否已是当前目标语言 (避免不必要的翻译请求)
 // 根据当前翻译目标语言动态判断
@@ -1544,7 +1663,7 @@ async function showExternalLinkChoice(url, extra) {
         else { window.open(String(url), '_blank'); }
     } catch (e) {
         try { window.open(String(url), '_blank'); } catch (_) {
-            alert('打开系统浏览器失败: ' + (e && e.message ? e.message : String(e)));
+            vxAlert('打开系统浏览器失败: ' + (e && e.message ? e.message : String(e)));
         }
     }
 }
@@ -1712,7 +1831,7 @@ async function _showLocalHistoryFallback() {
                         try { overlay.remove(); } catch(_) {}
                     } catch (e) {
                         rb.disabled = false; rb.textContent = '重试';
-                        alert('失败: ' + (e && e.message ? e.message : String(e)));
+                        vxAlert('失败: ' + (e && e.message ? e.message : String(e)));
                     }
                 };
             }
@@ -1723,7 +1842,7 @@ async function _showLocalHistoryFallback() {
                 cb.style.cssText = 'background:#484f58;color:#fff;border:none;padding:3px 10px;border-radius:4px;cursor:pointer;font-size:10px;white-space:nowrap;';
                 cb.onclick = async () => {
                     try { await invoke('copy_to_clipboard', { text: item.url }); showToast('链接已复制', 'success'); }
-                    catch (_) { try { await navigator.clipboard.writeText(item.url); showToast('链接已复制', 'success'); } catch(e){ alert('复制失败:\n'+item.url); } }
+                    catch (_) { try { await navigator.clipboard.writeText(item.url); showToast('链接已复制', 'success'); } catch(e){ vxAlert('复制失败:\n'+item.url); } }
                 };
                 act.appendChild(cb);
             }
@@ -1751,7 +1870,7 @@ async function openBrowserWindow(url) {
     } catch (e) {
         // 最后兜底: 直接 window.open
         try { window.open(String(url), '_blank'); } catch (_) {
-            alert('打开系统浏览器失败: ' + (e && e.message ? e.message : String(e)));
+            vxAlert('打开系统浏览器失败: ' + (e && e.message ? e.message : String(e)));
         }
     }
 }
@@ -1874,19 +1993,19 @@ function updateHomeStats() {
         }
     }
 }
-document.addEventListener('DOMContentLoaded', () => {
+document.addEventListener('DOMContentLoaded', async () => {
     // 加载并应用保存的主题 (默认深海蓝)
     const savedTheme = localStorage.getItem('vortex_theme') || 'ocean';
     applyTheme(savedTheme);
 
     // 收藏数量角标 + 清空按钮
     favUpdateBadge();
-    document.addEventListener('click', (e) => {
+    document.addEventListener('click', async (e) => {
         const clearBtn = e.target.closest('#fav-clear-btn');
         if (!clearBtn) return;
         e.preventDefault();
         if (favLoad().length === 0) return;
-        if (!confirm('确定清空所有收藏吗？')) return;
+        if (!(await vxConfirm('确定清空所有收藏吗？'))) return;
         favSave([]);
         renderFavPage();
     });
@@ -2214,12 +2333,12 @@ document.getElementById('runtime-repair-btn')?.addEventListener('click', async (
     const logBox = document.getElementById('runtime-repair-log');
     if (!btn) return;
 
-    if (!confirm('即将开始运行库一键修复:\n\n' +
+    if (!(await vxConfirm('即将开始运行库一键修复:\n\n' +
         '1. 静默安装 VC++ 运行库 (2005-2022 全版本)\n' +
         '2. 修复 DirectX 组件 (d3dx9_xx.dll / xinput1_3.dll)\n' +
         '3. 重新注册系统 DLL (修复 0xc000007b 等错误)\n\n' +
         '⚠️ 过程需要管理员权限, 可能需要几分钟\n' +
-        '⚠️ 完成后需要重启电脑才能生效\n\n确认继续?')) return;
+        '⚠️ 完成后需要重启电脑才能生效\n\n确认继续?'))) return;
 
     btn.disabled = true;
     btn.textContent = '修复中...';
@@ -2245,24 +2364,24 @@ document.getElementById('runtime-repair-btn')?.addEventListener('click', async (
         const allOk = r.success;
         if (allOk) {
             // 全部成功 → 提示重启
-            if (confirm('✅ 运行库修复全部完成!\n\n' +
+            if ((await vxConfirm('✅ 运行库修复全部完成!\n\n' +
                 '已完成: VC++ 运行库安装 + DirectX 修复 + DLL 注册\n\n' +
-                '⚠️ 必须重启电脑才能使所有修复生效。\n\n是否立即重启?')) {
+                '⚠️ 必须重启电脑才能使所有修复生效。\n\n是否立即重启?'))) {
                 // 调用系统重启
                 try {
                     await invoke('restart_system');
                 } catch (e) {
-                    alert('重启命令执行失败, 请手动重启电脑。\n\n错误: ' + e);
+                    vxAlert('重启命令执行失败, 请手动重启电脑。\n\n错误: ' + e);
                 }
             }
         } else {
             // 部分失败 → 仍提示重启
-            if (confirm('⚠️ 运行库修复已完成 (部分步骤未成功, 详情见上方日志)。\n\n' +
-                '⚠️ 仍建议重启电脑使已成功的修复生效。\n\n是否立即重启?')) {
+            if ((await vxConfirm('⚠️ 运行库修复已完成 (部分步骤未成功, 详情见上方日志)。\n\n' +
+                '⚠️ 仍建议重启电脑使已成功的修复生效。\n\n是否立即重启?'))) {
                 try {
                     await invoke('restart_system');
                 } catch (e) {
-                    alert('重启命令执行失败, 请手动重启电脑。\n\n错误: ' + e);
+                    vxAlert('重启命令执行失败, 请手动重启电脑。\n\n错误: ' + e);
                 }
             }
         }
@@ -2270,7 +2389,7 @@ document.getElementById('runtime-repair-btn')?.addEventListener('click', async (
         if (logBox) {
             logBox.textContent = `修复失败: ${e}`;
         }
-        alert(`运行库修复失败: ${e}`);
+        vxAlert(`运行库修复失败: ${e}`);
     } finally {
         btn.textContent = '🔧 运行库一键修复';
         btn.disabled = false;
@@ -4366,7 +4485,7 @@ document.getElementById('modal-start-download')?.addEventListener('click', async
 
     // 这里再验证一次 (兜底后应不可能空)
     if (!downloadDir) {
-        alert('请选择下载目录');
+        vxAlert('请选择下载目录');
         return;
     }
 
@@ -4433,9 +4552,9 @@ document.getElementById('modal-start-download')?.addEventListener('click', async
     if (!dl.signed && (source === 'galgamex' || dl.url.includes('galgamex.com'))) {
         try {
             await invoke('copy_to_clipboard', { text: dl.url });
-            alert(`GX 资源请前往网站下载\n\n下载链接已复制到剪贴板\n文件: ${dl.filename}\n解压码: ${dl.unzip_code || 'galgamex.com'}\n\n请打开 galgamex.net 手动下载`);
+            vxAlert(`GX 资源请前往网站下载\n\n下载链接已复制到剪贴板\n文件: ${dl.filename}\n解压码: ${dl.unzip_code || 'galgamex.com'}\n\n请打开 galgamex.net 手动下载`);
         } catch (e) {
-            alert(`下载链接:\n${dl.url}\n\n解压码: ${dl.unzip_code || 'galgamex.com'}`);
+            vxAlert(`下载链接:\n${dl.url}\n\n解压码: ${dl.unzip_code || 'galgamex.com'}`);
         }
         return;
     }
@@ -4516,7 +4635,7 @@ document.getElementById('modal-start-download')?.addEventListener('click', async
             entry.error = String(e);
             renderDownloadList();
         }
-        alert(`下载启动失败: ${e}`);
+        vxAlert(`下载启动失败: ${e}`);
     }
 
     } finally {
@@ -5437,8 +5556,8 @@ window.deleteDownloadFile = async function(taskId) {
     const dl = state.downloads.get(taskId);
     if (!dl) return;
     const p = dl.filePath || '';
-    if (!p) { alert('找不到该任务的文件路径'); return; }
-    if (!confirm('确定删除这个文件吗？\n\n' + p + '\n\n删除后无法恢复。')) return;
+    if (!p) { vxAlert('找不到该任务的文件路径'); return; }
+    if (!(await vxConfirm('确定删除这个文件吗？\n\n' + p + '\n\n删除后无法恢复。'))) return;
     try {
         await invoke('delete_path', { path: p });
         frontLog('DL_DELETE', 'task=' + taskId + ' file=' + p.slice(0, 120));
@@ -5447,7 +5566,7 @@ window.deleteDownloadFile = async function(taskId) {
         state.downloads.delete(taskId);
         if (typeof renderDownloadList === 'function') renderDownloadList(true);
     } catch (e) {
-        alert('删除失败: ' + (e && e.message ? e.message : String(e)));
+        vxAlert('删除失败: ' + (e && e.message ? e.message : String(e)));
     }
 };
 
@@ -5468,9 +5587,9 @@ window.retryDownload = async function(taskId) {
         // 没有资源 id（老任务/手工粘贴的链接）→ 保留原来的"复制链接去网站"兜底
         try {
             await invoke('copy_to_clipboard', { text: dl.url });
-            alert(`这条 GX 任务的资源 id 没记录，无法自动换链\n\n下载链接已复制到剪贴板\n文件: ${dl.name}\n\n请打开 galgamex.net 手动下载`);
+            vxAlert(`这条 GX 任务的资源 id 没记录，无法自动换链\n\n下载链接已复制到剪贴板\n文件: ${dl.name}\n\n请打开 galgamex.net 手动下载`);
         } catch (e) {
-            alert(`下载链接:\n${dl.url}`);
+            vxAlert(`下载链接:\n${dl.url}`);
         }
         return;
     }
@@ -5522,7 +5641,7 @@ window.retryDownload = async function(taskId) {
         });
         renderDownloadList();
     } catch (e) {
-        alert(`重试失败: ${e}`);
+        vxAlert(`重试失败: ${e}`);
     }
 };
 
@@ -5977,7 +6096,7 @@ async function hideBrowserWindowAfterAdopt() { return false; }
 async function adoptBrowserDownloadIntoMain({ url, filename, total, status, source }) {
     if (!url) return null;
     try { openBrowserWindow(url); }
-    catch (e) { alert('打开系统浏览器失败: ' + (e && e.message ? e.message : String(e))); }
+    catch (e) { vxAlert('打开系统浏览器失败: ' + (e && e.message ? e.message : String(e))); }
     return null;
 }
 
@@ -7378,14 +7497,14 @@ async function checkPanUpdate() {
 }
 
 /// 显示 123云盘新版本提示弹窗
-function showPanUpdatePrompt(r) {
+async function showPanUpdatePrompt(r) {
     const sizeMB = (r.file_size / 1024 / 1024).toFixed(1);
     const msg = `发现新版本 v${r.latest_version}\n\n` +
         `当前版本: v${r.current_version}\n` +
         `文件大小: ${sizeMB} MB\n` +
         `发布时间: ${r.created_at || '未知'}\n\n` +
         `是否下载并安装新版本?\n(下载完成后会自动运行安装程序)`;
-    if (!confirm(msg)) return;
+    if (!(await vxConfirm(msg))) return;
     downloadPanUpdate(r);
 }
 
@@ -7400,7 +7519,7 @@ async function downloadPanUpdate(r) {
             invoke('open_file', { path: setupPath }).catch(() => {});
         }, 1000);
     } catch (e) {
-        alert(`下载新版本失败: ${e}`);
+        vxAlert(`下载新版本失败: ${e}`);
     }
 }
 
@@ -8162,12 +8281,21 @@ async function updateMonitor() {
             // 显示在主值: 完整名字 (CSS 会处理溢出省略)
             gpuEl.textContent = gpuName;
             gpuEl.title = gpuName;
-            const gpuUsage = (status.gpu.usage != null && !isNaN(status.gpu.usage)) ? Number(status.gpu.usage) : ((status.gpu.load_percent != null && !isNaN(status.gpu.load_percent)) ? Number(status.gpu.load_percent) : 0);
-            if (gpuBar) gpuBar.style.width = gpuUsage.toFixed(1) + '%';
+            // ★ 2026-10-10: 之前后端 GpuInfo **没有 usage 字段**, 这里恒取 0 → 占用条永远 0.0%、
+            //   详情永远显示 "0.0%"（用户报"gpu占用情况不显示"）。现在后端用 PDH 给了真占用；
+            //   真的取不到时**不要假装 0%**，直接不显示百分比。
+            const hasUsage = (status.gpu.usage != null && !isNaN(status.gpu.usage));
+            const gpuUsage = hasUsage ? Number(status.gpu.usage) : null;
+            if (gpuBar) gpuBar.style.width = hasUsage ? gpuUsage.toFixed(1) + '%' : '0%';
+            if (gpuBar && gpuBar.parentElement) {
+                gpuBar.parentElement.classList.toggle('is-unknown', !hasUsage);
+                gpuBar.parentElement.title = hasUsage ? '' : '当前系统取不到 GPU 占用（PDH 计数器不可用）';
+            }
 
             if (gpuDetail) {
                 // detail: 使用率 | 显存 | 驱动
-                let parts = [gpuUsage.toFixed(1) + '%'];
+                let parts = [];
+                if (hasUsage) parts.push(gpuUsage.toFixed(1) + '%');
                 if (status.gpu.memory_mb && status.gpu.memory_mb > 0) {
                     const gb = (status.gpu.memory_mb / 1024).toFixed(1);
                     parts.push(`${gb}GB`);
@@ -9046,7 +9174,7 @@ window.__vxTr = (function () {
     async function renameItem(i) {
         const it = library[i];
         if (!it) return;
-        const name = prompt('修改显示名（只改这里的名字，不改文件名）', it.game || '');
+        const name = (await vxPrompt('修改显示名（只改这里的名字，不改文件名）', it.game || ''));
         if (name == null) return;
         try {
             await invoke('tr_rename', { path: it.path, game: name.trim() });
@@ -9060,7 +9188,7 @@ window.__vxTr = (function () {
     async function deleteItem(i) {
         const it = library[i];
         if (!it) return;
-        if (!confirm('从库里删除 ' + it.filename + ' ?（会同时删除文件）')) return;
+        if (!(await vxConfirm('从库里删除 ' + it.filename + ' ?（会同时删除文件）'))) return;
         try {
             await invoke('tr_delete', { path: it.path });
             setStatus('tr-lib-status', '已删除', 'ok');
@@ -9074,7 +9202,7 @@ window.__vxTr = (function () {
         try {
             const p = await invoke('browse_path');
             if (!p) return;
-            const game = prompt('这是哪个游戏的修改器？', '') || '';
+            const game = (await vxPrompt('这是哪个游戏的修改器？', '')) || '';
             const item = await invoke('tr_import', { path: p, game: game });
             setStatus('tr-lib-status', '已导入: ' + item.filename, 'ok');
             loadLibrary();
@@ -10262,7 +10390,7 @@ window.__vxAn = (function () {
     }
 
     async function setProgress(subId) {
-        const v = prompt('看到第几集？', '1');
+        const v = (await vxPrompt('看到第几集？', '1'));
         if (v == null) return;
         const n = parseInt(v, 10);
         if (!n || n < 1) return;

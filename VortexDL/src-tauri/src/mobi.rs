@@ -201,8 +201,13 @@ mod tests {
 
     #[test]
     fn palmdoc_literals_and_space_runs() {
-        // 0x01 0x03 'a' 'b' 'c' → 原样 3 字节；然后 0x09 'x' → 字面；0xc1 → 空格+'A'
-        let src = vec![0x01, 0x03, b'a', b'b', b'c', 0x09, b'x', 0xc1];
+        // ★ 2026-10-10 修正测试（实现是对的，测试写错了）：
+        //   PalmDOC 里 `0x01..=0x08` 这条指令的**长度就是它自己** ——
+        //   `0x03` 表示"后随 3 个字节原样输出"，**不是**先来一个 0x01 再来个 0x03。
+        //   原测试写成 `[0x01, 0x03, 'a','b','c', …]`，等于"1 个字面字节 0x03"
+        //   再"3 个字面 a b c"，所以解出来会多一个前导 0x03。
+        //   这两个用例一直没跑过（_tbook.bat 只跑 #[ignore] 的），所以没暴露。
+        let src = vec![0x03, b'a', b'b', b'c', 0x09, b'x', 0xc1];
         let mut out = Vec::new();
         palm_doc_decompress(&src, &mut out);
         assert_eq!(out, b"abc\tx A".to_vec());
@@ -210,13 +215,23 @@ mod tests {
 
     #[test]
     fn palmdoc_back_reference() {
-        // 先写 "abcd"，再放一个 2 字节回溯：dist=4, len=4 → 复制 "abcd"
-        // 0x80 | ((dist>>8)&3) ... 直接算：pair = (dist<<3) | (len-3) = (4<<3)|1 = 0x21
-        // 高位字节 0x80 | (0x21>>8) = 0x80，低位 0x21
-        let src = vec![0x01, 0x04, b'a', b'b', b'c', b'd', 0x80, 0x21];
+        // 先写 "abcd"（0x04 = 后随 4 个字面字节），再放一个两字节回溯：
+        // dist=4, len=4 → 复制 "abcd"
+        // pair = (dist<<3) | (len-3) = (4<<3)|1 = 0x21；高位字节 0x80 | (0x21>>8) = 0x80
+        let src = vec![0x04, b'a', b'b', b'c', b'd', 0x80, 0x21];
         let mut out = Vec::new();
         palm_doc_decompress(&src, &mut out);
         assert_eq!(out, b"abcdabcd".to_vec());
+    }
+
+    /// 0xc0..0xff = "空格 + (b ^ 0x80)"。★ 注意它**总是先出一个空格**，
+    /// 所以单个空格是 0x20（普通字面），不是 0xc0（0xc0 会解成 "空格 + @"）。
+    #[test]
+    fn palmdoc_space_runs() {
+        let src = vec![0x02, b'h', b'i', 0xc1, 0xe1];   // "hi" + " A" + " a"
+        let mut out = Vec::new();
+        palm_doc_decompress(&src, &mut out);
+        assert_eq!(out, b"hi A a".to_vec());
     }
 
     #[test]

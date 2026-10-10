@@ -169,10 +169,17 @@ fn client_fast() -> Result<reqwest::Client, String> {
         .map_err(|e| format!("HTTP 客户端创建失败: {e}"))
 }
 
-/// 正文/下载用：整本书可能几百 KB，给长一点。
+/// 正文/下载用：整本书可能几百 KB。
+///
+/// ★ 2026-10-10: 从 `timeout(25s)`（**总**超时）改成 `read_timeout`，理由和下面的
+///   `client_download()` 完全一样 —— 总超时会把"读得慢但一直在传"的正文**截断**，
+///   reqwest 报成 `error decoding response body`（看着像文件坏了，其实是超时）。
+///   实测 Gutenberg 的整本 txt（Sherlock Holmes ~600KB）在这条网络上就会踩到；
+///   阅读器「正文加载失败」有一半是它。read_timeout 按"两次收到数据的间隔"计时，
+///   只要还在往下传就不算超时。
 fn client_body() -> Result<reqwest::Client, String> {
     reqwest::Client::builder()
-        .timeout(Duration::from_secs(25))
+        .read_timeout(Duration::from_secs(30))
         .connect_timeout(Duration::from_secs(6))
         .user_agent(UA)
         .danger_accept_invalid_certs(true)
@@ -672,7 +679,7 @@ fn parse_shuge_books(html: &str) -> Vec<Book> {
 ///   所以这里做两件事：① 把说明文字读出来（在线阅读）；
 ///   ② 把中转页链接作为"下载"给出（用户点开就能拿到书格官方的下载入口）。
 async fn shuge_content(url: &str) -> Result<BookText, String> {
-    let html = get_text(url, Some("https://www.shuge.org/")).await?;
+    let html = get_text_body(url, Some("https://www.shuge.org/")).await?;
     let title = regex::Regex::new(r"(?is)<title[^>]*>(.*?)</title>")
         .unwrap()
         .captures(&html)
@@ -1583,7 +1590,9 @@ async fn wyshu_content(book: &Book, chapter_index: usize) -> Result<BookText, St
     let chapters = wyshu_chapters(book).await?;
     let idx = chapter_index.min(chapters.len().saturating_sub(1));
     let ch = &chapters[idx];
-    let html = get_text(&ch.url, Some(&book.read_url)).await?;
+    // ★ 2026-10-10: 正文用 **长超时** 的 get_text_body（8 秒总超时的 get_text 是给
+    //   搜索/列表用的）。阅读器"正文加载失败"有一半是拿 8 秒去读一个几百 KB 的页面。
+    let html = get_text_body(&ch.url, Some(&book.read_url)).await?;
     let body = wyshu_body(&html);
     if body.trim().is_empty() {
         return Err("这一章没抽到正文（站点可能改版了）".into());
@@ -1623,7 +1632,7 @@ async fn wyshu_download_txt(book: &Book, dest_dir: &str) -> Result<String, Strin
     let mut parts: Vec<String> = Vec::with_capacity(total);
     parts.push(format!("{}\n作者：{}\n来源：无忧书城\n\n", book.title, book.author));
     for ch in chapters.iter().take(total) {
-        match get_text(&ch.url, Some(&book.read_url)).await {
+        match get_text_body(&ch.url, Some(&book.read_url)).await {
             Ok(html) => {
                 let mut t = clean_book_html(&wyshu_body(&html));
                 for cut in ["无忧书城", "上一章", "下一章", "加入书签", "推荐阅读", "章节报错"] {
@@ -1983,16 +1992,51 @@ pub async fn recommend_pool_cached() -> Vec<Book> {
 }
 
 /// 轮询合并：每轮从每个源各取一本，这样前几页就是混的（不会前面全是某一家）
+/// 书名的"比较用"归一化：去掉书名号/引号/各种括号/空白/常见分隔符，并转小写。
+/// ★ 刻意**不**去掉数字 —— 龙族1 和 龙族4 是两本书，去掉数字会把它们并成一本。
+fn norm_title(s: &str) -> String {
+    s.chars()
+        .filter(|c| {
+            !c.is_whitespace()
+                && !"《》〈〉「」『』【】〔〕（）()[]{}“”‘’\"'·•—–-_,:;!?、，。：；！？…~～".contains(*c)
+        })
+        .flat_map(|c| c.to_lowercase())
+        .collect()
+}
+
+/// 按"归一化书名"去重（保留先出现的那本）。
+///
+/// ★ 为什么光按 key 去重不够: `Book.key` 是 `{源}:{分类}/{id}`。同一本书被收进
+///   **两个分类**时（苦瓜书盘 / 无忧书城都很常见）就会产生两个不同的 key，
+///   于是列表里同一本书出现两次 —— 用户报的"有些书出现多次"就是这个。
+/// ★ 名字为空的条目原样保留（没有可靠的合并依据，宁可多留一条）。
+pub fn dedup_books(v: Vec<Book>) -> Vec<Book> {
+    let mut seen = std::collections::HashSet::new();
+    let mut out = Vec::with_capacity(v.len());
+    for b in v {
+        let t = norm_title(&b.title);
+        if t.is_empty() || seen.insert(t) {
+            out.push(b);
+        }
+    }
+    out
+}
+
 fn interleave(lists: Vec<Vec<Book>>) -> Vec<Book> {
     let mut iters: Vec<std::vec::IntoIter<Book>> = lists.into_iter().map(|v| v.into_iter()).collect();
     let mut out: Vec<Book> = Vec::new();
     let mut seen = std::collections::HashSet::new();
+    let mut seen_title = std::collections::HashSet::new();
     loop {
         let mut got_any = false;
         for it in iters.iter_mut() {
             if let Some(b) = it.next() {
                 got_any = true;
-                if seen.insert(b.key.clone()) {
+                // key 去重（同一源同一本书）+ 书名去重（跨源/跨分类的同一本书）
+                let t = norm_title(&b.title);
+                let dup = !seen.insert(b.key.clone())
+                    || (!t.is_empty() && !seen_title.insert(t));
+                if !dup {
                     out.push(b);
                 }
             }
@@ -2022,7 +2066,13 @@ async fn guoxue_home() -> Vec<Book> {
     out
 }
 
+/// 首页统一入口：同样过一遍书名去重（推荐池内部已经在 interleave 里去重，这里是兜底）。
 pub async fn home(section: &str) -> Result<Vec<Book>, String> {
+    let v = home_inner(section).await?;
+    Ok(dedup_books(v))
+}
+
+async fn home_inner(section: &str) -> Result<Vec<Book>, String> {
     match section {
         "zh" => gutenberg_many(Some("zh"), 3).await,
         "guoxue" => Ok(guoxue_home().await),
@@ -2045,7 +2095,14 @@ pub async fn home(section: &str) -> Result<Vec<Book>, String> {
     }
 }
 
+/// 搜索统一入口：所有分支的结果都过一遍**书名去重**
+/// （同一本书在两个分类/两个源里各出现一次时，列表里就会重复 —— 用户报的"有些书出现多次"）。
 pub async fn search(source: &str, kw: &str, page: u32) -> Result<Vec<Book>, String> {
+    let v = search_inner(source, kw, page).await?;
+    Ok(dedup_books(v))
+}
+
+async fn search_inner(source: &str, kw: &str, page: u32) -> Result<Vec<Book>, String> {
     match source {
         // ★ 默认搜索：**一次搜所有源**再合并。
         //   用户报"要搜的搜不到"，根因是每个源各搜各的、用户不知道该选哪个；
@@ -2169,7 +2226,7 @@ pub async fn content(book: &Book, chapter_index: usize) -> Result<BookText, Stri
         "wyshu" => wyshu_content(book, chapter_index).await,
         "shuge" => shuge_content(&book.read_url).await,
         "guoxue" => {
-            let html = get_text(&book.read_url, Some(GUOXUE_BASE)).await?;
+            let html = get_text_body(&book.read_url, Some(GUOXUE_BASE)).await?;
             let title = regex::Regex::new(r"(?is)<title[^>]*>(.*?)</title>")
                 .unwrap()
                 .captures(&html)
@@ -2208,8 +2265,11 @@ pub async fn content(book: &Book, chapter_index: usize) -> Result<BookText, Stri
         }
         _ => {
             // Gutenberg：优先纯文本（干净），没有就抓 HTML
+            // ★ 2026-10-10: 用长超时的 get_text_body。Gutenberg 一本 txt 有 600KB 上下，
+            //   实测这条网络上要 20+ 秒 —— 原来走 get_text（8 秒总超时 × 2 次）必然失败，
+            //   表现就是"点阅读，正文加载失败"。
             let url = if !book.dl_txt.is_empty() { &book.dl_txt } else { &book.read_url };
-            let body = get_text(url, Some("https://www.gutenberg.org/")).await?;
+            let body = get_text_body(url, Some("https://www.gutenberg.org/")).await?;
             let text = if body.trim_start().starts_with('<') {
                 // HTML 版：砍掉页头页尾
                 let start = body.find("*** START OF").unwrap_or(0);
@@ -2316,7 +2376,7 @@ pub async fn download(book: &Book, format: &str, dest_dir: &str) -> Result<Strin
 
 /// 书格页面里的可下载文件（PDF 等）
 pub async fn extra_downloads(url: &str) -> Result<Vec<(String, String)>, String> {
-    let html = get_text(url, Some("https://www.shuge.org/")).await?;
+    let html = get_text_body(url, Some("https://www.shuge.org/")).await?;
     Ok(shuge_downloads(&html))
 }
 
@@ -2480,6 +2540,42 @@ pub async fn book_translate(text: String, target: Option<String>) -> Result<Stri
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// 书名归一化：括号/引号/空白/分隔符都去掉，但**数字必须保留**
+    /// （龙族1 和 龙族4 是两本书，去掉数字会把它们并成一本）。
+    #[test]
+    fn test_norm_title_keeps_volumes_apart() {
+        assert_eq!(norm_title("《龙族4·奥丁之渊》"), "龙族4奥丁之渊");
+        assert_eq!(norm_title("龙族4·奥丁之渊"), "龙族4奥丁之渊");
+        assert_eq!(norm_title(" 三体 "), "三体");
+        assert_ne!(norm_title("龙族1·火之晨曦"), norm_title("龙族4·奥丁之渊"));
+        assert_eq!(norm_title("Dune (Deluxe)"), "dunedeluxe");
+    }
+
+    /// 同一本书在两个分类/两个源里各一条时，只能留一条。
+    #[test]
+    fn test_dedup_books_merges_same_title() {
+        let mk = |key: &str, title: &str, src: &str| Book {
+            key: key.into(), source: src.into(), source_id: key.into(),
+            title: title.into(), author: String::new(), cover: String::new(),
+            lang: "zh".into(), tags: vec![], desc: String::new(),
+            read_url: String::new(), dl_txt: String::new(), dl_epub: String::new(),
+            popularity: 0, local_path: String::new(),
+        };
+        let v = vec![
+            mk("kgbook:kehuanxuanhuan/513", "三体", "kgbook"),
+            mk("kgbook:wangluoxiaoshuo/513", "《三体》", "kgbook"),   // 换个分类, key 不同
+            mk("wyshu:santi", "三体", "wyshu"),                      // 换个源
+            mk("wyshu:longzu4", "龙族4·奥丁之渊", "wyshu"),
+            mk("wyshu:longzu1", "龙族1·火之晨曦", "wyshu"),           // 同系列不同卷, 不能合
+            mk("wyshu:noname", "", "wyshu"),                          // 没名字的保留
+        ];
+        let out = dedup_books(v);
+        let titles: Vec<&str> = out.iter().map(|b| b.title.as_str()).collect();
+        assert_eq!(out.len(), 4, "去重后应剩 4 条, 实得 {titles:?}");
+        assert_eq!(titles.iter().filter(|t| t.contains("三体")).count(), 1, "三体只该留一条");
+        assert!(titles.iter().any(|t| t.contains("龙族1")) && titles.iter().any(|t| t.contains("龙族4")));
+    }
 
     #[test]
     fn test_strip_tags_basic() {
@@ -2649,14 +2745,24 @@ bG8=").unwrap()).unwrap(), "hello");
         };
         let Some(b) = list.first() else { println!("[live] 没搜到"); return };
         println!("[live] 选中: {} / {}", b.title, b.author);
-        match rt().block_on(content(b, 0)) {
-            Ok(t) => {
-                println!("[live] 正文 {} 字，开头：{}", t.text.chars().count(),
-                    t.text.chars().take(80).collect::<String>());
-                assert!(t.text.chars().count() > 1000, "正文太短，肯定不对");
+        // ★ 2026-10-10: 这条**必须断言**。原来失败了只打印一行就当通过，于是
+        //   "正文走 8 秒总超时的 get_text"这个 bug 一直没人发现（Gutenberg 一本
+        //   txt 要 20+ 秒，必然截断/超时，用户看到的就是"点阅读打不开"）。
+        //   gutenberg.org 在这条网络上偶发连接重置，所以允许重试，但**不许全失败**。
+        let mut ok = None;
+        for attempt in 1..=3 {
+            match rt().block_on(content(b, 0)) {
+                Ok(t) => { ok = Some(t); break; }
+                Err(e) => {
+                    println!("[live] 第 {attempt} 次取正文失败: {e}");
+                    std::thread::sleep(std::time::Duration::from_millis(1200));
+                }
             }
-            Err(e) => println!("[live] 取正文失败: {e}"),
         }
+        let t = ok.expect("三次都取不到 Gutenberg 正文 —— 检查是不是又退回了 8 秒总超时");
+        println!("[live] 正文 {} 字，开头：{}", t.text.chars().count(),
+            t.text.chars().take(80).collect::<String>());
+        assert!(t.text.chars().count() > 1000, "正文太短，肯定不对（{} 字）", t.text.chars().count());
     }
 
     /// Standard Ebooks：搜索 → 整本正文
@@ -2849,6 +2955,21 @@ bG8=").unwrap()).unwrap(), "hello");
         let first: std::collections::BTreeSet<&str> = v.iter().take(18).map(|b| b.source.as_str()).collect();
         println!("[live] 第一页包含的源: {first:?}");
         assert!(first.len() >= 3, "第一页只有 {} 个源，看着还是单一来源", first.len());
+        // ★ 不能有重名书 —— 用户报"有些书出现多次"（同一本书被两个分类/两个源各收一次，
+        //   key 不同所以旧的 key 去重拦不住）。
+        let mut seen = std::collections::HashMap::new();
+        let mut dups: Vec<String> = Vec::new();
+        for b in &v {
+            let t = norm_title(&b.title);
+            if t.is_empty() { continue; }
+            if let Some(prev) = seen.insert(t, b.title.clone()) {
+                dups.push(format!("{} / {}", prev, b.title));
+            }
+        }
+        if !dups.is_empty() {
+            println!("[live] 重名 {} 组: {:?}", dups.len(), &dups[..dups.len().min(8)]);
+        }
+        assert!(dups.is_empty(), "推荐池里有 {} 组重名书（同一本出现多次）", dups.len());
     }
 
     /// 封面：列表接口拿不到图（苦瓜书盘的分类页/结果页没有 <img>；无忧书城也一样），

@@ -9,6 +9,10 @@
     --theme-primary-hover: #4f46e5;
     --theme-primary-light: #818cf8;
     --theme-accent: #8b5cf6;
+    /* ★ 前景用强调色 (图标/小字): 由生成器保证与主题背景对比度 >= 3.0。
+       别拿 --theme-accent 当浅色底上的文字/图标色 —— 它是给渐变当高光用的，
+       在 37/77 个主题里和背景几乎同亮度 (实测最惨 1.03)，会"看着图标消失了"。 */
+    --theme-accent-text: #7c3aed;
     /* ★ 主色背景上的文字色 (由生成器按对比度计算, 见 --theme-on-primary 说明) */
     --theme-on-primary: #ffffff;
     --theme-bg-start: #dbeafe;
@@ -62,10 +66,12 @@
     --theme-primary-hover: #3336eb;
     --theme-primary-light: #787af2;
     --theme-accent: #8d63ee;
-    --theme-bg-start: #deebfc;
-    --theme-bg-mid1: #c2c5fa;
-    --theme-bg-mid2: #dacbfb;
-    --theme-bg-mid3: #f1d9fc;
+    /* 前景用强调色 (图标/小字): 已保证与主题背景对比度 >= 3.0 */
+    --theme-accent-text: #7847eb;
+    --theme-bg-start: #dfecfc;
+    --theme-bg-mid1: #c6c9fa;
+    --theme-bg-mid2: #ddcefb;
+    --theme-bg-mid3: #f2dbfc;
     --theme-bg-mid4: #fde7fb;
     --theme-bg-end: #fde7f3;
     --theme-glow: rgba(88, 90, 238, 0.2);
@@ -81,6 +87,8 @@
     --theme-surface: rgba(88, 90, 238, 0.08);
     --theme-surface-alt: rgba(255, 255, 255, 0.9);
     --theme-highlight-bg: rgba(88, 90, 238, 0.15);
+    --theme-card-bg-hover: rgba(88, 90, 238, 0.14);
+    --theme-card-bg-active: rgba(88, 90, 238, 0.22);
 }
 
 /* 主题 - 紫罗兰 */
@@ -89,10 +97,12 @@
     --theme-primary-hover: #7c33eb;
     --theme-primary-light: #a978f2;
     --theme-accent: #c963ee;
-    --theme-bg-start: #e1defc;
-    --theme-bg-mid1: #d1c2fa;
-    --theme-bg-mid2: #e1cbfb;
-    --theme-bg-mid3: #efd9fc;
+    /* 前景用强调色 (图标/小字): 已保证与主题背景对比度 >= 3.0 */
+    --theme-accent-text: #b11ee6;
+    --theme-bg-start: #e1dffc;
+    --theme-bg-mid1: #d4c6fa;
+    --theme-bg-mid2: #e3cefb;
+    --theme-bg-mid3: #f0dbfc;
     --theme-bg-mid4: #f9e7fd;
     --theme-bg-end: #fde7fd;
     --theme-glow: rgba(148, 88, 238, 0.2);
@@ -108,6 +118,8 @@
     --theme-surface: rgba(148, 88, 238, 0.08);
     --theme-surface-alt: rgba(255, 255, 255, 0.9);
     --theme-highlight-bg: rgba(148, 88, 238, 0.15);
+    --theme-card-bg-hover: rgba(148, 88, 238, 0.14);
+    --theme-card-bg-active: rgba(148, 88, 238, 0.22);
 }
 
 /* 主题 - 丁香紫 */
@@ -116,10 +128,12 @@
     --theme-primary-hover: #a733eb;
     --theme-primary-light: #c578f2;
     --theme-accent: #e963ee;
-    --theme-bg-start: #e9defc;
-    --theme-bg-mid1: #e0c2fa;
-    --theme-bg-mid2: #edcbfb;
-    --theme-bg-mid3: #f8d9fc;
+    /* 前景用强调色 (图标/小字): 已保证与主题背景对比度 >= 3.0 */
+    --theme-accent-text: #c817cf;
+    --theme-bg-start: #eadffc;
+    --theme-bg-mid1: #e3c6fa;
+    --theme-bg-mid2: #efcefb;
+    --theme-bg-mid3: #f9dbfc;
     --theme-bg-mid4: #fde7fb;
     --theme-bg-end: #fde7f8;
     --theme-glow: rgba(183, 88, 238, 0.2);
@@ -135,6 +149,8 @@
     --theme-surface: rgba(183, 88, 238, 0.08);
     --theme-surface-alt: rgba(255, 255, 255, 0.9);
     --theme-highlight-bg: rgba(183, 88, 238, 0.15);
+    --theme-card-bg-hover: rgba(183, 88, 238, 0.14);
+    --theme-card-bg-active: rgba(183, 88, 238, 0.22);
 }
 
 /* 主题 - 薰衣草 */
@@ -143,6 +159,8 @@
     --theme-primary-hover: #5838dc;
     --theme-primary-light: #8f79e7;
     --theme-accent: #b263ee;
+    /* 前景用强调色 (图标/小字): 已保证与主题背景对比度 >= 3.0 */
+    --theme-accent-text: #9d3ae9;
     --theme-bg-start: #dedff7;
     --theme-bg-mid1: #cbc5f1;
     --theme-bg-mid2: #d9cdf3;
@@ -162,6 +180,8 @@
     --theme-surface: rgba(117, 90, 226, 0.08);
     --theme-surface-alt: rgba(255, 255, 255, 0.9);
     --theme-highlight-bg: rgba(117, 90, 226, 0.15);
+    --theme-card-bg-hover: rgba(117, 90, 226, 0.14);
+    --theme-card-bg-active: rgba(117, 90, 226, 0.22);
 }
 
 /* 主题 - 兰花 */
@@ -170,10 +190,12 @@
     --theme-primary-hover: #c633eb;
     --theme-primary-light: #d978f2;
     --theme-accent: #ee63d2;
-    --theme-bg-start: #eedefc;
-    --theme-bg-mid1: #ebc2fa;
-    --theme-bg-mid2: #f7cbfb;
-    --theme-bg-mid3: #fcd9f8;
+    /* 前景用强调色 (图标/小字): 已保证与主题背景对比度 >= 3.0 */
+    --theme-accent-text: #cf17aa;
+    --theme-bg-start: #efdffc;
+    --theme-bg-mid1: #ecc6fa;
+    --theme-bg-mid2: #f7cefb;
+    --theme-bg-mid3: #fcdbf8;
     --theme-bg-mid4: #fde7f6;
     --theme-bg-end: #fde7f2;
     --theme-glow: rgba(208, 88, 238, 0.2);
@@ -189,6 +211,8 @@
     --theme-surface: rgba(208, 88, 238, 0.08);
     --theme-surface-alt: rgba(255, 255, 255, 0.9);
     --theme-highlight-bg: rgba(208, 88, 238, 0.15);
+    --theme-card-bg-hover: rgba(208, 88, 238, 0.14);
+    --theme-card-bg-active: rgba(208, 88, 238, 0.22);
 }
 
 /* 主题 - 葡萄紫 */
@@ -197,10 +221,12 @@
     --theme-primary-hover: #7014cc;
     --theme-primary-light: #9641ec;
     --theme-accent: #d763ee;
-    --theme-bg-start: #e5defc;
-    --theme-bg-mid1: #d8c2fa;
-    --theme-bg-mid2: #e6cbfb;
-    --theme-bg-mid3: #f3d9fc;
+    /* 前景用强调色 (图标/小字): 已保证与主题背景对比度 >= 3.0 */
+    --theme-accent-text: #bc18dc;
+    --theme-bg-start: #e5dffc;
+    --theme-bg-mid1: #dbc6fa;
+    --theme-bg-mid2: #e8cefb;
+    --theme-bg-mid3: #f3dbfc;
     --theme-bg-mid4: #fbe7fd;
     --theme-bg-end: #fde7fb;
     --theme-glow: rgba(133, 32, 233, 0.2);
@@ -216,6 +242,8 @@
     --theme-surface: rgba(133, 32, 233, 0.08);
     --theme-surface-alt: rgba(255, 255, 255, 0.9);
     --theme-highlight-bg: rgba(133, 32, 233, 0.15);
+    --theme-card-bg-hover: rgba(133, 32, 233, 0.14);
+    --theme-card-bg-active: rgba(133, 32, 233, 0.22);
 }
 
 /* 主题 - 梅子 */
@@ -224,10 +252,12 @@
     --theme-primary-hover: #d515c5;
     --theme-primary-light: #ed4ae0;
     --theme-accent: #ee63b6;
-    --theme-bg-start: #f6defc;
-    --theme-bg-mid1: #f9c2fa;
-    --theme-bg-mid2: #fbcbf3;
-    --theme-bg-mid3: #fcd9f0;
+    /* 前景用强调色 (图标/小字): 已保证与主题背景对比度 >= 3.0 */
+    --theme-accent-text: #dc188e;
+    --theme-bg-start: #f6dffc;
+    --theme-bg-mid1: #f9c6fa;
+    --theme-bg-mid2: #fbcef4;
+    --theme-bg-mid3: #fcdbf1;
     --theme-bg-mid4: #fde7f2;
     --theme-bg-end: #fde7ee;
     --theme-glow: rgba(234, 42, 218, 0.2);
@@ -243,6 +273,8 @@
     --theme-surface: rgba(234, 42, 218, 0.08);
     --theme-surface-alt: rgba(255, 255, 255, 0.9);
     --theme-highlight-bg: rgba(234, 42, 218, 0.15);
+    --theme-card-bg-hover: rgba(234, 42, 218, 0.14);
+    --theme-card-bg-active: rgba(234, 42, 218, 0.22);
 }
 
 /* 主题 - 品红 */
@@ -251,10 +283,12 @@
     --theme-primary-hover: #eb33a7;
     --theme-primary-light: #f278c5;
     --theme-accent: #ee638d;
-    --theme-bg-start: #fcdefa;
-    --theme-bg-mid1: #fac2ed;
-    --theme-bg-mid2: #fbcbe8;
-    --theme-bg-mid3: #fcd9e9;
+    /* 前景用强调色 (图标/小字): 已保证与主题背景对比度 >= 3.0 */
+    --theme-accent-text: #e61e5a;
+    --theme-bg-start: #fcdffa;
+    --theme-bg-mid1: #fac6ee;
+    --theme-bg-mid2: #fbcee9;
+    --theme-bg-mid3: #fcdbea;
     --theme-bg-mid4: #fde7ee;
     --theme-bg-end: #fde7ea;
     --theme-glow: rgba(238, 88, 183, 0.2);
@@ -270,6 +304,8 @@
     --theme-surface: rgba(238, 88, 183, 0.08);
     --theme-surface-alt: rgba(255, 255, 255, 0.9);
     --theme-highlight-bg: rgba(238, 88, 183, 0.15);
+    --theme-card-bg-hover: rgba(238, 88, 183, 0.14);
+    --theme-card-bg-active: rgba(238, 88, 183, 0.22);
 }
 
 /* 主题 - 霓虹紫粉 */
@@ -278,10 +314,12 @@
     --theme-primary-hover: #e322f1;
     --theme-primary-light: #ec6af6;
     --theme-accent: #ee63bf;
-    --theme-bg-start: #f3ddfd;
-    --theme-bg-mid1: #f4c1fb;
-    --theme-bg-mid2: #fccaf9;
-    --theme-bg-mid3: #fdd9f5;
+    /* 前景用强调色 (图标/小字): 已保证与主题背景对比度 >= 3.0 */
+    --theme-accent-text: #dc189b;
+    --theme-bg-start: #f4defd;
+    --theme-bg-mid1: #f5c5fb;
+    --theme-bg-mid2: #fccefa;
+    --theme-bg-mid3: #fddaf5;
     --theme-bg-mid4: #fde7f5;
     --theme-bg-end: #fde7f1;
     --theme-glow: rgba(232, 73, 243, 0.2);
@@ -297,6 +335,8 @@
     --theme-surface: rgba(232, 73, 243, 0.08);
     --theme-surface-alt: rgba(255, 255, 255, 0.9);
     --theme-highlight-bg: rgba(232, 73, 243, 0.15);
+    --theme-card-bg-hover: rgba(232, 73, 243, 0.14);
+    --theme-card-bg-active: rgba(232, 73, 243, 0.22);
 }
 
 /* 主题 - 浆果 */
@@ -305,10 +345,12 @@
     --theme-primary-hover: #cc145e;
     --theme-primary-light: #ec4185;
     --theme-accent: #ee6371;
-    --theme-bg-start: #fcdef2;
-    --theme-bg-mid1: #fac2df;
-    --theme-bg-mid2: #fbcbdd;
-    --theme-bg-mid3: #fcd9e1;
+    /* 前景用强调色 (图标/小字): 已保证与主题背景对比度 >= 3.0 */
+    --theme-accent-text: #e61e32;
+    --theme-bg-start: #fcdff2;
+    --theme-bg-mid1: #fac6e1;
+    --theme-bg-mid2: #fbcedf;
+    --theme-bg-mid3: #fcdbe2;
     --theme-bg-mid4: #fde7e9;
     --theme-bg-end: #fde9e7;
     --theme-glow: rgba(233, 32, 113, 0.2);
@@ -324,6 +366,8 @@
     --theme-surface: rgba(233, 32, 113, 0.08);
     --theme-surface-alt: rgba(255, 255, 255, 0.9);
     --theme-highlight-bg: rgba(233, 32, 113, 0.15);
+    --theme-card-bg-hover: rgba(233, 32, 113, 0.14);
+    --theme-card-bg-active: rgba(233, 32, 113, 0.22);
 }
 
 /* 主题 - 玫瑰 */
@@ -332,10 +376,12 @@
     --theme-primary-hover: #eb3355;
     --theme-primary-light: #f2788f;
     --theme-accent: #ee7a63;
-    --theme-bg-start: #fcdeeb;
-    --theme-bg-mid1: #fac2d2;
-    --theme-bg-mid2: #fbcbd3;
-    --theme-bg-mid3: #fcd9db;
+    /* 前景用强调色 (图标/小字): 已保证与主题背景对比度 >= 3.0 */
+    --theme-accent-text: #dc3918;
+    --theme-bg-start: #fcdfeb;
+    --theme-bg-mid1: #fac6d6;
+    --theme-bg-mid2: #fbced6;
+    --theme-bg-mid3: #fcdbdc;
     --theme-bg-mid4: #fde9e7;
     --theme-bg-end: #fdece7;
     --theme-glow: rgba(238, 88, 116, 0.2);
@@ -351,6 +397,8 @@
     --theme-surface: rgba(238, 88, 116, 0.08);
     --theme-surface-alt: rgba(255, 255, 255, 0.9);
     --theme-highlight-bg: rgba(238, 88, 116, 0.15);
+    --theme-card-bg-hover: rgba(238, 88, 116, 0.14);
+    --theme-card-bg-active: rgba(238, 88, 116, 0.22);
 }
 
 /* 主题 - 樱花 */
@@ -359,10 +407,12 @@
     --theme-primary-hover: #eb3370;
     --theme-primary-light: #f278a1;
     --theme-accent: #ee6368;
-    --theme-bg-start: #fbe5f0;
-    --theme-bg-mid1: #f6cadb;
-    --theme-bg-mid2: #f8d3dd;
-    --theme-bg-mid3: #fae0e4;
+    /* 前景用强调色 (图标/小字): 已保证与主题背景对比度 >= 3.0 */
+    --theme-accent-text: #e82c32;
+    --theme-bg-start: #fbe6f0;
+    --theme-bg-mid1: #f8d3e1;
+    --theme-bg-mid2: #f9d9e2;
+    --theme-bg-mid3: #fae3e6;
     --theme-bg-mid4: #fcedee;
     --theme-bg-end: #fcefed;
     --theme-glow: rgba(238, 88, 138, 0.2);
@@ -378,6 +428,8 @@
     --theme-surface: rgba(238, 88, 138, 0.08);
     --theme-surface-alt: rgba(255, 255, 255, 0.9);
     --theme-highlight-bg: rgba(238, 88, 138, 0.15);
+    --theme-card-bg-hover: rgba(238, 88, 138, 0.14);
+    --theme-card-bg-active: rgba(238, 88, 138, 0.22);
 }
 
 /* 主题 - 桃雾粉 */
@@ -386,10 +438,12 @@
     --theme-primary-hover: #db5243;
     --theme-primary-light: #e78d83;
     --theme-accent: #ee9a63;
-    --theme-bg-start: #fae0e1;
-    --theme-bg-mid1: #f6c9c6;
-    --theme-bg-mid2: #f7d6cf;
-    --theme-bg-mid3: #f9e4dc;
+    /* 前景用强调色 (图标/小字): 已保证与主题背景对比度 >= 3.0 */
+    --theme-accent-text: #c15a15;
+    --theme-bg-start: #fae1e2;
+    --theme-bg-mid1: #f6ceca;
+    --theme-bg-mid2: #f8d9d2;
+    --theme-bg-mid3: #f9e5dd;
     --theme-bg-mid4: #fbf0e9;
     --theme-bg-end: #fbf2e9;
     --theme-glow: rgba(226, 113, 101, 0.2);
@@ -405,6 +459,8 @@
     --theme-surface: rgba(226, 113, 101, 0.08);
     --theme-surface-alt: rgba(255, 255, 255, 0.9);
     --theme-highlight-bg: rgba(226, 113, 101, 0.15);
+    --theme-card-bg-hover: rgba(226, 113, 101, 0.14);
+    --theme-card-bg-active: rgba(226, 113, 101, 0.22);
 }
 
 /* 主题 - 藕荷 */
@@ -413,10 +469,12 @@
     --theme-primary-hover: #dd408f;
     --theme-primary-light: #e981b5;
     --theme-accent: #ee637f;
-    --theme-bg-start: #f9e6f3;
-    --theme-bg-mid1: #f3cde4;
-    --theme-bg-mid2: #f5d6e5;
-    --theme-bg-mid3: #f8e2ea;
+    /* 前景用强调色 (图标/小字): 已保证与主题背景对比度 >= 3.0 */
+    --theme-accent-text: #e82c51;
+    --theme-bg-start: #f9e7f4;
+    --theme-bg-mid1: #f5d6e8;
+    --theme-bg-mid2: #f7dce8;
+    --theme-bg-mid3: #f9e4ec;
     --theme-bg-mid4: #fbeef2;
     --theme-bg-end: #fbeef0;
     --theme-glow: rgba(227, 99, 163, 0.2);
@@ -432,6 +490,8 @@
     --theme-surface: rgba(227, 99, 163, 0.08);
     --theme-surface-alt: rgba(255, 255, 255, 0.9);
     --theme-highlight-bg: rgba(227, 99, 163, 0.15);
+    --theme-card-bg-hover: rgba(227, 99, 163, 0.14);
+    --theme-card-bg-active: rgba(227, 99, 163, 0.22);
 }
 
 /* 主题 - 玫瑰金 */
@@ -440,6 +500,8 @@
     --theme-primary-hover: #c97754;
     --theme-primary-light: #dca68f;
     --theme-accent: #ee6388;
+    /* 前景用强调色 (图标/小字): 已保证与主题背景对比度 >= 3.0 */
+    --theme-accent-text: #e61e53;
     --theme-bg-start: #f5e4e0;
     --theme-bg-mid1: #eeccc9;
     --theme-bg-mid2: #f0d0d1;
@@ -459,6 +521,8 @@
     --theme-surface: rgba(211, 144, 115, 0.08);
     --theme-surface-alt: rgba(255, 255, 255, 0.9);
     --theme-highlight-bg: rgba(211, 144, 115, 0.15);
+    --theme-card-bg-hover: rgba(211, 144, 115, 0.14);
+    --theme-card-bg-active: rgba(211, 144, 115, 0.22);
 }
 
 /* 主题 - 珊瑚 */
@@ -467,10 +531,12 @@
     --theme-primary-hover: #f15322;
     --theme-primary-light: #f68b6a;
     --theme-accent: #eead63;
-    --theme-bg-start: #fce1de;
-    --theme-bg-mid1: #facec2;
-    --theme-bg-mid2: #fbdbcb;
-    --theme-bg-mid3: #fce9d9;
+    /* 前景用强调色 (图标/小字): 已保证与主题背景对比度 >= 3.0 */
+    --theme-accent-text: #b36914;
+    --theme-bg-start: #fce2df;
+    --theme-bg-mid1: #fad1c6;
+    --theme-bg-mid2: #fbddce;
+    --theme-bg-mid3: #fce9db;
     --theme-bg-mid4: #fdf3e7;
     --theme-bg-end: #fdf6e7;
     --theme-glow: rgba(243, 113, 73, 0.2);
@@ -486,6 +552,8 @@
     --theme-surface: rgba(243, 113, 73, 0.08);
     --theme-surface-alt: rgba(255, 255, 255, 0.9);
     --theme-highlight-bg: rgba(243, 113, 73, 0.15);
+    --theme-card-bg-hover: rgba(243, 113, 73, 0.14);
+    --theme-card-bg-active: rgba(243, 113, 73, 0.22);
 }
 
 /* 主题 - 绯红 */
@@ -494,10 +562,12 @@
     --theme-primary-hover: #df1616;
     --theme-primary-light: #ee5353;
     --theme-accent: #ee9163;
-    --theme-bg-start: #fcdee3;
-    --theme-bg-mid1: #fac2c5;
-    --theme-bg-mid2: #fbcdcb;
-    --theme-bg-mid3: #fcdfd9;
+    /* 前景用强调色 (图标/小字): 已保证与主题背景对比度 >= 3.0 */
+    --theme-accent-text: #c14f15;
+    --theme-bg-start: #fcdfe4;
+    --theme-bg-mid1: #fac6ca;
+    --theme-bg-mid2: #fbd1ce;
+    --theme-bg-mid3: #fce0db;
     --theme-bg-mid4: #fdede7;
     --theme-bg-end: #fdefe7;
     --theme-glow: rgba(235, 51, 51, 0.2);
@@ -513,6 +583,8 @@
     --theme-surface: rgba(235, 51, 51, 0.08);
     --theme-surface-alt: rgba(255, 255, 255, 0.9);
     --theme-highlight-bg: rgba(235, 51, 51, 0.15);
+    --theme-card-bg-hover: rgba(235, 51, 51, 0.14);
+    --theme-card-bg-active: rgba(235, 51, 51, 0.22);
 }
 
 /* 主题 - 日落 */
@@ -521,10 +593,12 @@
     --theme-primary-hover: #eb8933;
     --theme-primary-light: #f2b178;
     --theme-accent: #ee637f;
-    --theme-bg-start: #fce2de;
-    --theme-bg-mid1: #fac2c2;
-    --theme-bg-mid2: #fbcbd2;
-    --theme-bg-mid3: #fcd9e3;
+    /* 前景用强调色 (图标/小字): 已保证与主题背景对比度 >= 3.0 */
+    --theme-accent-text: #e61e46;
+    --theme-bg-start: #fce3df;
+    --theme-bg-mid1: #fac7c7;
+    --theme-bg-mid2: #fbcfd5;
+    --theme-bg-mid3: #fcdbe4;
     --theme-bg-mid4: #fde8f1;
     --theme-bg-end: #fde8f4;
     --theme-glow: rgba(238, 158, 88, 0.2);
@@ -540,6 +614,8 @@
     --theme-surface: rgba(238, 158, 88, 0.08);
     --theme-surface-alt: rgba(255, 255, 255, 0.9);
     --theme-highlight-bg: rgba(238, 158, 88, 0.15);
+    --theme-card-bg-hover: rgba(238, 158, 88, 0.14);
+    --theme-card-bg-active: rgba(238, 158, 88, 0.22);
 }
 
 /* 主题 - 柑橘 */
@@ -548,10 +624,12 @@
     --theme-primary-hover: #eba133;
     --theme-primary-light: #f2c178;
     --theme-accent: #eedb63;
-    --theme-bg-start: #fcebde;
-    --theme-bg-mid1: #fae1c2;
-    --theme-bg-mid2: #fbebcb;
-    --theme-bg-mid3: #fcf5d9;
+    /* 前景用强调色 (图标/小字): 已保证与主题背景对比度 >= 3.0 */
+    --theme-accent-text: #8a790f;
+    --theme-bg-start: #fcecdf;
+    --theme-bg-mid1: #fae3c6;
+    --theme-bg-mid2: #fbedce;
+    --theme-bg-mid3: #fcf5db;
     --theme-bg-mid4: #fdfbe7;
     --theme-bg-end: #fcfde7;
     --theme-glow: rgba(238, 178, 88, 0.2);
@@ -567,6 +645,8 @@
     --theme-surface: rgba(238, 178, 88, 0.08);
     --theme-surface-alt: rgba(255, 255, 255, 0.9);
     --theme-highlight-bg: rgba(238, 178, 88, 0.15);
+    --theme-card-bg-hover: rgba(238, 178, 88, 0.14);
+    --theme-card-bg-active: rgba(238, 178, 88, 0.22);
 }
 
 /* 主题 - 赤陶 */
@@ -575,10 +655,12 @@
     --theme-primary-hover: #b45a2d;
     --theme-primary-light: #d58258;
     --theme-accent: #eebf63;
-    --theme-bg-start: #f7e6e3;
-    --theme-bg-mid1: #f0d6cb;
-    --theme-bg-mid2: #f3e0d3;
-    --theme-bg-mid3: #f6ecdf;
+    /* 前景用强调色 (图标/小字): 已保证与主题背景对比度 >= 3.0 */
+    --theme-accent-text: #a57412;
+    --theme-bg-start: #f7e7e4;
+    --theme-bg-mid1: #f2d9cf;
+    --theme-bg-mid2: #f3e2d6;
+    --theme-bg-mid3: #f6ece0;
     --theme-bg-mid4: #f9f5eb;
     --theme-bg-end: #f9f7eb;
     --theme-glow: rgba(206, 108, 59, 0.2);
@@ -594,6 +676,8 @@
     --theme-surface: rgba(206, 108, 59, 0.08);
     --theme-surface-alt: rgba(255, 255, 255, 0.9);
     --theme-highlight-bg: rgba(206, 108, 59, 0.15);
+    --theme-card-bg-hover: rgba(206, 108, 59, 0.14);
+    --theme-card-bg-active: rgba(206, 108, 59, 0.22);
 }
 
 /* 主题 - 焦糖 */
@@ -602,6 +686,8 @@
     --theme-primary-hover: #ae8129;
     --theme-primary-light: #d5a84d;
     --theme-accent: #eee063;
+    /* 前景用强调色 (图标/小字): 已保证与主题背景对比度 >= 3.0 */
+    --theme-accent-text: #8a7d0f;
     --theme-bg-start: #f7ebde;
     --theme-bg-mid1: #f1e0c6;
     --theme-bg-mid2: #f3e9ce;
@@ -621,6 +707,8 @@
     --theme-surface: rgba(207, 154, 48, 0.08);
     --theme-surface-alt: rgba(255, 255, 255, 0.9);
     --theme-highlight-bg: rgba(207, 154, 48, 0.15);
+    --theme-card-bg-hover: rgba(207, 154, 48, 0.14);
+    --theme-card-bg-active: rgba(207, 154, 48, 0.22);
 }
 
 /* 主题 - 琥珀 */
@@ -629,10 +717,12 @@
     --theme-primary-hover: #ebc633;
     --theme-primary-light: #f2d978;
     --theme-accent: #e9ee63;
-    --theme-bg-start: #fcf1de;
-    --theme-bg-mid1: #faecc2;
-    --theme-bg-mid2: #fbf4cb;
-    --theme-bg-mid3: #fcfbd9;
+    /* 前景用强调色 (图标/小字): 已保证与主题背景对比度 >= 3.0 */
+    --theme-accent-text: #868a0f;
+    --theme-bg-start: #fcf1df;
+    --theme-bg-mid1: #faedc6;
+    --theme-bg-mid2: #fbf5ce;
+    --theme-bg-mid3: #fcfbdb;
     --theme-bg-mid4: #fbfde7;
     --theme-bg-end: #f9fde7;
     --theme-glow: rgba(238, 208, 88, 0.2);
@@ -648,6 +738,8 @@
     --theme-surface: rgba(238, 208, 88, 0.08);
     --theme-surface-alt: rgba(255, 255, 255, 0.9);
     --theme-highlight-bg: rgba(238, 208, 88, 0.15);
+    --theme-card-bg-hover: rgba(238, 208, 88, 0.14);
+    --theme-card-bg-active: rgba(238, 208, 88, 0.22);
 }
 
 /* 主题 - 蜂蜜 */
@@ -656,10 +748,12 @@
     --theme-primary-hover: #ebd233;
     --theme-primary-light: #f2e278;
     --theme-accent: #e0ee63;
-    --theme-bg-start: #faf2e0;
-    --theme-bg-mid1: #f6edc5;
-    --theme-bg-mid2: #f8f5ce;
-    --theme-bg-mid3: #f8fadc;
+    /* 前景用强调色 (图标/小字): 已保证与主题背景对比度 >= 3.0 */
+    --theme-accent-text: #7d8a0f;
+    --theme-bg-start: #faf3e1;
+    --theme-bg-mid1: #f7efca;
+    --theme-bg-mid2: #f8f5d1;
+    --theme-bg-mid3: #f9fadd;
     --theme-bg-mid4: #f9fce9;
     --theme-bg-end: #f7fce9;
     --theme-glow: rgba(238, 218, 88, 0.2);
@@ -675,6 +769,8 @@
     --theme-surface: rgba(238, 218, 88, 0.08);
     --theme-surface-alt: rgba(255, 255, 255, 0.9);
     --theme-highlight-bg: rgba(238, 218, 88, 0.15);
+    --theme-card-bg-hover: rgba(238, 218, 88, 0.14);
+    --theme-card-bg-active: rgba(238, 218, 88, 0.22);
 }
 
 /* 主题 - 柠檬 */
@@ -683,6 +779,8 @@
     --theme-primary-hover: #e7e023;
     --theme-primary-light: #eeea68;
     --theme-accent: #cdee63;
+    /* 前景用强调色 (图标/小字): 已保证与主题背景对比度 >= 3.0 */
+    --theme-accent-text: #789711;
     --theme-bg-start: #fcf6d9;
     --theme-bg-mid1: #fafabd;
     --theme-bg-mid2: #f2fbc6;
@@ -702,6 +800,8 @@
     --theme-surface: rgba(235, 229, 71, 0.08);
     --theme-surface-alt: rgba(255, 255, 255, 0.9);
     --theme-highlight-bg: rgba(235, 229, 71, 0.15);
+    --theme-card-bg-hover: rgba(235, 229, 71, 0.14);
+    --theme-card-bg-active: rgba(235, 229, 71, 0.22);
 }
 
 /* 主题 - 暖沙 */
@@ -710,10 +810,12 @@
     --theme-primary-hover: #bf9a36;
     --theme-primary-light: #d5b96c;
     --theme-accent: #eee963;
-    --theme-bg-start: #f6eee4;
-    --theme-bg-mid1: #efe4cd;
-    --theme-bg-mid2: #f2ecd4;
-    --theme-bg-mid3: #f5f3e0;
+    /* 前景用强调色 (图标/小字): 已保证与主题背景对比度 >= 3.0 */
+    --theme-accent-text: #8a860f;
+    --theme-bg-start: #f7efe4;
+    --theme-bg-mid1: #f0e6d0;
+    --theme-bg-mid2: #f2edd7;
+    --theme-bg-mid3: #f6f4e1;
     --theme-bg-mid4: #f9f9ec;
     --theme-bg-end: #f7f9ec;
     --theme-glow: rgba(206, 172, 80, 0.2);
@@ -729,6 +831,8 @@
     --theme-surface: rgba(206, 172, 80, 0.08);
     --theme-surface-alt: rgba(255, 255, 255, 0.9);
     --theme-highlight-bg: rgba(206, 172, 80, 0.15);
+    --theme-card-bg-hover: rgba(206, 172, 80, 0.14);
+    --theme-card-bg-active: rgba(206, 172, 80, 0.22);
 }
 
 /* 主题 - 奶茶 */
@@ -737,10 +841,12 @@
     --theme-primary-hover: #a77944;
     --theme-primary-light: #c59e72;
     --theme-accent: #eecd63;
-    --theme-bg-start: #f4ebe6;
-    --theme-bg-mid1: #ebddd1;
-    --theme-bg-mid2: #eee5d8;
-    --theme-bg-mid3: #f3eee2;
+    /* 前景用强调色 (图标/小字): 已保证与主题背景对比度 >= 3.0 */
+    --theme-accent-text: #977811;
+    --theme-bg-start: #f5ece7;
+    --theme-bg-mid1: #ede0d4;
+    --theme-bg-mid2: #efe7da;
+    --theme-bg-mid3: #f3efe3;
     --theme-bg-mid4: #f7f6ed;
     --theme-bg-end: #f7f7ed;
     --theme-glow: rgba(187, 141, 88, 0.2);
@@ -756,6 +862,8 @@
     --theme-surface: rgba(187, 141, 88, 0.08);
     --theme-surface-alt: rgba(255, 255, 255, 0.9);
     --theme-highlight-bg: rgba(187, 141, 88, 0.15);
+    --theme-card-bg-hover: rgba(187, 141, 88, 0.14);
+    --theme-card-bg-active: rgba(187, 141, 88, 0.22);
 }
 
 /* 主题 - 摩卡 */
@@ -764,6 +872,8 @@
     --theme-primary-hover: #794b2a;
     --theme-primary-light: #b16e3e;
     --theme-accent: #eebd63;
+    /* 前景用强调色 (图标/小字): 已保证与主题背景对比度 >= 3.0 */
+    --theme-accent-text: #a57212;
     --theme-bg-start: #f4e6e2;
     --theme-bg-mid1: #ebd7cc;
     --theme-bg-mid2: #eedfd3;
@@ -783,6 +893,8 @@
     --theme-surface: rgba(151, 94, 53, 0.08);
     --theme-surface-alt: rgba(255, 255, 255, 0.9);
     --theme-highlight-bg: rgba(151, 94, 53, 0.15);
+    --theme-card-bg-hover: rgba(151, 94, 53, 0.14);
+    --theme-card-bg-active: rgba(151, 94, 53, 0.22);
 }
 
 /* 主题 - 青柠 */
@@ -791,10 +903,12 @@
     --theme-primary-hover: #adeb33;
     --theme-primary-light: #c9f278;
     --theme-accent: #96ee63;
-    --theme-bg-start: #f7fcde;
-    --theme-bg-mid1: #e5fac2;
-    --theme-bg-mid2: #e0fbcb;
-    --theme-bg-mid3: #e1fcd9;
+    /* 前景用强调色 (图标/小字): 已保证与主题背景对比度 >= 3.0 */
+    --theme-accent-text: #429711;
+    --theme-bg-start: #f7fcdf;
+    --theme-bg-mid1: #e7fac6;
+    --theme-bg-mid2: #e2fbce;
+    --theme-bg-mid3: #e2fcdb;
     --theme-bg-mid4: #e8fde7;
     --theme-bg-end: #e7fdeb;
     --theme-glow: rgba(188, 238, 88, 0.2);
@@ -810,6 +924,8 @@
     --theme-surface: rgba(188, 238, 88, 0.08);
     --theme-surface-alt: rgba(255, 255, 255, 0.9);
     --theme-highlight-bg: rgba(188, 238, 88, 0.15);
+    --theme-card-bg-hover: rgba(188, 238, 88, 0.14);
+    --theme-card-bg-active: rgba(188, 238, 88, 0.22);
 }
 
 /* 主题 - 橄榄 */
@@ -818,10 +934,12 @@
     --theme-primary-hover: #909f2d;
     --theme-primary-light: #bbcd4c;
     --theme-accent: #b6ee63;
+    /* 前景用强调色 (图标/小字): 已保证与主题背景对比度 >= 3.0 */
+    --theme-accent-text: #629711;
     --theme-bg-start: #f7f6e4;
-    --theme-bg-mid1: #ecf0cc;
-    --theme-bg-mid2: #ebf2d4;
-    --theme-bg-mid3: #eef6e0;
+    --theme-bg-mid1: #eef1d0;
+    --theme-bg-mid2: #edf3d7;
+    --theme-bg-mid3: #eff6e1;
     --theme-bg-mid4: #f3f9eb;
     --theme-bg-end: #f1f9eb;
     --theme-glow: rgba(173, 191, 54, 0.2);
@@ -837,6 +955,8 @@
     --theme-surface: rgba(173, 191, 54, 0.08);
     --theme-surface-alt: rgba(255, 255, 255, 0.9);
     --theme-highlight-bg: rgba(173, 191, 54, 0.15);
+    --theme-card-bg-hover: rgba(173, 191, 54, 0.14);
+    --theme-card-bg-active: rgba(173, 191, 54, 0.22);
 }
 
 /* 主题 - 苔藓 */
@@ -845,6 +965,8 @@
     --theme-primary-hover: #548f32;
     --theme-primary-light: #78c14e;
     --theme-accent: #71ee63;
+    /* 前景用强调色 (图标/小字): 已保证与主题背景对比度 >= 3.0 */
+    --theme-accent-text: #1e9711;
     --theme-bg-start: #ecf4e1;
     --theme-bg-mid1: #d9eccb;
     --theme-bg-mid2: #daeed2;
@@ -864,6 +986,8 @@
     --theme-surface: rgba(102, 174, 61, 0.08);
     --theme-surface-alt: rgba(255, 255, 255, 0.9);
     --theme-highlight-bg: rgba(102, 174, 61, 0.15);
+    --theme-card-bg-hover: rgba(102, 174, 61, 0.14);
+    --theme-card-bg-active: rgba(102, 174, 61, 0.22);
 }
 
 /* 主题 - 抹茶 */
@@ -872,6 +996,8 @@
     --theme-primary-hover: #73a23f;
     --theme-primary-light: #9ac468;
     --theme-accent: #88ee63;
+    /* 前景用强调色 (图标/小字): 已保证与主题背景对比度 >= 3.0 */
+    --theme-accent-text: #308a0f;
     --theme-bg-start: #eef3e2;
     --theme-bg-mid1: #ddeacc;
     --theme-bg-mid2: #dfedd4;
@@ -891,6 +1017,8 @@
     --theme-surface: rgba(136, 186, 79, 0.08);
     --theme-surface-alt: rgba(255, 255, 255, 0.9);
     --theme-highlight-bg: rgba(136, 186, 79, 0.15);
+    --theme-card-bg-hover: rgba(136, 186, 79, 0.14);
+    --theme-card-bg-active: rgba(136, 186, 79, 0.22);
 }
 
 /* 主题 - 薄荷 */
@@ -899,10 +1027,12 @@
     --theme-primary-hover: #33ebb4;
     --theme-primary-light: #78f2cd;
     --theme-accent: #63eeee;
-    --theme-bg-start: #defcee;
-    --theme-bg-mid1: #c2fae6;
-    --theme-bg-mid2: #cbfbef;
-    --theme-bg-mid3: #d9fcf8;
+    /* 前景用强调色 (图标/小字): 已保证与主题背景对比度 >= 3.0 */
+    --theme-accent-text: #119797;
+    --theme-bg-start: #dffcef;
+    --theme-bg-mid1: #c6fae8;
+    --theme-bg-mid2: #cefbf0;
+    --theme-bg-mid3: #dbfcf8;
     --theme-bg-mid4: #e7fdfd;
     --theme-bg-end: #e7fbfd;
     --theme-glow: rgba(88, 238, 193, 0.2);
@@ -918,6 +1048,8 @@
     --theme-surface: rgba(88, 238, 193, 0.08);
     --theme-surface-alt: rgba(255, 255, 255, 0.9);
     --theme-highlight-bg: rgba(88, 238, 193, 0.15);
+    --theme-card-bg-hover: rgba(88, 238, 193, 0.14);
+    --theme-card-bg-active: rgba(88, 238, 193, 0.22);
 }
 
 /* 主题 - 祖母绿 */
@@ -926,10 +1058,12 @@
     --theme-primary-hover: #14cc70;
     --theme-primary-light: #41ec96;
     --theme-accent: #63eecd;
-    --theme-bg-start: #defce8;
-    --theme-bg-mid1: #c2fadd;
-    --theme-bg-mid2: #cbfbea;
-    --theme-bg-mid3: #d9fcf5;
+    /* 前景用强调色 (图标/小字): 已保证与主题背景对比度 >= 3.0 */
+    --theme-accent-text: #119778;
+    --theme-bg-start: #dffce9;
+    --theme-bg-mid1: #c6fae0;
+    --theme-bg-mid2: #cefbeb;
+    --theme-bg-mid3: #dbfcf5;
     --theme-bg-mid4: #e7fdfc;
     --theme-bg-end: #e7fbfd;
     --theme-glow: rgba(32, 233, 133, 0.2);
@@ -945,6 +1079,8 @@
     --theme-surface: rgba(32, 233, 133, 0.08);
     --theme-surface-alt: rgba(255, 255, 255, 0.9);
     --theme-highlight-bg: rgba(32, 233, 133, 0.15);
+    --theme-card-bg-hover: rgba(32, 233, 133, 0.14);
+    --theme-card-bg-active: rgba(32, 233, 133, 0.22);
 }
 
 /* 主题 - 森林 */
@@ -953,10 +1089,12 @@
     --theme-primary-hover: #11b041;
     --theme-primary-light: #25e960;
     --theme-accent: #63eebb;
-    --theme-bg-start: #defce0;
-    --theme-bg-mid1: #c2face;
-    --theme-bg-mid2: #cbfbdc;
-    --theme-bg-mid3: #d9fceb;
+    /* 前景用强调色 (图标/小字): 已保证与主题背景对比度 >= 3.0 */
+    --theme-accent-text: #119766;
+    --theme-bg-start: #dffce1;
+    --theme-bg-mid1: #c6fad1;
+    --theme-bg-mid2: #cefbdf;
+    --theme-bg-mid3: #dbfcec;
     --theme-bg-mid4: #e7fdf6;
     --theme-bg-end: #e7fdf9;
     --theme-glow: rgba(21, 213, 79, 0.2);
@@ -972,6 +1110,8 @@
     --theme-surface: rgba(21, 213, 79, 0.08);
     --theme-surface-alt: rgba(255, 255, 255, 0.9);
     --theme-highlight-bg: rgba(21, 213, 79, 0.15);
+    --theme-card-bg-hover: rgba(21, 213, 79, 0.14);
+    --theme-card-bg-active: rgba(21, 213, 79, 0.22);
 }
 
 /* 主题 - 翡翠 */
@@ -980,10 +1120,12 @@
     --theme-primary-hover: #33ebeb;
     --theme-primary-light: #78f2f2;
     --theme-accent: #63c9ee;
-    --theme-bg-start: #defcf7;
-    --theme-bg-mid1: #c2faf7;
-    --theme-bg-mid2: #cbf8fb;
-    --theme-bg-mid3: #d9f6fc;
+    /* 前景用强调色 (图标/小字): 已保证与主题背景对比度 >= 3.0 */
+    --theme-accent-text: #1593c1;
+    --theme-bg-start: #dffcf7;
+    --theme-bg-mid1: #c6faf8;
+    --theme-bg-mid2: #cef8fb;
+    --theme-bg-mid3: #dbf6fc;
     --theme-bg-mid4: #e7f7fd;
     --theme-bg-end: #e7f4fd;
     --theme-glow: rgba(88, 238, 238, 0.2);
@@ -999,6 +1141,8 @@
     --theme-surface: rgba(88, 238, 238, 0.08);
     --theme-surface-alt: rgba(255, 255, 255, 0.9);
     --theme-highlight-bg: rgba(88, 238, 238, 0.15);
+    --theme-card-bg-hover: rgba(88, 238, 238, 0.14);
+    --theme-card-bg-active: rgba(88, 238, 238, 0.22);
 }
 
 /* 主题 - 青碧 */
@@ -1007,10 +1151,12 @@
     --theme-primary-hover: #1394c3;
     --theme-primary-light: #37bbeb;
     --theme-accent: #63a8ee;
-    --theme-bg-start: #def9fc;
-    --theme-bg-mid1: #c2eefa;
-    --theme-bg-mid2: #cbebfb;
-    --theme-bg-mid3: #d9edfc;
+    /* 前景用强调色 (图标/小字): 已保证与主题背景对比度 >= 3.0 */
+    --theme-accent-text: #1e82e6;
+    --theme-bg-start: #dff9fc;
+    --theme-bg-mid1: #c6effa;
+    --theme-bg-mid2: #ceedfb;
+    --theme-bg-mid3: #dbedfc;
     --theme-bg-mid4: #e7f1fd;
     --theme-bg-end: #e7effd;
     --theme-glow: rgba(23, 176, 232, 0.2);
@@ -1026,6 +1172,8 @@
     --theme-surface: rgba(23, 176, 232, 0.08);
     --theme-surface-alt: rgba(255, 255, 255, 0.9);
     --theme-highlight-bg: rgba(23, 176, 232, 0.15);
+    --theme-card-bg-hover: rgba(23, 176, 232, 0.14);
+    --theme-card-bg-active: rgba(23, 176, 232, 0.22);
 }
 
 /* 主题 - 极光 */
@@ -1034,10 +1182,12 @@
     --theme-primary-hover: #1fe0c7;
     --theme-primary-light: #62ead7;
     --theme-accent: #bb63ee;
-    --theme-bg-start: #dffbf1;
-    --theme-bg-mid1: #c3f5f8;
-    --theme-bg-mid2: #cde3f9;
-    --theme-bg-mid3: #dadcfb;
+    /* 前景用强调色 (图标/小字): 已保证与主题背景对比度 >= 3.0 */
+    --theme-accent-text: #af47eb;
+    --theme-bg-start: #e0fcf1;
+    --theme-bg-mid1: #c8f6f9;
+    --theme-bg-mid2: #d0e5fa;
+    --theme-bg-mid3: #dcdefb;
     --theme-bg-mid4: #f0e8fc;
     --theme-bg-end: #f8e8fc;
     --theme-glow: rgba(67, 229, 208, 0.2);
@@ -1053,6 +1203,8 @@
     --theme-surface: rgba(67, 229, 208, 0.08);
     --theme-surface-alt: rgba(255, 255, 255, 0.9);
     --theme-highlight-bg: rgba(67, 229, 208, 0.15);
+    --theme-card-bg-hover: rgba(67, 229, 208, 0.14);
+    --theme-card-bg-active: rgba(67, 229, 208, 0.22);
 }
 
 /* 主题 - 绿松石 */
@@ -1061,10 +1213,12 @@
     --theme-primary-hover: #33d2eb;
     --theme-primary-light: #78e2f2;
     --theme-accent: #63b6ee;
-    --theme-bg-start: #defcfb;
-    --theme-bg-mid1: #c2f6fa;
-    --theme-bg-mid2: #cbf2fb;
-    --theme-bg-mid3: #d9f1fc;
+    /* 前景用强调色 (图标/小字): 已保证与主题背景对比度 >= 3.0 */
+    --theme-accent-text: #1785cf;
+    --theme-bg-start: #dffcfb;
+    --theme-bg-mid1: #c6f6fa;
+    --theme-bg-mid2: #cef2fb;
+    --theme-bg-mid3: #dbf2fc;
     --theme-bg-mid4: #e7f4fd;
     --theme-bg-end: #e7f2fd;
     --theme-glow: rgba(88, 218, 238, 0.2);
@@ -1080,6 +1234,8 @@
     --theme-surface: rgba(88, 218, 238, 0.08);
     --theme-surface-alt: rgba(255, 255, 255, 0.9);
     --theme-highlight-bg: rgba(88, 218, 238, 0.15);
+    --theme-card-bg-hover: rgba(88, 218, 238, 0.14);
+    --theme-card-bg-active: rgba(88, 218, 238, 0.22);
 }
 
 /* 主题 - 碧海 */
@@ -1088,10 +1244,12 @@
     --theme-primary-hover: #3395eb;
     --theme-primary-light: #78b9f2;
     --theme-accent: #638dee;
-    --theme-bg-start: #def3fc;
-    --theme-bg-mid1: #c2e3fa;
-    --theme-bg-mid2: #cbe2fb;
-    --theme-bg-mid3: #d9e6fc;
+    /* 前景用强调色 (图标/小字): 已保证与主题背景对比度 >= 3.0 */
+    --theme-accent-text: #4778eb;
+    --theme-bg-start: #dff3fc;
+    --theme-bg-mid1: #c6e5fa;
+    --theme-bg-mid2: #cee4fb;
+    --theme-bg-mid3: #dbe7fc;
     --theme-bg-mid4: #e7edfd;
     --theme-bg-end: #e7ebfd;
     --theme-glow: rgba(88, 168, 238, 0.2);
@@ -1107,6 +1265,8 @@
     --theme-surface: rgba(88, 168, 238, 0.08);
     --theme-surface-alt: rgba(255, 255, 255, 0.9);
     --theme-highlight-bg: rgba(88, 168, 238, 0.15);
+    --theme-card-bg-hover: rgba(88, 168, 238, 0.14);
+    --theme-card-bg-active: rgba(88, 168, 238, 0.22);
 }
 
 /* 主题 - 赛博青 */
@@ -1115,10 +1275,12 @@
     --theme-primary-hover: #229ef1;
     --theme-primary-light: #6abef6;
     --theme-accent: #6383ee;
-    --theme-bg-start: #ddfafd;
-    --theme-bg-mid1: #c1e5fb;
-    --theme-bg-mid2: #cadcfc;
-    --theme-bg-mid3: #d9dcfd;
+    /* 前景用强调色 (图标/小字): 已保证与主题背景对比度 >= 3.0 */
+    --theme-accent-text: #476deb;
+    --theme-bg-start: #defafd;
+    --theme-bg-mid1: #c5e7fb;
+    --theme-bg-mid2: #cedefc;
+    --theme-bg-mid3: #daddfd;
     --theme-bg-mid4: #ebe7fd;
     --theme-bg-end: #f2e7fd;
     --theme-glow: rgba(73, 175, 243, 0.2);
@@ -1134,6 +1296,8 @@
     --theme-surface: rgba(73, 175, 243, 0.08);
     --theme-surface-alt: rgba(255, 255, 255, 0.9);
     --theme-highlight-bg: rgba(73, 175, 243, 0.15);
+    --theme-card-bg-hover: rgba(73, 175, 243, 0.14);
+    --theme-card-bg-active: rgba(73, 175, 243, 0.22);
 }
 
 /* 主题 - 晴空 */
@@ -1142,10 +1306,12 @@
     --theme-primary-hover: #3370eb;
     --theme-primary-light: #78a1f2;
     --theme-accent: #6368ee;
-    --theme-bg-start: #e5f0fb;
-    --theme-bg-mid1: #cadbf6;
-    --theme-bg-mid2: #d3ddf8;
-    --theme-bg-mid3: #e0e4fa;
+    /* 前景用强调色 (图标/小字): 已保证与主题背景对比度 >= 3.0 */
+    --theme-accent-text: #6368ee;
+    --theme-bg-start: #e6f0fb;
+    --theme-bg-mid1: #d3e1f8;
+    --theme-bg-mid2: #d9e2f9;
+    --theme-bg-mid3: #e3e6fa;
     --theme-bg-mid4: #edeefc;
     --theme-bg-end: #efedfc;
     --theme-glow: rgba(88, 138, 238, 0.2);
@@ -1161,6 +1327,8 @@
     --theme-surface: rgba(88, 138, 238, 0.08);
     --theme-surface-alt: rgba(255, 255, 255, 0.9);
     --theme-highlight-bg: rgba(88, 138, 238, 0.15);
+    --theme-card-bg-hover: rgba(88, 138, 238, 0.14);
+    --theme-card-bg-active: rgba(88, 138, 238, 0.22);
 }
 
 /* 主题 - 深海 */
@@ -1169,10 +1337,12 @@
     --theme-primary-hover: #153cd5;
     --theme-primary-light: #4a6bed;
     --theme-accent: #7a63ee;
-    --theme-bg-start: #dee9fc;
-    --theme-bg-mid1: #c2cdfa;
-    --theme-bg-mid2: #cbcdfb;
-    --theme-bg-mid3: #ddd9fc;
+    /* 前景用强调色 (图标/小字): 已保证与主题背景对比度 >= 3.0 */
+    --theme-accent-text: #6e55ec;
+    --theme-bg-start: #dfeafc;
+    --theme-bg-mid1: #c6d1fa;
+    --theme-bg-mid2: #ced1fb;
+    --theme-bg-mid3: #dedbfc;
     --theme-bg-mid4: #ede7fd;
     --theme-bg-end: #f1e7fd;
     --theme-glow: rgba(42, 80, 234, 0.2);
@@ -1188,6 +1358,8 @@
     --theme-surface: rgba(42, 80, 234, 0.08);
     --theme-surface-alt: rgba(255, 255, 255, 0.9);
     --theme-highlight-bg: rgba(42, 80, 234, 0.15);
+    --theme-card-bg-hover: rgba(42, 80, 234, 0.14);
+    --theme-card-bg-active: rgba(42, 80, 234, 0.22);
 }
 
 /* 主题 - 宝蓝 */
@@ -1196,10 +1368,12 @@
     --theme-primary-hover: #131fc3;
     --theme-primary-light: #3743eb;
     --theme-accent: #8363ee;
-    --theme-bg-start: #dee6fc;
-    --theme-bg-mid1: #c2c8fa;
-    --theme-bg-mid2: #cecbfb;
-    --theme-bg-mid3: #e1d9fc;
+    /* 前景用强调色 (图标/小字): 已保证与主题背景对比度 >= 3.0 */
+    --theme-accent-text: #7855ec;
+    --theme-bg-start: #dfe7fc;
+    --theme-bg-mid1: #c6ccfa;
+    --theme-bg-mid2: #d1cefb;
+    --theme-bg-mid3: #e2dbfc;
     --theme-bg-mid4: #f0e7fd;
     --theme-bg-end: #f3e7fd;
     --theme-glow: rgba(23, 37, 232, 0.2);
@@ -1215,6 +1389,8 @@
     --theme-surface: rgba(23, 37, 232, 0.08);
     --theme-surface-alt: rgba(255, 255, 255, 0.9);
     --theme-highlight-bg: rgba(23, 37, 232, 0.15);
+    --theme-card-bg-hover: rgba(23, 37, 232, 0.14);
+    --theme-card-bg-active: rgba(23, 37, 232, 0.22);
 }
 
 /* 主题 - 靛蓝 */
@@ -1223,10 +1399,12 @@
     --theme-primary-hover: #2714cc;
     --theme-primary-light: #5241ec;
     --theme-accent: #9663ee;
-    --theme-bg-start: #dee2fc;
-    --theme-bg-mid1: #c3c2fa;
-    --theme-bg-mid2: #d3cbfb;
-    --theme-bg-mid3: #e5d9fc;
+    /* 前景用强调色 (图标/小字): 已保证与主题背景对比度 >= 3.0 */
+    --theme-accent-text: #8347eb;
+    --theme-bg-start: #dfe3fc;
+    --theme-bg-mid1: #c7c6fa;
+    --theme-bg-mid2: #d6cefb;
+    --theme-bg-mid3: #e6dbfc;
     --theme-bg-mid4: #f2e7fd;
     --theme-bg-end: #f5e7fd;
     --theme-glow: rgba(52, 32, 233, 0.2);
@@ -1242,6 +1420,8 @@
     --theme-surface: rgba(52, 32, 233, 0.08);
     --theme-surface-alt: rgba(255, 255, 255, 0.9);
     --theme-highlight-bg: rgba(52, 32, 233, 0.15);
+    --theme-card-bg-hover: rgba(52, 32, 233, 0.14);
+    --theme-card-bg-active: rgba(52, 32, 233, 0.22);
 }
 
 /* 主题 - 暮光 */
@@ -1250,10 +1430,12 @@
     --theme-primary-hover: #602adf;
     --theme-primary-light: #926de9;
     --theme-accent: #ee63a4;
-    --theme-bg-start: #dee2fc;
-    --theme-bg-mid1: #cdc2fa;
-    --theme-bg-mid2: #e4cbfb;
-    --theme-bg-mid3: #f7d9fc;
+    /* 前景用强调色 (图标/小字): 已保证与主题背景对比度 >= 3.0 */
+    --theme-accent-text: #cf176d;
+    --theme-bg-start: #dfe3fc;
+    --theme-bg-mid1: #d0c6fa;
+    --theme-bg-mid2: #e6cefb;
+    --theme-bg-mid3: #f7dbfc;
     --theme-bg-mid4: #fde7f9;
     --theme-bg-end: #fde7f2;
     --theme-glow: rgba(123, 78, 228, 0.2);
@@ -1269,6 +1451,8 @@
     --theme-surface: rgba(123, 78, 228, 0.08);
     --theme-surface-alt: rgba(255, 255, 255, 0.9);
     --theme-highlight-bg: rgba(123, 78, 228, 0.15);
+    --theme-card-bg-hover: rgba(123, 78, 228, 0.14);
+    --theme-card-bg-active: rgba(123, 78, 228, 0.22);
 }
 
 /* 主题 - 钢青 */
@@ -1277,10 +1461,12 @@
     --theme-primary-hover: #4b678b;
     --theme-primary-light: #708db2;
     --theme-accent: #637fee;
-    --theme-bg-start: #ebf0f4;
-    --theme-bg-mid1: #d8e0e9;
-    --theme-bg-mid2: #dee4ed;
-    --theme-bg-mid3: #e8ebf2;
+    /* 前景用强调色 (图标/小字): 已保证与主题背景对比度 >= 3.0 */
+    --theme-accent-text: #5573ec;
+    --theme-bg-start: #ecf1f5;
+    --theme-bg-mid1: #dee5ed;
+    --theme-bg-mid2: #e3e8ef;
+    --theme-bg-mid3: #eaedf3;
     --theme-bg-mid4: #f2f3f8;
     --theme-bg-end: #f2f3f8;
     --theme-glow: rgba(89, 122, 166, 0.2);
@@ -1296,6 +1482,8 @@
     --theme-surface: rgba(89, 122, 166, 0.08);
     --theme-surface-alt: rgba(255, 255, 255, 0.9);
     --theme-highlight-bg: rgba(89, 122, 166, 0.15);
+    --theme-card-bg-hover: rgba(89, 122, 166, 0.14);
+    --theme-card-bg-active: rgba(89, 122, 166, 0.22);
 }
 
 /* 主题 - 莫兰迪 */
@@ -1304,6 +1492,8 @@
     --theme-primary-hover: #937462;
     --theme-primary-light: #b49c8e;
     --theme-accent: #eec963;
+    /* 前景用强调色 (图标/小字): 已保证与主题背景对比度 >= 3.0 */
+    --theme-accent-text: #977411;
     --theme-bg-start: #eee9e7;
     --theme-bg-mid1: #e1dad6;
     --theme-bg-mid2: #e5e0dc;
@@ -1323,6 +1513,8 @@
     --theme-surface: rgba(165, 137, 120, 0.08);
     --theme-surface-alt: rgba(255, 255, 255, 0.9);
     --theme-highlight-bg: rgba(165, 137, 120, 0.15);
+    --theme-card-bg-hover: rgba(165, 137, 120, 0.14);
+    --theme-card-bg-active: rgba(165, 137, 120, 0.22);
 }
 
 /* 主题 - 水墨 */
@@ -1331,10 +1523,12 @@
     --theme-primary-hover: #31373f;
     --theme-primary-light: #535c6a;
     --theme-accent: #637aee;
-    --theme-bg-start: #eaedf0;
-    --theme-bg-mid1: #d8dde4;
-    --theme-bg-mid2: #dee1e8;
-    --theme-bg-mid3: #e7e9ee;
+    /* 前景用强调色 (图标/小字): 已保证与主题背景对比度 >= 3.0 */
+    --theme-accent-text: #556eec;
+    --theme-bg-start: #eaeef1;
+    --theme-bg-mid1: #dbdfe6;
+    --theme-bg-mid2: #e0e3e9;
+    --theme-bg-mid3: #e8e9ef;
     --theme-bg-mid4: #f0f1f5;
     --theme-bg-end: #f0f0f5;
     --theme-glow: rgba(67, 75, 86, 0.2);
@@ -1350,6 +1544,8 @@
     --theme-surface: rgba(67, 75, 86, 0.08);
     --theme-surface-alt: rgba(255, 255, 255, 0.9);
     --theme-highlight-bg: rgba(67, 75, 86, 0.15);
+    --theme-card-bg-hover: rgba(67, 75, 86, 0.14);
+    --theme-card-bg-active: rgba(67, 75, 86, 0.22);
 }
 
 /* 主题 - 纯白 */
@@ -1358,10 +1554,12 @@
     --theme-primary-hover: #2e2e2e;
     --theme-primary-light: #545454;
     --theme-accent: #a8a8a8;
-    --theme-bg-start: #fafafa;
-    --theme-bg-mid1: #ebebeb;
-    --theme-bg-mid2: #f0f0f0;
-    --theme-bg-mid3: #f7f7f7;
+    /* 前景用强调色 (图标/小字): 已保证与主题背景对比度 >= 3.0 */
+    --theme-accent-text: #919191;
+    --theme-bg-start: #fcfcfc;
+    --theme-bg-mid1: #fafafa;
+    --theme-bg-mid2: #fbfbfb;
+    --theme-bg-mid3: #fcfcfc;
     --theme-bg-mid4: #ffffff;
     --theme-bg-end: #ffffff;
     --theme-glow: rgba(66, 66, 66, 0.2);
@@ -1371,12 +1569,14 @@
     --theme-on-primary: #ffffff;
     --theme-card-shadow: rgba(66, 66, 66, 0.2);
     --theme-card-shadow-hover: rgba(66, 66, 66, 0.3);
-    --theme-card-bg: rgba(66, 66, 66, 0.08);
-    --theme-card-border: rgba(66, 66, 66, 0.2);
-    --theme-sidebar-bg: rgba(66, 66, 66, 0.12);
+    --theme-card-bg: rgba(255, 255, 255, 0.72);
+    --theme-card-border: rgba(66, 66, 66, 0.26);
+    --theme-sidebar-bg: rgba(255, 255, 255, 0.66);
     --theme-surface: rgba(66, 66, 66, 0.08);
     --theme-surface-alt: rgba(255, 255, 255, 0.9);
-    --theme-highlight-bg: rgba(66, 66, 66, 0.15);
+    --theme-highlight-bg: rgba(66, 66, 66, 0.1);
+    --theme-card-bg-hover: rgba(66, 66, 66, 0.14);
+    --theme-card-bg-active: rgba(66, 66, 66, 0.22);
 }
 
 /* 主题 - 纯灰 */
@@ -1385,6 +1585,8 @@
     --theme-primary-hover: #575757;
     --theme-primary-light: #7d7d7d;
     --theme-accent: #a8a8a8;
+    /* 前景用强调色 (图标/小字): 已保证与主题背景对比度 >= 3.0 */
+    --theme-accent-text: #737373;
     --theme-bg-start: #e3e3e3;
     --theme-bg-mid1: #d4d4d4;
     --theme-bg-mid2: #d9d9d9;
@@ -1404,6 +1606,8 @@
     --theme-surface: rgba(107, 107, 107, 0.08);
     --theme-surface-alt: rgba(255, 255, 255, 0.9);
     --theme-highlight-bg: rgba(107, 107, 107, 0.15);
+    --theme-card-bg-hover: rgba(107, 107, 107, 0.14);
+    --theme-card-bg-active: rgba(107, 107, 107, 0.22);
 }
 
 /* 主题 - 纯黑 */
@@ -1412,6 +1616,8 @@
     --theme-primary-hover: #a8a8a8;
     --theme-primary-light: #d9d9d9;
     --theme-accent: #b3b3b3;
+    /* 前景用强调色 (图标/小字): 已保证与主题背景对比度 >= 3.0 */
+    --theme-accent-text: #b3b3b3;
     --theme-bg-start: #171717;
     --theme-bg-mid1: #1e2423;
     --theme-bg-mid2: #352927;
@@ -1459,10 +1665,12 @@
     --theme-primary-hover: #e84117;
     --theme-primary-light: #ef7a5d;
     --theme-accent: #63c9ee;
-    --theme-bg-start: #fce2de;
-    --theme-bg-mid1: #fac2da;
-    --theme-bg-mid2: #fbcbfa;
-    --theme-bg-mid3: #e9d9fc;
+    /* 前景用强调色 (图标/小字): 已保证与主题背景对比度 >= 3.0 */
+    --theme-accent-text: #127ea5;
+    --theme-bg-start: #fce3df;
+    --theme-bg-mid1: #fac6dd;
+    --theme-bg-mid2: #fbcefa;
+    --theme-bg-mid3: #eadbfc;
     --theme-bg-mid4: #e7eafd;
     --theme-bg-end: #e7f6fd;
     --theme-glow: rgba(236, 95, 60, 0.2);
@@ -1478,6 +1686,8 @@
     --theme-surface: rgba(236, 95, 60, 0.08);
     --theme-surface-alt: rgba(255, 255, 255, 0.9);
     --theme-highlight-bg: rgba(236, 95, 60, 0.15);
+    --theme-card-bg-hover: rgba(236, 95, 60, 0.14);
+    --theme-card-bg-active: rgba(236, 95, 60, 0.22);
 }
 
 /* 主题 - 酸性绿 */
@@ -1486,6 +1696,8 @@
     --theme-primary-hover: #82eb0a;
     --theme-primary-light: #a6f74a;
     --theme-accent: #ee63d7;
+    /* 前景用强调色 (图标/小字): 已保证与主题背景对比度 >= 3.0 */
+    --theme-accent-text: #dc18bc;
     --theme-bg-start: #f0fdd3;
     --theme-bg-mid1: #fcf5b6;
     --theme-bg-mid2: #fcdfbf;
@@ -1505,6 +1717,8 @@
     --theme-surface: rgba(150, 246, 40, 0.08);
     --theme-surface-alt: rgba(255, 255, 255, 0.9);
     --theme-highlight-bg: rgba(150, 246, 40, 0.15);
+    --theme-card-bg-hover: rgba(150, 246, 40, 0.14);
+    --theme-card-bg-active: rgba(150, 246, 40, 0.22);
 }
 
 /* 主题 - 日光 */
@@ -1513,10 +1727,12 @@
     --theme-primary-hover: #edba12;
     --theme-primary-light: #f3cf59;
     --theme-accent: #63bfee;
-    --theme-bg-start: #fdf4e2;
-    --theme-bg-mid1: #f2fbc5;
-    --theme-bg-mid2: #defccf;
-    --theme-bg-mid3: #ddfde3;
+    /* 前景用强调色 (图标/小字): 已保证与主题背景对比度 >= 3.0 */
+    --theme-accent-text: #1791cf;
+    --theme-bg-start: #fdf5e4;
+    --theme-bg-mid1: #f4fccf;
+    --theme-bg-mid2: #e3fcd6;
+    --theme-bg-mid3: #e0fde5;
     --theme-bg-mid4: #ecfef8;
     --theme-bg-end: #ecfbfe;
     --theme-glow: rgba(240, 197, 56, 0.2);
@@ -1532,6 +1748,8 @@
     --theme-surface: rgba(240, 197, 56, 0.08);
     --theme-surface-alt: rgba(255, 255, 255, 0.9);
     --theme-highlight-bg: rgba(240, 197, 56, 0.15);
+    --theme-card-bg-hover: rgba(240, 197, 56, 0.14);
+    --theme-card-bg-active: rgba(240, 197, 56, 0.22);
 }
 
 /* 主题 - 深海 */
@@ -1540,6 +1758,8 @@
     --theme-primary-hover: #295d70;
     --theme-primary-light: #3e8ba8;
     --theme-accent: #63eed2;
+    /* 前景用强调色 (图标/小字): 已保证与主题背景对比度 >= 3.0 */
+    --theme-accent-text: #0e7c66;
     --theme-bg-start: #dbdfe1;
     --theme-bg-mid1: #cbd1d2;
     --theme-bg-mid2: #d0d6d7;
@@ -1559,6 +1779,8 @@
     --theme-surface: rgba(52, 118, 141, 0.08);
     --theme-surface-alt: rgba(255, 255, 255, 0.9);
     --theme-highlight-bg: rgba(52, 118, 141, 0.15);
+    --theme-card-bg-hover: rgba(52, 118, 141, 0.14);
+    --theme-card-bg-active: rgba(52, 118, 141, 0.22);
 }
 
 /* 主题 - 陶土 */
@@ -1567,6 +1789,8 @@
     --theme-primary-hover: #8c4d36;
     --theme-primary-light: #bc6f52;
     --theme-accent: #eebf63;
+    /* 前景用强调色 (图标/小字): 已保证与主题背景对比度 >= 3.0 */
+    --theme-accent-text: #976b11;
     --theme-bg-start: #ece2df;
     --theme-bg-mid1: #e1d2cc;
     --theme-bg-mid2: #e5dad2;
@@ -1586,6 +1810,8 @@
     --theme-surface: rgba(169, 93, 66, 0.08);
     --theme-surface-alt: rgba(255, 255, 255, 0.9);
     --theme-highlight-bg: rgba(169, 93, 66, 0.15);
+    --theme-card-bg-hover: rgba(169, 93, 66, 0.14);
+    --theme-card-bg-active: rgba(169, 93, 66, 0.22);
 }
 
 /* 主题 - 鸢尾 */
@@ -1594,10 +1820,12 @@
     --theme-primary-hover: #752fc6;
     --theme-primary-light: #9d66db;
     --theme-accent: #63bfee;
-    --theme-bg-start: #ebe5f5;
-    --theme-bg-mid1: #d4cfed;
-    --theme-bg-mid2: #d6d6f0;
-    --theme-bg-mid3: #e1e5f4;
+    /* 前景用强调色 (图标/小字): 已保证与主题背景对比度 >= 3.0 */
+    --theme-accent-text: #147eb3;
+    --theme-bg-start: #ebe5f6;
+    --theme-bg-mid1: #d7d2ee;
+    --theme-bg-mid2: #d9d9f1;
+    --theme-bg-mid3: #e2e6f4;
     --theme-bg-mid4: #ecf1f8;
     --theme-bg-end: #ecf3f8;
     --theme-glow: rgba(138, 73, 212, 0.2);
@@ -1613,6 +1841,8 @@
     --theme-surface: rgba(138, 73, 212, 0.08);
     --theme-surface-alt: rgba(255, 255, 255, 0.9);
     --theme-highlight-bg: rgba(138, 73, 212, 0.15);
+    --theme-card-bg-hover: rgba(138, 73, 212, 0.14);
+    --theme-card-bg-active: rgba(138, 73, 212, 0.22);
 }
 
 /* 主题 - 熔岩 */
@@ -1621,6 +1851,8 @@
     --theme-primary-hover: #eb280a;
     --theme-primary-light: #f8725d;
     --theme-accent: #f0cf75;
+    /* 前景用强调色 (图标/小字): 已保证与主题背景对比度 >= 3.0 */
+    --theme-accent-text: #f0cf75;
     --theme-bg-start: #280b0b;
     --theme-bg-mid1: #341613;
     --theme-bg-mid2: #52250f;
@@ -1668,6 +1900,8 @@
     --theme-primary-hover: #5caacc;
     --theme-primary-light: #a6d1e3;
     --theme-accent: #75f0b3;
+    /* 前景用强调色 (图标/小字): 已保证与主题背景对比度 >= 3.0 */
+    --theme-accent-text: #75f0b3;
     --theme-bg-start: #162222;
     --theme-bg-mid1: #222a2b;
     --theme-bg-mid2: #213945;
@@ -1715,6 +1949,8 @@
     --theme-primary-hover: #6952e0;
     --theme-primary-light: #b0a4ef;
     --theme-accent: #f0cf75;
+    /* 前景用强调色 (图标/小字): 已保证与主题背景对比度 >= 3.0 */
+    --theme-accent-text: #f0cf75;
     --theme-bg-start: #0f0f24;
     --theme-bg-mid1: #1a182f;
     --theme-bg-mid2: #28164b;
@@ -1762,6 +1998,8 @@
     --theme-primary-hover: #e25085;
     --theme-primary-light: #f0a3bf;
     --theme-accent: #ae75f0;
+    /* 前景用强调色 (图标/小字): 已保证与主题背景对比度 >= 3.0 */
+    --theme-accent-text: #ae75f0;
     --theme-bg-start: #21121c;
     --theme-bg-mid1: #2c1c25;
     --theme-bg-mid2: #461b29;
@@ -1809,6 +2047,8 @@
     --theme-primary-hover: #1494f0;
     --theme-primary-light: #6fbef6;
     --theme-accent: #9a75f0;
+    /* 前景用强调色 (图标/小字): 已保证与主题背景对比度 >= 3.0 */
+    --theme-accent-text: #9a75f0;
     --theme-bg-start: #101c28;
     --theme-bg-mid1: #192433;
     --theme-bg-mid2: #162050;
@@ -1856,6 +2096,8 @@
     --theme-primary-hover: #5c7bc1;
     --theme-primary-light: #a3b4dc;
     --theme-accent: #75bff0;
+    /* 前景用强调色 (图标/小字): 已保证与主题背景对比度 >= 3.0 */
+    --theme-accent-text: #75bff0;
     --theme-bg-start: #141c24;
     --theme-bg-mid1: #1f242e;
     --theme-bg-mid2: #1d2349;
@@ -1903,6 +2145,8 @@
     --theme-primary-hover: #14f0c4;
     --theme-primary-light: #6ff6db;
     --theme-accent: #75dbf0;
+    /* 前景用强调色 (图标/小字): 已保证与主题背景对比度 >= 3.0 */
+    --theme-accent-text: #75dbf0;
     --theme-bg-start: #0d211d;
     --theme-bg-mid1: #162c2b;
     --theme-bg-mid2: #143f48;
@@ -1950,6 +2194,8 @@
     --theme-primary-hover: #52cde0;
     --theme-primary-light: #a4e5ef;
     --theme-accent: #75aef0;
+    /* 前景用强调色 (图标/小字): 已保证与主题背景对比度 >= 3.0 */
+    --theme-accent-text: #75aef0;
     --theme-bg-start: #0f1214;
     --theme-bg-mid1: #1a1c1e;
     --theme-bg-mid2: #1d2335;
@@ -1997,6 +2243,8 @@
     --theme-primary-hover: #1414f0;
     --theme-primary-light: #6f6ff6;
     --theme-accent: #9e75f0;
+    /* 前景用强调色 (图标/小字): 已保证与主题背景对比度 >= 3.0 */
+    --theme-accent-text: #9e75f0;
     --theme-bg-start: #101228;
     --theme-bg-mid1: #1a1933;
     --theme-bg-mid2: #251650;
@@ -2044,6 +2292,8 @@
     --theme-primary-hover: #5614f0;
     --theme-primary-light: #986ff6;
     --theme-accent: #c375f0;
+    /* 前景用强调色 (图标/小字): 已保证与主题背景对比度 >= 3.0 */
+    --theme-accent-text: #c375f0;
     --theme-bg-start: #15122b;
     --theme-bg-mid1: #211b37;
     --theme-bg-mid2: #341754;
@@ -2091,6 +2341,8 @@
     --theme-primary-hover: #c414f0;
     --theme-primary-light: #db6ff6;
     --theme-accent: #f075db;
+    /* 前景用强调色 (图标/小字): 已保证与主题背景对比度 >= 3.0 */
+    --theme-accent-text: #f075db;
     --theme-bg-start: #1f1028;
     --theme-bg-mid1: #2c1933;
     --theme-bg-mid2: #4e1650;
@@ -2138,6 +2390,8 @@
     --theme-primary-hover: #9f63e3;
     --theme-primary-light: #d2b5f2;
     --theme-accent: #f075c3;
+    /* 前景用强调色 (图标/小字): 已保证与主题背景对比度 >= 3.0 */
+    --theme-accent-text: #f075c3;
     --theme-bg-start: #2a303c;
     --theme-bg-mid1: #373a43;
     --theme-bg-mid2: #323262;
@@ -2185,6 +2439,8 @@
     --theme-primary-hover: #f0149f;
     --theme-primary-light: #f66fc4;
     --theme-accent: #f0759a;
+    /* 前景用强调色 (图标/小字): 已保证与主题背景对比度 >= 3.0 */
+    --theme-accent-text: #f0759a;
     --theme-bg-start: #281024;
     --theme-bg-mid1: #33192d;
     --theme-bg-mid2: #501633;
@@ -2232,6 +2488,8 @@
     --theme-primary-hover: #f0141b;
     --theme-primary-light: #f66f74;
     --theme-accent: #f09275;
+    /* 前景用强调色 (图标/小字): 已保证与主题背景对比度 >= 3.0 */
+    --theme-accent-text: #f09275;
     --theme-bg-start: #2b1216;
     --theme-bg-mid1: #371b1d;
     --theme-bg-mid2: #542117;
@@ -2279,6 +2537,8 @@
     --theme-primary-hover: #f06514;
     --theme-primary-light: #f6a16f;
     --theme-accent: #f0c375;
+    /* 前景用强调色 (图标/小字): 已保证与主题背景对比度 >= 3.0 */
+    --theme-accent-text: #f0c375;
     --theme-bg-start: #281310;
     --theme-bg-mid1: #331f19;
     --theme-bg-mid2: #503116;
@@ -2326,6 +2586,8 @@
     --theme-primary-hover: #f0ae14;
     --theme-primary-light: #f6cd6f;
     --theme-accent: #f0e875;
+    /* 前景用强调色 (图标/小字): 已保证与主题背景对比度 >= 3.0 */
+    --theme-accent-text: #f0e875;
     --theme-bg-start: #2b1e12;
     --theme-bg-mid1: #372a1b;
     --theme-bg-mid2: #544817;
@@ -2373,6 +2635,8 @@
     --theme-primary-hover: #14f05d;
     --theme-primary-light: #6ff69c;
     --theme-accent: #75f0c3;
+    /* 前景用强调色 (图标/小字): 已保证与主题背景对比度 >= 3.0 */
+    --theme-accent-text: #75f0c3;
     --theme-bg-start: #0c180f;
     --theme-bg-mid1: #14241a;
     --theme-bg-mid2: #143d2c;
@@ -2420,6 +2684,8 @@
     --theme-primary-hover: #14f094;
     --theme-primary-light: #6ff6be;
     --theme-accent: #75f0df;
+    /* 前景用强调色 (图标/小字): 已保证与主题背景对比度 >= 3.0 */
+    --theme-accent-text: #75f0df;
     --theme-bg-start: #0f2419;
     --theme-bg-mid1: #183025;
     --theme-bg-mid2: #154c41;
@@ -2467,6 +2733,8 @@
     --theme-primary-hover: #697e96;
     --theme-primary-light: #a2afbe;
     --theme-accent: #7592f0;
+    /* 前景用强调色 (图标/小字): 已保证与主题背景对比度 >= 3.0 */
+    --theme-accent-text: #7592f0;
     --theme-bg-start: #161a1d;
     --theme-bg-mid1: #222325;
     --theme-bg-mid2: #23283e;
@@ -2514,6 +2782,8 @@
     --theme-primary-hover: #16f3eb;
     --theme-primary-light: #72f8f3;
     --theme-accent: #f075f0;
+    /* 前景用强调色 (图标/小字): 已保证与主题背景对比度 >= 3.0 */
+    --theme-accent-text: #f075f0;
     --theme-bg-start: #1a1028;
     --theme-bg-mid1: #261933;
     --theme-bg-mid2: #421650;
@@ -6702,24 +6972,16 @@ button,
     transform: scale(1.1);
 }
 
+/* ★ 2026-10-10: 这几条原来各自写死了 20% 的**固定色相**渐变
+   (青/橙/粉/绿/紫…)，换主题完全不变 —— 和本项目自己的规矩
+   ("配色一律走主题变量，不写死颜色") 冲突，观感上就是"这块没做美化"。
+   统一改成主题派生；两张卡片靠 primary / accent 区分。
+   顺带删掉已经没人用的 .card-icon-tools/-download/-settings/-dlss5
+   （DLSS5 页早删了，这几个类在 index.html 和 app.js 里都搜不到）。 */
 .card-icon-game {
-    background: linear-gradient(135deg, var(--theme-card-shadow), rgba(139, 92, 246, 0.2));
-}
-
-.card-icon-tools {
-    background: linear-gradient(135deg, rgba(14, 165, 233, 0.2), rgba(20, 184, 166, 0.2));
-}
-
-.card-icon-download {
-    background: linear-gradient(135deg, rgba(249, 115, 22, 0.2), rgba(236, 72, 153, 0.2));
-}
-
-.card-icon-settings {
-    background: linear-gradient(135deg, rgba(16, 185, 129, 0.2), rgba(6, 182, 212, 0.2));
-}
-
-.card-icon-dlss5 {
-    background: linear-gradient(135deg, rgba(56, 189, 248, 0.22), rgba(168, 85, 247, 0.22));
+    background: linear-gradient(135deg,
+        color-mix(in srgb, var(--theme-primary) 22%, transparent),
+        color-mix(in srgb, var(--theme-accent) 18%, transparent));
 }
 
 /* ============================================================
@@ -7113,11 +7375,9 @@ button,
     to { opacity: 1; transform: translateY(0); }
 }
 
-/* ★ 站外抓取卡片 (2026-10-07): 用主题变量, 别写死颜色 */
-.card-icon-scrape {
-    background: linear-gradient(135deg, rgba(34, 197, 94, 0.2), rgba(14, 165, 233, 0.2));
-    color: var(--theme-accent);
-}
+/* ★ 2026-10-10: 删掉 .card-icon-scrape / .card-icon-gx —— 这两个类在
+   index.html 和 app.js 里都搜不到（卡片早就换成 .card-icon + 主题变量了），
+   只留 CSS 死规则会让下一个人以为"这个类在生效"。 */
 
 /* 抓取进行中: 卡片变暗 + 不可点, 给用户"正在跑"的反馈 */
 .section-card.is-busy {
@@ -7130,10 +7390,6 @@ button,
    GX —— galgamex 游戏库（2026-10-07）
    ★ 配色一律走主题变量，不写死颜色（换主题要跟着变）
    ============================================================ */
-.card-icon-gx {
-    background: linear-gradient(135deg, rgba(99, 102, 241, 0.22), rgba(236, 72, 153, 0.18));
-    color: var(--theme-accent);
-}
 
 /* 分类标签页（全部 / 同人游戏 / Galgame） */
 .gx-tabs {
@@ -7387,8 +7643,11 @@ button,
 
 /* 卡片图标颜色 */
 .card-icon-adult {
-    background: linear-gradient(135deg, rgba(236, 72, 153, 0.2), rgba(244, 63, 94, 0.2));
-    color: var(--theme-accent);
+    /* 同 .card-icon-game: 改主题派生（原来写死粉红，换主题不变） */
+    background: linear-gradient(135deg,
+        color-mix(in srgb, var(--theme-accent) 22%, transparent),
+        color-mix(in srgb, var(--theme-primary) 16%, transparent));
+    color: var(--theme-accent-text);
 }
 
 /* 响应式 */
@@ -7486,10 +7745,13 @@ button,
     align-items: center;
     justify-content: center;
     border-radius: 10px;
+    /* ★ 2026-10-10: 原来是 `border: 1px solid var(--theme-card-border)` —— 浅色主题下
+       它比底色深一档、又紧贴图标左侧，看着就是"图标左边一条暗色小侧边"。
+       改成"淡色底 + 主题色内描边"：边界更柔，也不再压暗图标。 */
     background: var(--theme-highlight-bg);
-    border: 1px solid var(--theme-card-border);
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--theme-primary) 18%, transparent);
     color: var(--theme-primary);
-    transition: background 0.2s, border-color 0.2s, color 0.2s;
+    transition: background 0.2s, box-shadow 0.2s, color 0.2s;
 }
 
 .stat-card-icon svg {
@@ -7500,8 +7762,8 @@ button,
 
 .stat-card:hover .stat-card-icon {
     background: var(--theme-glow);
-    border-color: var(--theme-card-border);
-    color: var(--theme-accent);
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--theme-primary) 34%, transparent);
+    color: var(--theme-accent-text);
 }
 
 .stat-card-body {
@@ -7561,40 +7823,11 @@ button,
     opacity: 1;
 }
 
-.stat-games::before {
-    background: linear-gradient(90deg, var(--theme-primary), var(--theme-accent));
-}
-.stat-games .stat-card-icon {
-    background: var(--theme-highlight-bg);
-}
-
-.stat-sources::before {
-    background: linear-gradient(90deg, var(--theme-primary), var(--theme-accent));
-}
-.stat-sources .stat-card-icon {
-    background: var(--theme-highlight-bg);
-}
-
-.stat-tools::before {
-    background: linear-gradient(90deg, var(--theme-primary), var(--theme-accent));
-}
-.stat-tools .stat-card-icon {
-    background: var(--theme-highlight-bg);
-}
-
-.stat-downloaded::before {
-    background: linear-gradient(90deg, var(--theme-primary), var(--theme-accent));
-}
-.stat-downloaded .stat-card-icon {
-    background: var(--theme-highlight-bg);
-}
-
-.stat-runtime::before {
-    background: linear-gradient(90deg, var(--theme-primary), var(--theme-accent));
-}
-.stat-runtime .stat-card-icon {
-    background: var(--theme-highlight-bg);
-}
+/* ★ 2026-10-10: 这里原来有 5 条 `.stat-xxx::before { background: linear-gradient(...) }`
+   —— 只有 background、**没有 content/position/尺寸**，是彻底不生效的死规则
+   （浏览器不会为没有 content 的伪元素生成盒子）。删掉，避免以后有人以为
+   "统计卡左边那条渐变竖条"是它画的，照着改半天没反应。
+   统计卡图标的底色本来就由 .stat-card-icon 的 --theme-highlight-bg 统一负责。 */
 
 /* 响应式 - 小屏幕才换行 */
 /* 响应式 - stats-grid 自适应网格 */
@@ -7657,8 +7890,11 @@ button, .nav-btn, .section-card, .back-to-cards, .toggle-switch,
     align-items: flex-start;
     gap: 8px;
     padding: 10px;
-    background: rgba(255, 255, 255, 0.08);
-    border: 1px solid rgba(255, 255, 255, 0.15);
+    /* ★ 2026-10-10: 原来是写死的 `rgba(255,255,255,0.08)` + 白 15% 边框 —— 那是
+       只按深色主题设计的。浅色主题下卡片和边框几乎和白底同色 → 系统监控那三块
+       "看着没做样式"。改成主题变量，浅/深色都成立。 */
+    background: var(--theme-card-bg);
+    border: 1px solid var(--theme-card-border);
     border-radius: 8px;
     min-width: 0;
 }
@@ -7906,7 +8142,9 @@ button, .nav-btn, .section-card, .back-to-cards, .toggle-switch,
     content: "";
     position: absolute;
     inset: 0;
-    background: linear-gradient(135deg, rgba(255, 255, 255, 0.06), transparent 40%);
+    /* 2026-10-10: 原来写死白 6% —— 浅色主题下完全看不见，等于没有这层高光。 */
+    background: linear-gradient(135deg,
+        color-mix(in srgb, var(--theme-bg-end) 55%, white), transparent 40%);
     pointer-events: none;
 }
 
@@ -8095,7 +8333,8 @@ button, .nav-btn, .section-card, .back-to-cards, .toggle-switch,
 }
 
 .module-view-back:hover {
-    background: rgba(255, 255, 255, 0.06);
+    /* 2026-10-10: 写死白 6% 在浅色主题下没有 hover 反馈 */
+    background: var(--theme-card-bg-hover, rgba(128, 128, 128, 0.12));
     border-color: var(--theme-primary);
 }
 
@@ -8197,7 +8436,7 @@ button, .nav-btn, .section-card, .back-to-cards, .toggle-switch,
     padding: 8px 10px;
     background: rgba(0, 0, 0, 0.06);
     border-radius: 6px;
-    border: 1px solid rgba(255, 255, 255, 0.1);
+    border: 1px solid var(--theme-card-border);
 }
 
 .disk-row-header {
@@ -8267,13 +8506,47 @@ button, .nav-btn, .section-card, .back-to-cards, .toggle-switch,
     transform: translateZ(0) translateY(-2px);  /* 保持在独立合成层 */
 }
 
+/* ★ 2026-10-10 资源导航卡片美化: 原来图标是"裸"的 —— 卡片里就一个 24px 图标
+   + 一行字，看着像没做样式。给它一个主题色的圆角气泡，并补上悬停反馈。 */
 .nav-card-icon {
     font-size: 24px;
-    margin-bottom: 6px;
+    width: 46px;
+    height: 46px;
+    margin-bottom: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 13px;
+    background: color-mix(in srgb, var(--theme-primary) 13%, transparent);
+    color: var(--theme-primary);
     contain: content;
     user-select: none;
     -webkit-user-select: none;
+    transition: transform .18s cubic-bezier(.34, 1.3, .64, 1),
+                background-color .18s ease, color .18s ease;
 }
+.nav-card:hover .nav-card-icon {
+    transform: translateY(-2px) scale(1.06);
+    background: color-mix(in srgb, var(--theme-primary) 22%, transparent);
+    color: var(--theme-accent-text);
+}
+
+/* 资源卡片入场: 轻微错峰淡入上浮（列表一下铺满时不会"啪"地跳出来） */
+.nav-card {
+    animation: vxCardIn .34s cubic-bezier(.22, 1, .36, 1) both;
+}
+@keyframes vxCardIn {
+    from { opacity: 0; transform: translateZ(0) translateY(10px); }
+    to   { opacity: 1; transform: translateZ(0) translateY(0); }
+}
+.nav-grid > .nav-card:nth-child(1)  { animation-delay: .02s; }
+.nav-grid > .nav-card:nth-child(2)  { animation-delay: .05s; }
+.nav-grid > .nav-card:nth-child(3)  { animation-delay: .08s; }
+.nav-grid > .nav-card:nth-child(4)  { animation-delay: .11s; }
+.nav-grid > .nav-card:nth-child(5)  { animation-delay: .14s; }
+.nav-grid > .nav-card:nth-child(6)  { animation-delay: .17s; }
+.nav-grid > .nav-card:nth-child(n+7) { animation-delay: .20s; }
+body.lite-mode .nav-card { animation: none !important; }
 
 .nav-card-name {
     font-size: 12px;
@@ -8326,7 +8599,7 @@ button, .nav-btn, .section-card, .back-to-cards, .toggle-switch,
     margin-bottom: 6px;
     background: rgba(0, 0, 0, 0.06);
     border-radius: 6px;
-    border: 1px solid rgba(255, 255, 255, 0.15);
+    border: 1px solid var(--theme-card-border);
 }
 
 .disk-row-header {
@@ -8475,8 +8748,9 @@ button, .nav-btn, .section-card, .back-to-cards, .toggle-switch,
     align-items: flex-start;
     gap: 10px;
     padding: 14px;
-    background: rgba(255, 255, 255, 0.08);
-    border: 1px solid rgba(255, 255, 255, 0.15);
+    /* 同 .monitor-perf-grid .monitor-card：写死白色只适合深色主题 */
+    background: var(--theme-card-bg);
+    border: 1px solid var(--theme-card-border);
     border-radius: 10px;
     min-width: 0;
 }
@@ -8524,6 +8798,15 @@ button, .nav-btn, .section-card, .back-to-cards, .toggle-switch,
     background: linear-gradient(90deg, var(--theme-primary), var(--theme-accent));
     border-radius: 3px;
     transition: width 0.3s;
+}
+
+/* GPU 占用取不到时（PDH 计数器不可用）：用斜纹表示"未知"，
+   不要留一条 0% 的空槽让人误以为"显卡没在干活"。 */
+.monitor-bar.is-unknown .monitor-bar-fill {
+    width: 100% !important;
+    background: repeating-linear-gradient(45deg,
+        color-mix(in srgb, var(--theme-text-muted) 30%, transparent) 0 5px,
+        transparent 5px 10px);
 }
 
 .monitor-detail {
@@ -10273,6 +10556,74 @@ input[type="search"]:focus {
    Toast 提示 (2026-10-06 重做)
    右下角毛玻璃小条 + 图标 + 进出动画。所有提醒统一走它。
    ============================================================ */
+/* ============================================================
+   应用内弹窗 (替代原生 alert/confirm/prompt)
+   ------------------------------------------------------------
+   原生弹窗在 WebView2 里就是 Chromium 自己的对话框 —— 白底、系统字体、
+   和 Edge 弹的一模一样，还阻塞渲染线程。这里用主题化的卡片重画。
+   必须从标题栏下面开始 (inset 用 --vx-titlebar-h)，否则顶部会盖住窗口按钮。
+   ============================================================ */
+.vx-dialog {
+    position: fixed;
+    inset: var(--vx-titlebar-h, 40px) 0 0 0;
+    z-index: 10050;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    opacity: 0;
+    transition: opacity .18s ease;
+}
+.vx-dialog.is-in { opacity: 1; }
+.vx-dialog-overlay {
+    position: absolute;
+    inset: 0;
+    background: rgba(8, 10, 18, .42);
+    backdrop-filter: blur(3px);
+    -webkit-backdrop-filter: blur(3px);
+}
+.vx-dialog-card {
+    position: relative;
+    min-width: 320px;
+    max-width: min(560px, 82vw);
+    padding: 18px 20px 16px;
+    border-radius: var(--vx-r-lg, 16px);
+    background: var(--theme-surface-alt, #fff);
+    color: var(--theme-text-primary);
+    border: 1px solid var(--theme-card-border);
+    box-shadow: 0 24px 64px rgba(0, 0, 0, .34);
+    transform: translateY(10px) scale(.97);
+    transition: transform .2s cubic-bezier(.22, 1, .36, 1), opacity .18s ease;
+    opacity: 0;
+}
+.vx-dialog.is-in .vx-dialog-card { transform: none; opacity: 1; }
+.vx-dialog-card.is-out { transform: translateY(6px) scale(.98); opacity: 0; }
+.vx-dialog-card.is-danger { border-color: color-mix(in srgb, #ef4444 45%, transparent); }
+.vx-dialog-head {
+    font-size: 15px;
+    font-weight: 700;
+    margin-bottom: 10px;
+}
+.vx-dialog-body {
+    font-size: 13.5px;
+    line-height: 1.72;
+    color: var(--theme-text-secondary);
+    white-space: pre-wrap;
+    word-break: break-word;
+    max-height: 46vh;
+    overflow: auto;
+}
+.vx-dialog-input {
+    width: 100%;
+    margin-top: 12px;
+}
+.vx-dialog-foot {
+    display: flex;
+    justify-content: flex-end;
+    gap: 10px;
+    margin-top: 18px;
+}
+.vx-dialog-foot .btn { min-width: 84px; }
+
 .vx-toast-host {
     position: fixed;
     right: 18px;
@@ -11351,7 +11702,7 @@ body { padding-top: 0 !important; overflow: hidden; }
 #an-online-list .an-src-score {
     flex: 0 0 auto;
     font-size: 11px;
-    color: var(--theme-accent);
+    color: var(--theme-accent-text);
 }
 #an-online-list .an-src-auto { justify-content: center; border-style: dashed; }
 
@@ -11436,7 +11787,7 @@ body { padding-top: 0 !important; overflow: hidden; }
     gap: 14px;
 }
 .an-side-name { margin: 0; font-size: 18px; color: var(--theme-text-primary); line-height: 1.35; }
-.an-side-ep { font-size: 13px; color: var(--theme-accent); }
+.an-side-ep { font-size: 13px; color: var(--theme-accent-text); }
 .an-side-desc {
     font-size: 12px;
     line-height: 1.7;

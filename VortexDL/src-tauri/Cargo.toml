@@ -56,7 +56,7 @@ sevenz-rust2 = "0.22"
 zip = "2"
 reqwest = { version = "0.12", default-features = false, features = ["json", "stream", "rustls-tls", "cookies", "gzip", "brotli", "deflate", "socks", "http2"] }
 # Win32_UI_Shell / Win32_UI_WindowsAndMessaging: 修改器启动要用 ShellExecuteW 提权 (runas)
-windows-sys = { version = "0.61", features = ["Win32_System_Console", "Win32_System_Registry", "Win32_Foundation", "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging", "Win32_Globalization"] }
+windows-sys = { version = "0.61", features = ["Win32_System_Console", "Win32_System_Registry", "Win32_System_Performance", "Win32_Foundation", "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging", "Win32_Globalization"] }
 # ★ 离线密钥授权: 只用于 Ed25519 **验签** (公钥在 licensing.rs)。
 #   私钥只存在于 VortexDL-Keygen 工具, 主程序物理上无法签发密钥。
 #   该版本已作为 rustls 的传递依赖存在于 Cargo.lock, 无需额外下载。
