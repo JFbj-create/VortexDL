@@ -80,7 +80,7 @@ use crate::commands::{
 
 use crate::books::{
     book_home, book_search, book_content, book_download, book_extra_downloads,
-    book_local_dir, book_open_local_dir, book_import, book_probe, book_translate,
+    book_local_dir, book_open_local_dir, book_import, book_probe, book_covers, book_translate,
 };
 
 use crate::trainer::{
@@ -490,7 +490,7 @@ fn main() {
             tr_defender_exclude,
             // —— 书库 ——
             book_home, book_search, book_content, book_download, book_extra_downloads,
-            book_local_dir, book_open_local_dir, book_import, book_probe, book_translate,
+            book_local_dir, book_open_local_dir, book_import, book_probe, book_covers, book_translate,
         ])
         .run(tauri::generate_context!())
         .expect("error while running vortex-dl application");

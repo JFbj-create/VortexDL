@@ -10536,6 +10536,9 @@ window.__vxBk = (function () {
     //   用户点"快捷搜索"时首页推荐常常还在路上，返回后会把搜索结果整个覆盖掉
     //   （表现为"点了龙族却看到推荐列表"）。每次发起请求都 +1，返回时对不上就丢弃。
     let reqSeq = 0;
+    // 「加载更多」：home 是按页取的（每页 18 本），curPage 是当前页号
+    let curPage = 0;
+    const PAGE_SIZE = 18;
     let favs = [];
     let readerBook = null;
     let readerText = null;
@@ -10648,6 +10651,12 @@ window.__vxBk = (function () {
             + '</div>';
     }
 
+    /// 加载更多按钮：只有"当前是主页列表、且这一页是满的（可能还有下一页）"时才显示
+    function setMore(show) {
+        const b = $('bk-more');
+        if (b) b.hidden = !show;
+    }
+
     function renderGrid(list, gridId, inFavTab) {
         stopBusy();
         const g = $(gridId);
@@ -10726,6 +10735,8 @@ window.__vxBk = (function () {
         setStatus('bk-status', '');
         setBusy(true, '正在从 ' + (src ? src.name : '') + ' 拉取…');
         searching = false;
+        curPage = 0;
+        setMore(false);
         try {
             let list = [];
             if (src && src.needKw) {
@@ -10735,13 +10746,15 @@ window.__vxBk = (function () {
                 list = await invoke('book_search', { source: src.id, keyword: kw, page: 1 }) || [];
             } else {
                 // 没有 home 的（"全部"这种）直接把 id 当 section 传，后端走默认"推荐"
-                list = await invoke('book_home', { section: (src && src.home) ? src.home : curSource }) || [];
+                list = await invoke('book_home', { section: (src && src.home) ? src.home : curSource, page: 0 }) || [];
             }
             if (my !== reqSeq) return;   // 已被更新的请求取代（比如用户先点了搜索）
             curBooks = list;
             stopBusy();
             renderGrid(curBooks, 'bk-grid');
-            if (sub) sub.textContent = list.length ? ('共 ' + list.length + ' 本') : '';
+            // 这一页取满了说明后面可能还有 → 显示「加载更多」
+            setMore(!(src && src.needKw) && list.length >= PAGE_SIZE);
+            if (sub) sub.textContent = list.length ? ('共 ' + list.length + ' 本' + (list.length >= PAGE_SIZE ? '（可继续加载）' : '')) : '';
             if (!list.length) setStatus('bk-status', '这个源没返回内容 —— 可能是网络问题，点右上「源自检」看看', 'err');
         } catch (e) {
             if (my !== reqSeq) return;
@@ -10768,6 +10781,7 @@ window.__vxBk = (function () {
         setBusy(true, '正在搜索…');
         setStatus('bk-status', '');
         searching = true;
+        setMore(false);
         try {
             const list = await invoke('book_search', { source: src, keyword: String(kw).trim(), page: 1 }) || [];
             if (my !== reqSeq) return;
@@ -10775,6 +10789,7 @@ window.__vxBk = (function () {
             stopBusy();
             renderGrid(curBooks, 'bk-grid');
             if (sub) sub.textContent = '共 ' + list.length + ' 本';
+            fillTailCovers(list);
             if (!list.length) setStatus('bk-status', '没搜到 —— 换个关键词，或把分类改成「全部（推荐）」再搜一次', 'err');
         } catch (e) {
             if (my !== reqSeq) return;
@@ -10782,6 +10797,48 @@ window.__vxBk = (function () {
             stopBusy();
             $('bk-grid').innerHTML = '<div class="mod-empty">搜索失败：' + esc(msg) + '</div>';
             setStatus('bk-status', '把分类改成「全部（推荐）」再搜一次试试', 'err');
+        }
+    }
+
+    /// 搜索结果前 18 本后端已经带了封面，剩下的在后台补一批再重绘。
+    /// （搜索一次可能几十本，一次性全补要打几十个书页请求，所以只补尾部这批。）
+    function fillTailCovers(list) {
+        if (!Array.isArray(list) || list.length <= PAGE_SIZE) return;
+        const tail = list.slice(PAGE_SIZE);
+        invoke('book_covers', { books: tail }).then(function (filled) {
+            if (!Array.isArray(filled) || !filled.length) return;
+            let hit = 0;
+            filled.forEach(function (b) {
+                const t = curBooks.find(function (x) { return x.key === b.key; });
+                if (t && b.cover) { t.cover = b.cover; hit++; }
+            });
+            if (hit) renderGrid(curBooks, 'bk-grid');
+        }).catch(function () {});
+    }
+
+    /// 「加载更多」：往后取一页追加。取不满一页说明到底了，按钮收起来。
+    async function loadMore() {
+        const src = SOURCES.find(function (s) { return s.id === curSource; });
+        if (!src || src.needKw) return;
+        const btn = $('bk-more');
+        if (btn) { btn.disabled = true; btn.textContent = '正在加载…'; }
+        try {
+            const next = await invoke('book_home', {
+                section: src.home ? src.home : curSource, page: curPage + 1
+            }) || [];
+            curPage++;
+            const have = {};
+            curBooks.forEach(function (b) { have[b.key] = 1; });
+            const add = next.filter(function (b) { return !have[b.key]; });
+            curBooks = curBooks.concat(add);
+            renderGrid(curBooks, 'bk-grid');
+            setMore(next.length >= PAGE_SIZE && add.length > 0);
+            const sub = $('bk-list-sub');
+            if (sub) sub.textContent = '共 ' + curBooks.length + ' 本' + (next.length >= PAGE_SIZE ? '（可继续加载）' : '');
+        } catch (e) {
+            showToast('加载失败：' + (e && e.message ? e.message : e), 'error', 4000);
+        } finally {
+            if (btn) { btn.disabled = false; btn.textContent = '加载更多'; }
         }
     }
 
@@ -11032,6 +11089,7 @@ window.__vxBk = (function () {
         on('bk-search-btn', 'click', function () { doSearch(); });
         on('bk-search', 'keydown', function (e) { if (e.key === 'Enter') doSearch(); });
         on('bk-search-clear', 'click', loadHome);
+        on('bk-more', 'click', loadMore);
         on('bk-probe', 'click', probeSources);
         // 分类下拉（替代原来那排 chip）
         on('bk-cat', 'change', function (e) {

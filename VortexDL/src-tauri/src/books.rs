@@ -582,13 +582,50 @@ pub async fn guoxue_search(kw: &str) -> Result<Vec<Book>, String> {
 pub async fn shuge_search(kw: &str) -> Result<Vec<Book>, String> {
     let url = format!("https://www.shuge.org/?s={}", urlencoding::encode(kw.trim()));
     let html = get_text(&url, None).await?;
-    let re = regex::Regex::new(r##"(?is)<a[^>]+href="(https://www\.shuge\.org/view/[^"#?]+/)"[^>]*>(.{2,90}?)</a>"##).unwrap();
+    Ok(parse_shuge_books(&html))
+}
+
+/// 从书格搜索结果页抽书。
+///
+/// ★ 2026-10-10 修：原来用 `<a href="/view/xxx/">文字</a>` 抓书名，抓到的是
+/// **"阅读或参与评论"那个按钮**（每本书一个，文字完全一样），于是整个"古籍善本"页
+/// 16 本书标题全一样。真标题在 `<h2 class='portfolio-grid-title entry-title'><a href=...>书名</a></h2>`。
+/// ★ 书格用**单引号**写属性（`href='...'`），双引号的正则永远匹配不到。
+fn parse_shuge_books(html: &str) -> Vec<Book> {
+    // 书名：h2 标题里的链接
+    let mut titles: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+    let h2 = regex::Regex::new(
+        r#"(?is)<h2[^>]*portfolio-grid-title[^>]*>\s*<a[^>]+href='(https://www\.shuge\.org/view/[^']+)'[^>]*>(.*?)</a>"#,
+    )
+    .unwrap();
+    for c in h2.captures_iter(html) {
+        let t = html_unescape(&strip_tags(&c[2])).trim().to_string();
+        if !t.is_empty() {
+            titles.insert(c[1].to_string(), t);
+        }
+    }
+    // 兜底：封面图那个链接的 title 属性（`title='论语集说'`）
+    let img = regex::Regex::new(
+        r#"(?is)<a[^>]+href='(https://www\.shuge\.org/view/[^']+)'[^>]+title='([^']{2,60})'"#,
+    )
+    .unwrap();
+    for c in img.captures_iter(html) {
+        titles.entry(c[1].to_string())
+            .or_insert_with(|| html_unescape(&strip_tags(&c[2])).trim().to_string());
+    }
+
+    // 顺序：按 /view/ 链接在页面里出现的先后
+    let ord = regex::Regex::new(r#"https://www\.shuge\.org/view/[^"'#?]+/"#).unwrap();
     let mut out: Vec<Book> = Vec::new();
     let mut seen = std::collections::HashSet::new();
-    for c in re.captures_iter(&html) {
-        let u = c[1].to_string();
-        let t = html_unescape(&strip_tags(&c[2]));
-        if t.is_empty() || !seen.insert(u.clone()) {
+    for m in ord.find_iter(html) {
+        let u = m.as_str().to_string();
+        if !seen.insert(u.clone()) {
+            continue;
+        }
+        let Some(t) = titles.get(&u) else { continue };   // 没标题的（评论锚点之类）直接跳过
+        let t = t.trim();
+        if t.chars().count() < 2 || t == "阅读或参与评论" {
             continue;
         }
         let sid = u.trim_matches('/').rsplit('/').next().unwrap_or("").to_string();
@@ -596,7 +633,7 @@ pub async fn shuge_search(kw: &str) -> Result<Vec<Book>, String> {
             key: format!("shuge:{sid}"),
             source: "shuge".into(),
             source_id: sid.clone(),
-            title: if t.len() > 2 { t.chars().take(40).collect() } else { sid.clone() },
+            title: t.chars().take(40).collect(),
             author: String::new(),
             cover: String::new(),
             lang: "zh".into(),
@@ -612,7 +649,7 @@ pub async fn shuge_search(kw: &str) -> Result<Vec<Book>, String> {
             break;
         }
     }
-    Ok(out)
+    out
 }
 
 /// 书格书页：把"简介 + 页内元数据（版本/卷数/藏地）+ 下载入口"整理成可读正文。
@@ -942,7 +979,15 @@ fn parse_kgbook_detail(html: &str) -> KgDetail {
 /// 为什么要并发：一本一个详情页，串行 18 本要 10 秒以上；并发 8 路大概 1~2 秒。
 /// 详情页本身有 30 分钟 TTL 缓存，所以同一批书再进一次不会再打网络。
 /// `max` 用来限制"只给可见的前 N 本补"，避免翻到 60 本时打 60 个请求。
-pub async fn kgbook_fill_covers(books: &mut [Book], max: usize) {
+/// 给一批书补封面。
+///
+/// 为什么要并发：一本一个书页请求，串行 18 本要 10 秒以上；并发跑大概 1~2 秒。
+/// `max` 限制"只给可见的前 N 本补"，避免翻到 60 本时打 60 个请求。
+///
+/// ★ 2026-10-10 扩成通用的：**两个源的封面都在书页里**，但位置不同 ——
+///   苦瓜书盘是 `<img src="/d/file/...">`，无忧书城是 `og:image`。
+///   以前只补了苦瓜书盘，网络小说那批（龙族等）一直是占位字块，用户报"还有图标没有"。
+pub async fn fill_covers(books: &mut [Book], max: usize) {
     let todo: Vec<usize> = books
         .iter()
         .enumerate()
@@ -957,7 +1002,7 @@ pub async fn kgbook_fill_covers(books: &mut [Book], max: usize) {
         .iter()
         .map(|&i| {
             let b = books[i].clone();
-            async move { (i, kgbook_detail(&b).await.map(|d| d.cover).unwrap_or_default()) }
+            async move { (i, fetch_cover(&b).await) }
         })
         .collect();
     for (i, cover) in futures::future::join_all(futs).await {
@@ -965,6 +1010,109 @@ pub async fn kgbook_fill_covers(books: &mut [Book], max: usize) {
             books[i].cover = cover;
         }
     }
+}
+
+/// 按源取封面地址（拿不到就返回空串，前端会退回书名首字色块）
+async fn fetch_cover(book: &Book) -> String {
+    match book.source.as_str() {
+        "kgbook" => kgbook_detail(book).await.map(|d| d.cover).unwrap_or_default(),
+        "wyshu" => wyshu_cover(book).await,
+        "se" => se_cover(book).await,
+        "shuge" => shuge_cover(book).await,
+        // gutenberg 的封面是**可预测**的（`/cache/epub/{id}/pg{id}.cover.medium.jpg`），
+        // 在 gutenberg_book_from_id 里就已经填好了，这里不用管。
+        // 国学经典（5000yan）页面上根本没有图，本地书也没法知道封面 —— 这两类用首字色块。
+        _ => String::new(),
+    }
+}
+
+/// 通用：抓书页，取 og:image
+async fn og_image(url: &str, origin: &str, cache_key: &str) -> String {
+    if let Some(c) = cache().get(cache_key, Duration::from_secs(3600)) {
+        return c;
+    }
+    let Ok(html) = get_text(url, Some(origin)).await else {
+        return String::new();
+    };
+    let origin = origin.trim_end_matches('/');
+    // ★ 属性顺序不固定：Standard Ebooks 写的是 `<meta content="..." property="og:image">`
+    //   （content 在前），无忧书城写的是 `<meta property="og:image" content="...">`。
+    //   只认一种顺序的话 SE 一本都补不到（实测踩过）。
+    let grab = |pat: &str| -> Option<String> {
+        regex::Regex::new(pat)
+            .ok()
+            .and_then(|re| re.captures(&html).map(|c| c[1].to_string()))
+    };
+    let cover = grab(r#"(?is)<meta[^>]+(?:property|name)="og:image"[^>]+content="([^"]+)""#)
+        .or_else(|| grab(r#"(?is)<meta[^>]+content="([^"]+)"[^>]+(?:property|name)="og:image""#))
+        .map(|u| if u.starts_with("http") { u } else { format!("{origin}{u}") })
+        .unwrap_or_default();
+    if !cover.is_empty() {
+        cache().put(cache_key, &cover);
+    }
+    cover
+}
+
+/// Standard Ebooks：书页的 og:image 就是封面
+/// （`https://standardebooks.org/ebooks/{a}/{s}/downloads/cover.jpg`）
+async fn se_cover(book: &Book) -> String {
+    // ★ 用 read_url 而不是拼 source_id：SE 的 source_id 是 `/ebooks/{作者}/{slug}`
+    //   （**带前导 /ebooks/**，见 parse_se_books），再拼一次会变成 /ebooks//ebooks/... → 404。
+    let key = format!("se:cover:{}", book.source_id);
+    og_image(&book.read_url, SE_BASE, &key).await
+}
+
+/// 书格：书页里第一张 `/wp-content/uploads/...` 的大图就是书影。
+/// ★ 要排掉站点装饰图 —— 页头那个 logo 是 `shugeNNNNNNN.png` 这种带日期的横条，
+///   不排掉的话每本书的"封面"都是同一个 logo。
+async fn shuge_cover(book: &Book) -> String {
+    const BASE: &str = "https://www.shuge.org";
+    let key = format!("shuge:cover:{}", book.source_id);
+    if let Some(c) = cache().get(&key, Duration::from_secs(3600)) {
+        return c;
+    }
+    let Ok(html) = get_text(&book.read_url, Some(BASE)).await else {
+        return String::new();
+    };
+    let re = regex::Regex::new(
+        r#"(?is)<img[^>]+src=['"](https?://[^'"]*?/wp-content/uploads/[^'"]+?\.(?:jpg|jpeg|png))['"]"#,
+    )
+    .unwrap();
+    let cover = re
+        .captures_iter(&html)
+        .map(|c| c[1].to_string())
+        .find(|u| {
+            let l = u.to_lowercase();
+            !l.contains("shuge20") && !l.contains("logo") && !l.contains("avatar")
+                && !l.contains("qrcode") && !l.contains("banner") && !l.contains("weixin")
+        })
+        .unwrap_or_default();
+    if !cover.is_empty() {
+        cache().put(&key, &cover);
+    }
+    cover
+}
+
+/// 无忧书城的封面：书页里有 `<meta property="og:image" content="https://.../d/file/p/xxx.jpg">`
+/// （也有同地址的 `<img src="/d/file/p/xxx.jpg">`，两处都认，og 优先）
+pub async fn wyshu_cover(book: &Book) -> String {
+    let key = format!("wyshu:cover:{}", book.source_id);
+    let c = og_image(&book.read_url, WYSHU_BASE, &key).await;
+    if !c.is_empty() {
+        return c;
+    }
+    // og:image 没有时退到书页里第一张 /d/file/ 图
+    let Ok(html) = get_text(&book.read_url, Some(WYSHU_BASE)).await else {
+        return String::new();
+    };
+    let cover = regex::Regex::new(r#"(?is)<img[^>]+src="(/d/file/[^"]+?\.(?:jpg|jpeg|png|gif|webp))""#)
+        .ok()
+        .and_then(|re| re.captures(&html).map(|c| format!("{WYSHU_BASE}{}", &c[1])))
+        .unwrap_or_default();
+    if !cover.is_empty() {
+        cache().put(&key, &cover);
+    }
+    cover
 }
 
 /// 这本书能不能在阅读器里直接读？
@@ -1794,14 +1942,16 @@ pub async fn home(section: &str) -> Result<Vec<Book>, String> {
         // ★ 默认首页：网络小说 + 中文电子书各一半。
         //   原来默认是 Gutenberg 外文名著，用户反馈"所有书都是英文"，所以改成中文优先。
         _ => {
+            // ★ 不再在这里截断：截断交给 book_home 按页切片（前端「加载更多」要能翻下去）。
+            //   以前这里 wyshu 只留 10、kgbook 只留 8，于是"推荐"永远只有两行小说。
             let (a, b) = futures::join!(wyshu_home("wl"), kgbook_home_multi(&["kehuanxuanhuan", "xiandaiwenxue"]));
             let mut out = Vec::new();
             if let Ok(mut v) = a {
-                v.truncate(10);
+                v.truncate(60);
                 out.append(&mut v);
             }
             if let Ok(mut v) = b {
-                v.truncate(8);
+                v.truncate(60);
                 out.append(&mut v);
             }
             if out.is_empty() {
@@ -2097,10 +2247,15 @@ const HOME_LIMIT: usize = 18;
 const COVER_LIMIT: usize = 18;
 
 #[tauri::command]
-pub async fn book_home(section: String) -> Result<Vec<Book>, String> {
-    let mut v = home(&section).await?;
-    v.truncate(HOME_LIMIT);
-    kgbook_fill_covers(&mut v, COVER_LIMIT).await;
+pub async fn book_home(section: String, page: Option<u32>) -> Result<Vec<Book>, String> {
+    let all = home(&section).await?;
+    let page = page.unwrap_or(0) as usize;
+    let start = page * HOME_LIMIT;
+    if start >= all.len() {
+        return Ok(Vec::new());
+    }
+    let mut v: Vec<Book> = all[start..(start + HOME_LIMIT).min(all.len())].to_vec();
+    fill_covers(&mut v, COVER_LIMIT).await;
     Ok(v)
 }
 
@@ -2112,7 +2267,17 @@ pub async fn book_search(source: String, keyword: String, page: Option<u32>) -> 
     let mut v = search(&source, &keyword, page.unwrap_or(1)).await?;
     // 合并搜索可能一次给几十上百条，留 60 条够翻；封面只给前 18 本补
     v.truncate(60);
-    kgbook_fill_covers(&mut v, COVER_LIMIT).await;
+    fill_covers(&mut v, COVER_LIMIT).await;
+    Ok(v)
+}
+
+/// 「加载更多」时前端只拿到列表（没有封面），用它按需补一批封面回来。
+/// 这样首页第一屏只要补 18 张，翻页时才补下一批，不会一次性打 100 个请求。
+#[tauri::command]
+pub async fn book_covers(books: Vec<Book>) -> Result<Vec<Book>, String> {
+    let mut v = books;
+    let n = v.len();
+    fill_covers(&mut v, n).await;
     Ok(v)
 }
 
@@ -2576,40 +2741,64 @@ bG8=").unwrap()).unwrap(), "hello");
         assert!(ok, "至少要有本 mobi 能解出正文（用户报「读不了 mobi」就是这条）");
     }
 
-    /// 封面：列表接口拿不到图（分类页/结果页都没有 <img>），只能靠详情页补。
+    /// 封面：列表接口拿不到图（苦瓜书盘的分类页/结果页没有 <img>；无忧书城也一样），
+    /// 只能靠书页补。**两个源都要覆盖** —— 只补一个的时候用户报"还有图标没有"。
     /// 这条就是防"封面又变成空"的回归。
     #[test]
     #[ignore]
     fn live_kgbook_covers() {
-        let mut v = rt().block_on(kgbook_home("kehuanxuanhuan")).expect("分类页要能拉到");
-        assert!(!v.is_empty());
-        let before = v.iter().filter(|b| !b.cover.is_empty()).count();
-        println!("[live] 补封面之前有图的: {before}/{}", v.len());
-        rt().block_on(kgbook_fill_covers(&mut v, 12));
-        let got: Vec<_> = v.iter().filter(|b| !b.cover.is_empty()).collect();
-        println!("[live] 补完之后有图的: {}/{}", got.len(), v.len());
-        for b in got.iter().take(5) {
-            println!("   {} -> {}", b.title, b.cover);
-        }
-        assert!(!got.is_empty(), "一本书的封面都补不到 = 详情页解析坏了");
-        assert!(got[0].cover.starts_with("http"), "封面必须是绝对地址: {}", got[0].cover);
-        // 封面图本身要能下（200 + 是图片）。★ 整个请求链都要在 block_on 里 —— 
-        // reqwest 的 send() 必须在 tokio 运行时上下文里调用，否则报 "there is no reactor running"。
-        let r = rt().block_on(async {
-            let cli = client_fast()?;
-            cli.get(&got[0].cover)
-                .header("Referer", KGBOOK_BASE)
-                .send()
-                .await
-                .map_err(|e| format!("{e}"))
-        });
-        match r {
-            Ok(resp) => {
-                println!("[live] 封面 HTTP {} content-type={:?}", resp.status().as_u16(),
-                    resp.headers().get("content-type").and_then(|v| v.to_str().ok()));
-                assert!(resp.status().is_success(), "封面图要能下");
+        for (name, mut v) in [
+            ("kgbook", rt().block_on(kgbook_home("kehuanxuanhuan")).expect("分类页要能拉到")),
+            ("wyshu", rt().block_on(wyshu_home("wl")).expect("分类页要能拉到")),
+            ("se", rt().block_on(se_search("sherlock")).expect("SE 搜索要能拿到")),
+            ("shuge", rt().block_on(shuge_search("论语")).expect("书格搜索要能拿到")),
+        ] {
+            assert!(!v.is_empty());
+            let before = v.iter().filter(|b| !b.cover.is_empty()).count();
+            println!("[live] {name} 补封面之前有图的: {before}/{}", v.len());
+            rt().block_on(fill_covers(&mut v, 12));
+            let got: Vec<_> = v.iter().filter(|b| !b.cover.is_empty()).collect();
+            println!("[live] {name} 补完之后有图的: {}/{}", got.len(), v.len());
+            for b in got.iter().take(4) {
+                println!("   {} -> {}", b.title, b.cover);
             }
-            Err(e) => panic!("封面图请求失败: {e}"),
+            assert!(!got.is_empty(), "{name} 一本书的封面都补不到 = 书页解析坏了");
+            assert!(got[0].cover.starts_with("http"), "封面必须是绝对地址: {}", got[0].cover);
+            // 封面图本身要能下（200 + 是图片）。★ 整个请求链都要在 block_on 里 ——
+            // reqwest 的 send() 必须在 tokio 运行时上下文里调用，否则报 "there is no reactor running"。
+            // ★ 试前几张、任意一张能下就算过。只试第一张的话，偶发的一次连接失败
+            //   会把测试搞成假红（实测踩过：Python 同一 URL 200/10KB，Rust 那次连接被重置）。
+            let referer = match name {
+                "kgbook" => KGBOOK_BASE,
+                "wyshu" => WYSHU_BASE,
+                "se" => "https://standardebooks.org",
+                _ => "https://www.shuge.org",
+            };
+            let urls: Vec<String> = got.iter().take(4).map(|b| b.cover.clone()).collect();
+            let r = rt().block_on(async move {
+                let cli = client_fast()?;
+                let mut last = String::from("没试到任何 URL");
+                for u in urls {
+                    match cli.get(&u).header("Referer", referer).send().await {
+                        Ok(resp) if resp.status().is_success() => {
+                            let ct = resp.headers().get("content-type")
+                                .and_then(|v| v.to_str().ok()).unwrap_or("").to_string();
+                            let n = resp.content_length().unwrap_or(0);
+                            return Ok((resp.status().as_u16(), ct, n));
+                        }
+                        Ok(resp) => last = format!("HTTP {}", resp.status().as_u16()),
+                        Err(e) => last = format!("{e}"),
+                    }
+                }
+                Err(last)
+            });
+            match r {
+                Ok((code, ct, n)) => {
+                    println!("[live] {name} 封面 HTTP {code} content-type={ct:?} len={n}");
+                    assert!(ct.starts_with("image/"), "{name} 封面 content-type 不对: {ct}");
+                }
+                Err(e) => panic!("{name} 封面图一张都下不了: {e}"),
+            }
         }
     }
 
