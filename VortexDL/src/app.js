@@ -8592,6 +8592,14 @@ function enhanceSelect(select) {
     function open() {
         if (wrap.classList.contains('open')) return;
         document.querySelectorAll('.vx-select.open').forEach(function (w) { w.classList.remove('open'); });
+        // ★ 下方空间不够就向上弹。阅读器底部的章节下拉最典型：按默认向下弹，
+        //   菜单会整个落到窗口外面，用户点得到触发器、点不到任何一项。
+        try {
+            const tr = trigger.getBoundingClientRect();
+            const below = window.innerHeight - tr.bottom;
+            const need = Math.min(320, menu.scrollHeight + 20);
+            wrap.classList.toggle('drop-up', below < need);
+        } catch (_) {}
         wrap.classList.add('open');
         trigger.setAttribute('aria-expanded', 'true');
         const sel = menu.querySelector('.vx-select-option.selected');
@@ -10784,6 +10792,31 @@ window.__vxBk = (function () {
     }
 
     // ---------------- 阅读器 ----------------
+    /// 章节下拉。
+    /// ★ 两个坑都在这里：
+    ///   ① **可见的不是原生 select** —— `enhanceSelect()` 把它包进了 `.vx-select`，
+    ///      原生 select 被 CSS 藏起来只当取值源。所以 `sel.hidden = true` 只藏了那个
+    ///      看不见的元素，包装器还杵在那儿（表现为"只有一章也显示一个空下拉"）。
+    ///   ② 换书时必须**清掉旧选项**，否则读一本 17 章的书再读单章的书，下拉里还是旧目录。
+    function setChapSelect(chaps, curIdx) {
+        const sel = $('bk-r-chaps');
+        if (!sel) return;
+        const wrap = sel.closest ? sel.closest('.vx-select') : null;
+        const multi = !!(chaps && chaps.length > 1);
+        if (multi) {
+            sel.innerHTML = chaps.map(function (c) {
+                return '<option value="' + c.index + '">' + esc(c.name) + '</option>';
+            }).join('');
+            const at = chaps.findIndex(function (c) { return c.index === curIdx; });
+            sel.selectedIndex = at >= 0 ? at : 0;
+        } else {
+            sel.innerHTML = '';
+            sel.selectedIndex = -1;
+        }
+        sel.hidden = !multi;
+        if (wrap) wrap.style.display = multi ? '' : 'none';
+    }
+
     function applyFont() {
         const t = $('bk-r-text');
         if (t) t.style.fontSize = fontSize + 'px';
@@ -10816,6 +10849,10 @@ window.__vxBk = (function () {
         const t = $('bk-r-text');
         if (!t) return;
         t.textContent = text;
+        // ★ 真正滚动的是外层 .bk-reader-body（article 自己不滚），
+        //   在 #bk-r-text 上设 scrollTop 是无效的 —— 换章会停在上一章的滚动位置。
+        const bodyEl = t.closest ? t.closest('.bk-reader-body') : null;
+        if (bodyEl) bodyEl.scrollTop = 0;
         t.scrollTop = 0;
         const p = $('bk-r-progress');
         if (p && note) p.textContent = note;
@@ -10897,7 +10934,7 @@ window.__vxBk = (function () {
         $('bk-r-sub').textContent = book.author || '';
         $('bk-r-text').textContent = '正在加载正文…';
         $('bk-r-progress').textContent = '';
-        $('bk-r-chaps').hidden = true;
+        setChapSelect(null, 0);
         applyFont();
         syncFavButton();
         // 有进度就接着上次那章
@@ -10910,14 +10947,13 @@ window.__vxBk = (function () {
             $('bk-r-sub').textContent = t.author || book.author || '';
             const body = (t.text || '').trim();
             $('bk-r-text').textContent = body || '（这个源没给出正文 —— 可以点右上 TXT/EPUB 下载，或换个源）';
+            // 同上：滚外层容器，换章才真的回到顶部
+            const bodyBox = $('bk-r-text').closest ? $('bk-r-text').closest('.bk-reader-body') : null;
+            if (bodyBox) bodyBox.scrollTop = 0;
             $('bk-r-text').scrollTop = 0;
             const chaps = t.chapters || [];
-            const sel = $('bk-r-chaps');
+            setChapSelect(chaps, t.chapter_index || 0);
             if (chaps.length > 1) {
-                sel.hidden = false;
-                sel.innerHTML = chaps.map(function (c) {
-                    return '<option value="' + c.index + '"' + (c.index === (t.chapter_index || 0) ? ' selected' : '') + '>' + esc(c.name) + '</option>';
-                }).join('');
                 $('bk-r-progress').textContent = '第 ' + ((t.chapter_index || 0) + 1) + ' / ' + chaps.length + ' 章';
             } else {
                 $('bk-r-progress').textContent = body ? (body.length + ' 字') : '';

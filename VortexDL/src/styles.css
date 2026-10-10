@@ -8839,6 +8839,21 @@ button, .nav-btn, .section-card, .back-to-cards, .toggle-switch,
     transform: translateY(0) scale(1);
     pointer-events: auto;
 }
+/* ★ 向上弹的变体：触发器在窗口下半部分时（例如书库阅读器底部那个章节下拉），
+   菜单按默认的 top:100% 会整个跑到窗口下面去，用户看得见触发器却点不到任何一项
+   （用户报"左下角章节点了没有切换"就是这个）。enhanceSelect 的 open() 会量一下
+   下方空间够不够，不够就加 .drop-up。 */
+.vx-select.drop-up .vx-select-menu {
+    top: auto;
+    bottom: calc(100% + 8px);
+    transform-origin: bottom center;
+}
+.vx-select.drop-up .vx-select-menu {
+    transform: translateY(6px) scale(0.98);
+}
+.vx-select.open.drop-up .vx-select-menu {
+    transform: translateY(0) scale(1);
+}
 .vx-select-menu::-webkit-scrollbar {
     width: 8px;
 }
