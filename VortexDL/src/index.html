@@ -479,14 +479,15 @@
                                 </label>
                                 <button class="btn btn-secondary" id="bk-probe" title="挨个试一遍书源，看哪些当前网络下能用">源自检</button>
                             </div>
-                            <div class="bk-quick" id="bk-quick"></div>
                             <div class="bk-src-hint" id="bk-src-hint"></div>
                             <div class="an-sec-head">
                                 <h3 id="bk-list-title">热门名著</h3>
                                 <span class="an-sec-sub" id="bk-list-sub"></span>
                             </div>
                             <div id="bk-grid" class="bk-grid"></div>
-                            <div class="bk-more"><button class="btn btn-secondary" id="bk-more" hidden>加载更多</button></div>
+                            <!-- 自动加载：滚到这里就自动取下一页（不再用「加载更多」按钮） -->
+                            <div id="bk-sentinel" class="bk-sentinel" aria-hidden="true"></div>
+                            <div id="bk-end" class="bk-end" hidden>没有更多了</div>
                             <div id="bk-status" class="mod-status"></div>
                         </div>
 

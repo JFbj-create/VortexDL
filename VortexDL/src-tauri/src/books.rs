@@ -217,8 +217,11 @@ async fn get_text(url: &str, referer: Option<&str>) -> Result<String, String> {
 }
 
 /// 正文用（长超时）。
+/// ★ 和搜索不一样：读正文是**用户主动点的**，多等 1~2 秒无所谓，但失败了他会觉得"打不开"。
+///   这台网络实测经常把连接重置（`error sending request`），而 `worth_retry` 对连接层错误
+///   是"不重试"的（那是为了搜索列表不被 92 秒拖死）。所以正文这条**不看错误类型，一律多试一次**。
 async fn get_text_body(url: &str, referer: Option<&str>) -> Result<String, String> {
-    get_text_with(client_body()?, url, referer, 2).await
+    get_text_full(client_body()?, url, referer, 3, true).await
 }
 
 async fn get_text_with(
@@ -226,6 +229,16 @@ async fn get_text_with(
     url: &str,
     referer: Option<&str>,
     tries: u32,
+) -> Result<String, String> {
+    get_text_full(cli, url, referer, tries, false).await
+}
+
+async fn get_text_full(
+    cli: reqwest::Client,
+    url: &str,
+    referer: Option<&str>,
+    tries: u32,
+    retry_any: bool,
 ) -> Result<String, String> {
     let mut last = String::new();
     for attempt in 0..tries {
@@ -247,8 +260,8 @@ async fn get_text_with(
             }
             Err(e) => {
                 last = format!("{e}");
-                if !worth_retry(&e) {
-                    break; // 连接层错误，重试没意义
+                if !retry_any && !worth_retry(&e) {
+                    break; // 连接层错误，重试没意义（正文那条除外，见 get_text_body）
                 }
             }
         }
@@ -828,7 +841,8 @@ pub async fn kgbook_home_multi(cats: &[&str]) -> Result<Vec<Book>, String> {
     if !ok_any {
         return Err("苦瓜书盘的分类页都拉不到（网络问题）".into());
     }
-    out.truncate(60);
+    // 别再截到 60：分类页一页就是 100 本，截了之后加载更多就翻不下去了
+    out.truncate(100);
     Ok(out)
 }
 
@@ -1915,23 +1929,103 @@ async fn gutenberg_many(lang: Option<&str>, pages: u32) -> Result<Vec<Book>, Str
     Ok(out)
 }
 
+/// 默认推荐：**多源轮询混合**成一个大池子。
+///
+/// ★ 用户报「怎么全是中文电子书，推完就没了」：原来默认只 join 了
+///   无忧书城 + 苦瓜书盘两个源，**其中一个失败就只剩另一家**（表现成全是中文电子书），
+///   而且两家加起来一百来本，翻完就到底。
+///   现在把 6 个源都拉一遍，用**轮询**（每轮每个源各取一本）合成池子：
+///   每一页都是混的，池子有几百本，自动加载能一直往下。
+async fn recommend_pool() -> Vec<Book> {
+    // (源, 最多取几本) —— **每个源限量**很重要：Gutenberg 一次能返回几百本，
+    // 不限量的话它一家占 70%，轮到后面几页就全是英文名著了（用户要的是中文小说为主）。
+    // 国学（5000yan）不放进来：它返回的"书"其实是章节，标题是一整句古文，放推荐里很丑。
+    let jobs: Vec<(usize, std::pin::Pin<Box<dyn std::future::Future<Output = Result<Vec<Book>, String>> + Send>>)> = vec![
+        (100, Box::pin(wyshu_home("wl"))),                      // 中文网络小说（龙族…）
+        (100, Box::pin(kgbook_home_multi(KGBOOK_NOVEL_CATS))),  // 中文电子书
+        (60, Box::pin(gutenberg_many(Some("zh"), 1))),          // 中文公版书
+        (40, Box::pin(shuge_search("论语"))),                   // 古籍善本
+        (60, Box::pin(gutenberg_many(None, 1))),                // 外文名著（垫底，可翻译）
+    ];
+    let mut lists: Vec<Vec<Book>> = Vec::new();
+    for (cap, job) in jobs {
+        if let Ok(mut v) = job.await {
+            v.truncate(cap);
+            if !v.is_empty() {
+                lists.push(v);
+            }
+        }
+    }
+    interleave(lists)
+}
+
+/// 带缓存的推荐池。
+/// ★ 池子要**各页一致**（前端靠 key 去重后追加），所以不能在分页时临时拼 ——
+///   必须一次建好、缓存起来（TTL 10 分钟）。
+/// ★ 首次构建要等 5 个源（实测 5~16 秒），所以启动时在后台**预热**一次
+///   （见 main.rs 的 books 预热），用户第一次进书库通常已经命中缓存。
+pub async fn recommend_pool_cached() -> Vec<Book> {
+    const KEY: &str = "recommend:pool";
+    if let Some(s) = cache().get(KEY, Duration::from_secs(600)) {
+        if let Ok(v) = serde_json::from_str::<Vec<Book>>(&s) {
+            if !v.is_empty() {
+                return v;
+            }
+        }
+    }
+    let v = recommend_pool().await;
+    if !v.is_empty() {
+        if let Ok(s) = serde_json::to_string(&v) {
+            cache().put(KEY, &s);
+        }
+    }
+    v
+}
+
+/// 轮询合并：每轮从每个源各取一本，这样前几页就是混的（不会前面全是某一家）
+fn interleave(lists: Vec<Vec<Book>>) -> Vec<Book> {
+    let mut iters: Vec<std::vec::IntoIter<Book>> = lists.into_iter().map(|v| v.into_iter()).collect();
+    let mut out: Vec<Book> = Vec::new();
+    let mut seen = std::collections::HashSet::new();
+    loop {
+        let mut got_any = false;
+        for it in iters.iter_mut() {
+            if let Some(b) = it.next() {
+                got_any = true;
+                if seen.insert(b.key.clone()) {
+                    out.push(b);
+                }
+            }
+        }
+        if !got_any {
+            break;
+        }
+    }
+    out
+}
+
+/// 国学经典首页：直接搜"经""子"这类拿不到列表，用固定关键词凑一页。
+/// ★ 单独抽成函数是必须的：`recommend_pool` 里也要用它，如果写成调用 `home("guoxue")`
+///   就变成 **async 递归**，Rust 无法证明 future 是 Send → 编译报
+///   "future cannot be sent between threads safely"。
+async fn guoxue_home() -> Vec<Book> {
+    let mut out = Vec::new();
+    for kw in ["道德经", "论语", "诗经", "孙子兵法", "庄子", "孟子"] {
+        if let Ok(mut v) = guoxue_search(kw).await {
+            v.truncate(6);
+            out.append(&mut v);
+        }
+        if out.len() >= 30 {
+            break;
+        }
+    }
+    out
+}
+
 pub async fn home(section: &str) -> Result<Vec<Book>, String> {
     match section {
         "zh" => gutenberg_many(Some("zh"), 3).await,
-        "guoxue" => {
-            // 国学经典：直接搜"经""子"这类拿不到列表，用固定关键词凑一页
-            let mut out = Vec::new();
-            for kw in ["道德经", "论语", "诗经", "孙子兵法", "庄子", "孟子"] {
-                if let Ok(mut v) = guoxue_search(kw).await {
-                    v.truncate(6);
-                    out.append(&mut v);
-                }
-                if out.len() >= 30 {
-                    break;
-                }
-            }
-            Ok(out)
-        }
+        "guoxue" => Ok(guoxue_home().await),
         // 中文电子书（苦瓜书盘）—— 正式出版物，科幻玄幻分类打底
         "novel" => kgbook_home_multi(KGBOOK_NOVEL_CATS).await,
         // 网络小说（无忧书城）—— 龙族 / 九州缥缈录 这类
@@ -1942,22 +2036,11 @@ pub async fn home(section: &str) -> Result<Vec<Book>, String> {
         // ★ 默认首页：网络小说 + 中文电子书各一半。
         //   原来默认是 Gutenberg 外文名著，用户反馈"所有书都是英文"，所以改成中文优先。
         _ => {
-            // ★ 不再在这里截断：截断交给 book_home 按页切片（前端「加载更多」要能翻下去）。
-            //   以前这里 wyshu 只留 10、kgbook 只留 8，于是"推荐"永远只有两行小说。
-            let (a, b) = futures::join!(wyshu_home("wl"), kgbook_home_multi(&["kehuanxuanhuan", "xiandaiwenxue"]));
-            let mut out = Vec::new();
-            if let Ok(mut v) = a {
-                v.truncate(60);
-                out.append(&mut v);
-            }
-            if let Ok(mut v) = b {
-                v.truncate(60);
-                out.append(&mut v);
-            }
-            if out.is_empty() {
+            let v = recommend_pool_cached().await;
+            if v.is_empty() {
                 return Err("推荐列表拉不到（网络问题），直接搜书名试试".into());
             }
-            Ok(out)
+            Ok(v)
         }
     }
 }
@@ -2739,6 +2822,33 @@ bG8=").unwrap()).unwrap(), "hello");
             }
         }
         assert!(ok, "至少要有本 mobi 能解出正文（用户报「读不了 mobi」就是这条）");
+    }
+
+    /// 默认推荐必须是**多源混合**的。
+    /// 用户报「怎么全是中文电子书，推完就没了」—— 原来只 join 了两个源，
+    /// 一个失败就只剩另一家。这条断言"第一页里至少有 3 个不同的源"。
+    #[test]
+    #[ignore]
+    fn live_recommend_is_mixed() {
+        let v = rt().block_on(home("all")).expect("推荐要能拉到");
+        println!("[live] 推荐池共 {} 本", v.len());
+        let mut by_src: std::collections::BTreeMap<&str, usize> = Default::default();
+        for b in &v {
+            *by_src.entry(b.source.as_str()).or_insert(0) += 1;
+        }
+        for (k, n) in &by_src {
+            println!("   {k}: {n}");
+        }
+        println!("[live] 前 12 本：");
+        for b in v.iter().take(12) {
+            println!("   [{}] {}", b.source, b.title);
+        }
+        assert!(v.len() >= 100, "推荐池太小（{} 本），翻两下就到底了", v.len());
+        assert!(by_src.len() >= 3, "推荐只来自 {} 个源，会显得\"全是某一家\"", by_src.len());
+        // 前 18 本（第一页）也得是混的
+        let first: std::collections::BTreeSet<&str> = v.iter().take(18).map(|b| b.source.as_str()).collect();
+        println!("[live] 第一页包含的源: {first:?}");
+        assert!(first.len() >= 3, "第一页只有 {} 个源，看着还是单一来源", first.len());
     }
 
     /// 封面：列表接口拿不到图（苦瓜书盘的分类页/结果页没有 <img>；无忧书城也一样），

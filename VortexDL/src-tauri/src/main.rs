@@ -392,6 +392,15 @@ fn main() {
                 eprintln!("[batch_translate] 完成, 共翻译 {} 个游戏名", total_translated);
             });
 
+            // ★ 书库推荐池预热：默认「全部（推荐）」要把 5 个源都拉一遍再轮询合并
+            //   （实测首次 5~16 秒）。启动后先在后台建一次并缓存 10 分钟，
+            //   用户第一次点进书库通常就命中缓存、秒开。
+            tauri::async_runtime::spawn(async move {
+                tokio::time::sleep(std::time::Duration::from_secs(4)).await;
+                let v = crate::books::recommend_pool_cached().await;
+                eprintln!("[books] 推荐池预热完成: {} 本", v.len());
+            });
+
             // ★ 日志增强 (2026-09-15): 定期记录系统资源状态到 system.log
             //   每 60 秒采样一次: 内存/CPU 核心/活跃任务数, 方便排查长时间运行后的资源泄漏
             let app_handle_snapshot = app.handle().clone();

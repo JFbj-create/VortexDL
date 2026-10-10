@@ -10522,8 +10522,6 @@ window.__vxBk = (function () {
           hint: '放在 <软件目录>\\data\\books\\local 里的 txt / epub / mobi' },
     ];
 
-    /// 快捷搜索示例：让用户一眼看到"搜得到"，点了直接搜
-    const QUICK = ['龙族', '窄门', '三体', '红楼梦', '安娜·卡列尼娜'];
 
     let inited = false;
     let bound = false;
@@ -10651,10 +10649,38 @@ window.__vxBk = (function () {
             + '</div>';
     }
 
-    /// 加载更多按钮：只有"当前是主页列表、且这一页是满的（可能还有下一页）"时才显示
+    // ---------------- 自动加载（滚到底就取下一页） ----------------
+    // ★ 用户要求把「加载更多」按钮去掉、改成自动加载。
+    //   用 IntersectionObserver 盯一个哨兵元素，比监听某个滚动容器稳：
+    //   不用去猜"到底是谁在滚"（这个页面外面还套了 .content / .mod-body 两层）。
+    let io = null;
+    let moreAvail = false;      // 还有下一页吗
+    let loadingMore = false;
+
     function setMore(show) {
-        const b = $('bk-more');
-        if (b) b.hidden = !show;
+        moreAvail = !!show;
+        const end = $('bk-end');
+        // 只有"确定到底了"才显示"没有更多了"；列表为空时不显示
+        if (end) end.hidden = !(show === false && curBooks.length > 0);
+        if (show) ensureObserver();
+    }
+
+    /// 换分类/重新搜索时重置：收起"没有更多了"，并且先不允许自动加载
+    function resetMore() {
+        moreAvail = false;
+        const end = $('bk-end');
+        if (end) end.hidden = true;
+    }
+
+    function ensureObserver() {
+        const sent = $('bk-sentinel');
+        if (!sent || io) return;
+        if (typeof IntersectionObserver !== 'function') return;
+        io = new IntersectionObserver(function (entries) {
+            if (!entries.length) return;
+            if (entries[0].isIntersecting && moreAvail && !loadingMore) loadMore();
+        }, { rootMargin: '400px 0px' });   // 提前 400px 就开始取，滚动时几乎看不出等待
+        io.observe(sent);
     }
 
     function renderGrid(list, gridId, inFavTab) {
@@ -10675,12 +10701,6 @@ window.__vxBk = (function () {
             sel.innerHTML = SOURCES.map(function (s) {
                 return '<option value="' + s.id + '"' + (s.id === curSource ? ' selected' : '') + '>' +
                     esc(s.name) + '</option>';
-            }).join('');
-        }
-        const q = $('bk-quick');
-        if (q) {
-            q.innerHTML = '<span class="bk-quick-label">试试：</span>' + QUICK.map(function (k) {
-                return '<button class="bk-quick-btn" data-bk-kw="' + esc(k) + '">' + esc(k) + '</button>';
             }).join('');
         }
         const s = SOURCES.find(function (x) { return x.id === curSource; });
@@ -10736,7 +10756,7 @@ window.__vxBk = (function () {
         setBusy(true, '正在从 ' + (src ? src.name : '') + ' 拉取…');
         searching = false;
         curPage = 0;
-        setMore(false);
+        resetMore();
         try {
             let list = [];
             if (src && src.needKw) {
@@ -10754,7 +10774,7 @@ window.__vxBk = (function () {
             renderGrid(curBooks, 'bk-grid');
             // 这一页取满了说明后面可能还有 → 显示「加载更多」
             setMore(!(src && src.needKw) && list.length >= PAGE_SIZE);
-            if (sub) sub.textContent = list.length ? ('共 ' + list.length + ' 本' + (list.length >= PAGE_SIZE ? '（可继续加载）' : '')) : '';
+            if (sub) sub.textContent = list.length ? ('共 ' + list.length + ' 本') : '';
             if (!list.length) setStatus('bk-status', '这个源没返回内容 —— 可能是网络问题，点右上「源自检」看看', 'err');
         } catch (e) {
             if (my !== reqSeq) return;
@@ -10781,7 +10801,7 @@ window.__vxBk = (function () {
         setBusy(true, '正在搜索…');
         setStatus('bk-status', '');
         searching = true;
-        setMore(false);
+        resetMore();
         try {
             const list = await invoke('book_search', { source: src, keyword: String(kw).trim(), page: 1 }) || [];
             if (my !== reqSeq) return;
@@ -10816,16 +10836,17 @@ window.__vxBk = (function () {
         }).catch(function () {});
     }
 
-    /// 「加载更多」：往后取一页追加。取不满一页说明到底了，按钮收起来。
+    /// 往后取一页追加（自动加载调用）。取不满一页说明到底了。
     async function loadMore() {
         const src = SOURCES.find(function (s) { return s.id === curSource; });
-        if (!src || src.needKw) return;
-        const btn = $('bk-more');
-        if (btn) { btn.disabled = true; btn.textContent = '正在加载…'; }
+        if (!src || src.needKw || loadingMore) return;
+        loadingMore = true;
+        const my = reqSeq;                 // 期间用户若换分类/搜索，这一页就丢弃
         try {
             const next = await invoke('book_home', {
                 section: src.home ? src.home : curSource, page: curPage + 1
             }) || [];
+            if (my !== reqSeq) return;
             curPage++;
             const have = {};
             curBooks.forEach(function (b) { have[b.key] = 1; });
@@ -10834,11 +10855,12 @@ window.__vxBk = (function () {
             renderGrid(curBooks, 'bk-grid');
             setMore(next.length >= PAGE_SIZE && add.length > 0);
             const sub = $('bk-list-sub');
-            if (sub) sub.textContent = '共 ' + curBooks.length + ' 本' + (next.length >= PAGE_SIZE ? '（可继续加载）' : '');
+            if (sub) sub.textContent = '共 ' + curBooks.length + ' 本';
         } catch (e) {
-            showToast('加载失败：' + (e && e.message ? e.message : e), 'error', 4000);
+            // 自动加载失败就静默停下（不弹 toast 打扰），把"没有更多了"显示出来
+            setMore(false);
         } finally {
-            if (btn) { btn.disabled = false; btn.textContent = '加载更多'; }
+            loadingMore = false;
         }
     }
 
@@ -11089,7 +11111,6 @@ window.__vxBk = (function () {
         on('bk-search-btn', 'click', function () { doSearch(); });
         on('bk-search', 'keydown', function (e) { if (e.key === 'Enter') doSearch(); });
         on('bk-search-clear', 'click', loadHome);
-        on('bk-more', 'click', loadMore);
         on('bk-probe', 'click', probeSources);
         // 分类下拉（替代原来那排 chip）
         on('bk-cat', 'change', function (e) {
@@ -11124,8 +11145,6 @@ window.__vxBk = (function () {
         // 侧边栏「书库」的二级标签由通用 rail 处理；这里只管页面内点击
         document.addEventListener('click', function (e) {
             if (!e.target || !e.target.closest) return;
-            const qk = e.target.closest('[data-bk-kw]');
-            if (qk) { doSearch(qk.dataset.bkKw); return; }
             const rd = e.target.closest('[data-bk-read]');
             if (rd) { openReader(findBook(rd.dataset.bkRead), null); return; }
             const dl = e.target.closest('[data-bk-dl]');
