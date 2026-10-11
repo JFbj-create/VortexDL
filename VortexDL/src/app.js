@@ -6672,7 +6672,18 @@ async function pollDownloadsStatus() {
 
                     // ★★★ 关键修复: 如果任务从 SpeedEngine 消失 且 下载量已达 99%+ (或超量)
                     //   → 强制标记完成并触发 onDownloadFinished (否则自动解压永远不触发!)
-                    if (lostFromEngine && (downloadedReached || pctFull || sp >= 99) && !sdl._finished) {
+                    //
+                    // ★★ 2026-10-11 修一个真 bug：原来这里还有一条 `|| sp >= 99` 的兜底，
+                    //   结果把**只下了 1.4% 的 BT 任务**判成了 completed。实测日志：
+                    //     [DL_FORCE_COMPLETE_LOST] task=bt-1791723166444 downloaded=10534912
+                    //                              total=770350979 completed (lost from engine)
+                    //   那是重启后从存储恢复的 BT 任务（引擎里已经没了），它持久化下来的
+                    //   progress 是 99+，但磁盘上只有 10.5MB / 770MB。判成完成后走到
+                    //   "下载后自动解压"，去解一个残缺 zip → 「解压失败」弹给用户。
+                    //   **判"完成"必须有字节证据**：total 已知时必须 downloaded >= total-64KB；
+                    //   只有 total 未知(0)时才退回用百分比。
+                    const bytesEvidence = st > 0 ? downloadedReached : pctFull;
+                    if (lostFromEngine && bytesEvidence && !sdl._finished) {
                         sdl.progress = 100;
                         sdl.state = 'completed';
                         sdl._force_100_pass2 = true;

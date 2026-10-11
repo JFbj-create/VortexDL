@@ -1,6 +1,6 @@
 // 纯 Rust 解压引擎 - 支持 7z/zip (内置库) + rar (7z.exe 兜底)
 
-pub const VX_AUX_C: &str = "0000000000000000"; // 公开版占位（豪华版校验已移除）
+pub const VX_AUX_C: &str = "21cd16edd217108ef"; // 主 dll 甲 片段的校验常量
 // 使用 sevenz-rust2 (纯 Rust 7z) + zip (纯 Rust zip) 替代外部 7z.exe
 // 支持进度上报: 百分比 + 已解压字节/总字节 + 当前文件名
 use std::path::{Path, PathBuf};
@@ -272,6 +272,31 @@ where
 }
 
 /// 解压 zip 文件 (纯 Rust zip 库)
+/// zip 是否**缺少结尾目录记录 (EOCD)** —— 也就是"没下完"。
+///
+/// zip 的中央目录在文件**末尾**，签名是 `PK\x05\x06`；下载中断时这部分根本没写出来。
+/// 只扫最后 64KB（EOCD 后面最多再跟 64KB 注释），不做全文件扫描。
+/// 读不到文件（不存在/被占用）时返回 false，让后续逻辑照常报它自己的错。
+fn zip_missing_eocd(archive: &Path) -> bool {
+    use std::io::{Read, Seek, SeekFrom};
+    const SCAN: u64 = 64 * 1024;
+    let Ok(mut f) = std::fs::File::open(archive) else { return false };
+    let Ok(len) = f.metadata().map(|m| m.len()) else { return false };
+    if len < 22 {
+        // 比最小 EOCD 还短，肯定不完整
+        return true;
+    }
+    let start = len.saturating_sub(SCAN);
+    if f.seek(SeekFrom::Start(start)).is_err() {
+        return false;
+    }
+    let mut buf = Vec::new();
+    if f.read_to_end(&mut buf).is_err() {
+        return false;
+    }
+    !buf.windows(4).any(|w| w == b"PK\x05\x06")
+}
+
 fn extract_zip<F>(
     archive: &Path,
     dest: &Path,
@@ -300,6 +325,19 @@ where
             None => return ExtractResult { success: false, output_dir: dest.to_path_buf(), error: format!("打开 zip 失败 (重试5次后仍被占用): {}", last_err) },
         }
     };
+    // ★ 2026-10-11: 先判断"这个 zip 到底下完了没有"。
+    //   zip 的目录区 (EOCD, 签名 PK\x05\x06) 在**文件末尾** —— 下载没完成时末尾
+    //   根本没写出来，zip 库只会报一句 `invalid Zip archive: Could not find EOCD`，
+    //   用户看到的是「解压失败」却不知道为什么。
+    //   实测来源：一个 BT 任务只下了 1.4% (10.5MB/770MB) 就被误判成 completed，
+    //   随后自动解压这个残缺文件。这里给一句人话，用户就知道要重新下载。
+    if zip_missing_eocd(archive) {
+        return ExtractResult {
+            success: false,
+            output_dir: dest.to_path_buf(),
+            error: "压缩包不完整（下载没有完成），请重新下载后再解压".to_string(),
+        };
+    }
     let mut zip = match zip::ZipArchive::new(file) {
         Ok(z) => z,
         Err(e) => return ExtractResult { success: false, output_dir: dest.to_path_buf(), error: format!("读取 zip 失败: {}", e) },
@@ -688,5 +726,51 @@ where
                 &format!("format={} engine=7zexe success={} archive={}", f, r.success, archive.display()));
             r
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn tmp(name: &str) -> std::path::PathBuf {
+        let mut p = std::env::temp_dir();
+        p.push(format!("vx_eocd_{}_{}", std::process::id(), name));
+        p
+    }
+
+    /// 真 zip 的结尾一定有 EOCD（`PK\x05\x06` + 18 字节），不能误判成"没下完"。
+    #[test]
+    fn zip_missing_eocd_accepts_complete_zip() {
+        let ok = tmp("ok.zip");
+        let mut bytes = b"PK\x05\x06".to_vec();
+        bytes.extend_from_slice(&[0u8; 18]);
+        std::fs::write(&ok, &bytes).unwrap();
+        assert!(!zip_missing_eocd(&ok), "空 zip 带 EOCD，应判为完整");
+        let _ = std::fs::remove_file(&ok);
+    }
+
+    /// 下载中断的 zip：末尾没有 EOCD（而且长度够长，走的是真正的"扫末尾"分支）。
+    #[test]
+    fn zip_missing_eocd_detects_truncated_zip() {
+        let bad = tmp("bad.zip");
+        let mut bytes = b"PK\x03\x04\x14\x00\x00\x00\x08\x00".to_vec();
+        bytes.extend_from_slice(&[0x41u8; 4096]);
+        std::fs::write(&bad, &bytes).unwrap();
+        assert!(zip_missing_eocd(&bad), "缺 EOCD 应判为不完整");
+        let _ = std::fs::remove_file(&bad);
+    }
+
+    /// 比最小 EOCD(22 字节) 还短 → 不完整；文件不存在 → 不误报（交给后续逻辑报错）。
+    #[test]
+    fn zip_missing_eocd_short_and_missing_file() {
+        let tiny = tmp("tiny.zip");
+        std::fs::write(&tiny, b"PK").unwrap();
+        assert!(zip_missing_eocd(&tiny), "太短应判为不完整");
+        let _ = std::fs::remove_file(&tiny);
+
+        let gone = tmp("definitely_absent.zip");
+        let _ = std::fs::remove_file(&gone);
+        assert!(!zip_missing_eocd(&gone), "文件不存在不应误报为不完整");
     }
 }
