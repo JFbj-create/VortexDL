@@ -9827,6 +9827,15 @@ window.__vxAn = (function () {
     }
 
     function detailHtml(d) {
+        // ★ 2026-10-11 修「看动漫显示 m is not defined」。
+        //   这个函数体通篇用 m / eps，但**两者在本作用域里都不存在**
+        //   （只有 `const casts = d.casts` 那行是后来改过的）——
+        //   于是打开任何一部番的详情，第一行 `m.name_cn` 就抛 ReferenceError，
+        //   弹窗里只剩一句 "m is not defined"（`eps` 是同一处的第二个雷，紧跟其后）。
+        //   正确来源是模块级的 curMeta / curEpisodes —— openDetail 里在调用本函数前
+        //   已经赋值，这里绑定一下即可，下面所有 `m.xxx` / `eps` 都不用动。
+        const m = curMeta || {};
+        const eps = curEpisodes || [];
         const casts = (d && d.casts) || [];
         const name = m.name_cn || m.name || '';
         const tags = (m.tags || []).slice(0, 10);
