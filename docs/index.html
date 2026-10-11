@@ -441,6 +441,7 @@ footer .sep{margin:0 9px;opacity:.4}
     <nav class="nav-links">
       <a href="#features">功能</a>
       <a href="#speed">速度</a>
+      <a href="#perf">实测</a>
       <a href="#price">价格</a>
       <a href="#start">上手</a>
       <a href="#download">下载</a>
@@ -469,6 +470,7 @@ footer .sep{margin:0 9px;opacity:.4}
 
       <div class="stats">
         <div class="stat"><div class="n">110<span style="font-size:.55em"> MB/s</span></div><div class="l">满速实测峰值</div></div>
+        <div class="stat"><div class="n">134<span style="font-size:.55em"> MB</span></div><div class="l">下载中内存占用</div></div>
         <div class="stat"><div class="n">5万+</div><div class="l">本地游戏索引</div></div>
         <div class="stat"><div class="n">77</div><div class="l">套主题（豪华版全解锁）</div></div>
         <div class="stat"><div class="n">7.9万</div><div class="l">书库藏书</div></div>
@@ -637,6 +639,67 @@ footer .sep{margin:0 9px;opacity:.4}
       <p style="text-align:center;color:var(--txt-dim);font-size:13.5px;margin-top:18px">
         * 实际速度取决于你的带宽、源站带宽与网络状况。上表是同一环境下的对照实测。<br>
         <b>豪华版（5 元）解锁满速</b>，免费版限到原速的 80%；限的是速度比例，不是下载量。
+      </p>
+    </div>
+  </section>
+
+  <!-- ==================== 实测案例（真实下载） ==================== -->
+  <section id="perf">
+    <div class="wrap">
+      <div class="sec-head reveal">
+        <span class="sec-tag">Real Test</span>
+        <h2>74 GB 的游戏，18 分钟下完</h2>
+        <p>下面这组数字不是跑分软件测出来的，是一次真实的下载 —— 家用千兆宽带，同一台电脑，全程 1 秒采一次样。</p>
+      </div>
+
+      <div class="stats">
+        <div class="stat"><div class="n">65.7<span style="font-size:.55em"> MB/s</span></div><div class="l">全程平均速度</div></div>
+        <div class="stat"><div class="n">109<span style="font-size:.55em"> MB/s</span></div><div class="l">实测峰值速度</div></div>
+        <div class="stat"><div class="n">134<span style="font-size:.55em"> MB</span></div><div class="l">下载中平均内存</div></div>
+        <div class="stat"><div class="n">2.6<span style="font-size:.55em">%</span></div><div class="l">下载中平均 CPU（16 核）</div></div>
+      </div>
+
+      <div class="table-wrap reveal" style="margin-top:40px">
+        <table>
+          <thead><tr><th>项目</th><th>实测值</th><th>说明</th></tr></thead>
+          <tbody>
+            <tr>
+              <td>下载内容</td>
+              <td><span class="hl">艾尔登法环 v1.17.1</span></td>
+              <td>单个 RAR，<b>74.55 GB</b>（69.43 GiB）</td>
+            </tr>
+            <tr>
+              <td>总耗时</td>
+              <td><span class="hl">18 分 02 秒</span></td>
+              <td>含断点续传；全程平均 <b>65.7 MB/s</b></td>
+            </tr>
+            <tr>
+              <td>峰值速度</td>
+              <td><span class="hl">109 MB/s</span></td>
+              <td>128 路动态分块 + 自适应并发，把千兆链路跑到 ~87%</td>
+            </tr>
+            <tr>
+              <td>内存占用</td>
+              <td><span class="hl">平均 134 MB</span></td>
+              <td>峰值 149 MB（每秒采样一次）</td>
+            </tr>
+            <tr>
+              <td>CPU 占用</td>
+              <td><span class="hl">平均 2.6%</span></td>
+              <td>16 核；峰值不到 10%</td>
+            </tr>
+            <tr>
+              <td>测试网络</td>
+              <td>千兆以太网（1 Gbps）</td>
+              <td>Realtek 2.5GbE 网卡，链路协商 1 Gbps</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <p style="text-align:center;color:var(--txt-dim);font-size:13.5px;margin-top:18px">
+        <b>下 74 GB，只占 134 MB 内存、2.6% CPU</b> —— 后台挂着下载，打游戏、剪视频都不受影响。<br>
+        这不是"轻量版"的妥协：同一份引擎在满速档能把千兆链路跑到 ~87%。<b>够轻，也够快。</b>
       </p>
     </div>
   </section>
