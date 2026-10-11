@@ -4487,22 +4487,23 @@ body.glass-mode .page-tab.active {
     color: #b91c1c;
 }
 
-/* ===== BT 种子下载独立进度条 (蓝色系, 区别于解压的绿色) ===== */
+/* ===== BT 种子下载独立进度条 (跟随主题, 斜条纹区分于解压条) ===== */
 .bt-progress-bar {
     position: relative;
     width: 100%;
     height: 8px;
-    background: rgba(59, 130, 246, 0.15);
+    background: color-mix(in srgb, var(--theme-text-primary) 16%, transparent);
     border-radius: 4px;
     overflow: hidden;
     margin-bottom: 6px;
-    border: 1px solid rgba(59, 130, 246, 0.25);
+    border: 1px solid color-mix(in srgb, var(--theme-text-primary) 20%, transparent);
 }
 .bt-progress-fill {
     height: 100%;
-    background: linear-gradient(90deg, #3b82f6, #2563eb, #1d4ed8);
-    transition: width 0.25s linear;
-    border-radius: 4px;
+    /* ★ 2026-10-11: 这里原来先写 `background: linear-gradient(蓝)` 再写 `background-image:
+       斜条纹` —— 后者把前者的渐变整个覆盖掉, 蓝底根本不存在, 进度条看着是空的。
+       改成 background-color 打底 + background-image 只放条纹, 底色换成主题色。 */
+    background-color: var(--theme-primary);
     background-size: 30px 30px;
     background-image: linear-gradient(
         45deg,
@@ -4514,6 +4515,8 @@ body.glass-mode .page-tab.active {
         transparent 75%,
         transparent
     );
+    transition: width 0.25s linear;
+    border-radius: 4px;
     animation: bt-stripes 1.2s linear infinite;
 }
 @keyframes bt-stripes {
@@ -4524,7 +4527,7 @@ body.glass-mode .page-tab.active {
     display: block;
     margin-top: 2px;
     font-size: 11px;
-    color: #2563eb;
+    color: var(--theme-text-secondary);
     line-height: 1.3;
     word-break: break-all;
     font-weight: 500;
@@ -5426,7 +5429,9 @@ body.glass-mode .page-tab.active {
 .tr-progress-bar {
     width: 100%;
     height: 8px;
-    background: #e5e7eb;
+    /* ★ 2026-10-11: 原来是写死的 #e5e7eb 浅灰轨道, 深色主题下和背景糊在一起
+       (下载进度条当初就是同一个毛病)。改成主题自适应的半透明轨道。 */
+    background: color-mix(in srgb, var(--theme-text-primary) 16%, transparent);
     border-radius: 4px;
     overflow: hidden;
     margin-bottom: 8px;
@@ -5434,7 +5439,7 @@ body.glass-mode .page-tab.active {
 .tr-progress-fill {
     height: 100%;
     width: 0;
-    background: linear-gradient(90deg, var(--theme-primary), #8b5cf6);
+    background: linear-gradient(90deg, var(--theme-primary), var(--theme-accent-text));
     transition: width 0.3s ease;
 }
 .tr-progress-log {
@@ -10545,7 +10550,9 @@ input[type="search"]:focus {
    下载进度条: 提高对比度 (用户反馈"颜色根本看不清")
    - 轨道原来写死 #e5e7eb 浅灰, 深色主题下和背景糊在一起
    - 填充原来是 主题色→紫, 和轨道亮度接近, 看不清进度到哪了
-   改成: 主题自适应的半透明轨道 + 高对比的绿→青渐变填充 + 轻微发光
+   改成: 主题自适应的半透明轨道 + 主题色 primary→accent-text 渐变填充 + 轻微发光
+   ★ 2026-10-11: 中间一版把填充写死成绿→青并加 !important, 结果"不跟随主题";
+     现在两端都取主题变量, 对比度靠 accent-text 的亮度差保证。
    (放在文件最后, 覆盖前面的规则)
    ============================================================ */
 .download-progress-bar {
@@ -10554,16 +10561,24 @@ input[type="search"]:focus {
     border-radius: 5px;
 }
 .download-progress-fill {
-    background-image: linear-gradient(90deg, #22c55e 0%, #14b8a6 55%, #06b6d4 100%) !important;
-    background-color: #22c55e;
+    /* ★ 2026-10-11: 原来是写死的绿→青渐变 (#22c55e/#14b8a6/#06b6d4) 且带 !important,
+       把上面那条 `var(--theme-primary) → #8b5cf6` 整个盖掉了 —— 用户报
+       「下载进度条不跟随主题」, 换任何主题它都是绿的。
+       改成主题色渐变: primary → accent-text 两端亮度差足够,
+       深浅主题下都能看清进度到哪 (当初改绿色就是为了对比度, 主题变量同样满足)。
+       发光也走 --theme-glow。 */
+    background-image: linear-gradient(90deg,
+        var(--theme-primary) 0%, var(--theme-accent-text) 100%) !important;
+    background-color: var(--theme-primary);
     border-radius: 5px;
-    box-shadow: 0 0 8px rgba(34, 197, 94, 0.45);
+    box-shadow: 0 0 8px var(--theme-glow);
 }
 /* 未完成 / 失败 / 暂停时不要发光, 免得误导 */
 .download-progress-fill.progress-indeterminate {
-    /* 沿用上面的窄带滑动, 只把配色换成绿色系; 两端也要透明, 否则窄带成了实心方块 */
+    /* 沿用上面的窄带滑动, 只把配色换成主题色; 两端也要透明, 否则窄带成了实心方块 */
     background-image: linear-gradient(90deg,
-        transparent 0%, #22c55e 45%, #06b6d4 55%, transparent 100%) !important;
+        transparent 0%, var(--theme-primary) 45%,
+        var(--theme-accent-text) 55%, transparent 100%) !important;
 }
 
 /* ============================================================
