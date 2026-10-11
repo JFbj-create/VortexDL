@@ -176,6 +176,49 @@ h1{
 }
 .stat .l{font-size:12.5px;color:var(--txt-dim);margin-top:3px}
 
+/* ---------- 实时曲线 ---------- */
+.perf-chart{
+  margin:34px auto 0;max-width:900px;
+  background:var(--card);border:1px solid var(--card-bd);border-radius:17px;
+  padding:20px 22px 14px;
+}
+.pc-head{display:flex;flex-wrap:wrap;gap:14px;align-items:flex-start;justify-content:space-between;margin-bottom:6px}
+.pc-title{font-size:15px;font-weight:700;line-height:1.5}
+.pc-sub{display:block;font-size:12.5px;font-weight:400;color:var(--txt-dim);margin-top:3px;max-width:430px}
+.pc-sub b{color:var(--txt)}
+.pc-live{display:flex;gap:9px;flex-wrap:wrap}
+.pc-pill{
+  min-width:104px;padding:8px 13px;border-radius:12px;
+  background:rgba(255,255,255,.045);border:1px solid var(--card-bd);
+}
+.pc-pill em{display:block;font-style:normal;font-size:11px;color:var(--txt-dim);margin-bottom:1px}
+.pc-pill b{font-size:20px;font-weight:900;font-variant-numeric:tabular-nums;letter-spacing:-.01em}
+.pc-pill b i{font-style:normal;font-size:11.5px;font-weight:500;color:var(--txt-dim);margin-left:2px}
+.pc-speed b{color:#b9a6ff}
+.pc-mem b{color:#7fe3ff}
+.pc-cpu b{color:#ff9ee0}
+.pc-svgwrap{margin:2px -4px 0}
+#pc-svg{display:block;width:100%;height:auto;overflow:visible}
+#pc-svg text{font-family:"Noto Sans SC",system-ui,sans-serif;font-size:10.5px;fill:var(--txt-dim)}
+#pc-svg .pc-ax{fill:rgba(255,255,255,.42)}
+#pc-svg .pc-grid{stroke:rgba(255,255,255,.075);stroke-width:1}
+#pc-svg .pc-panel{fill:rgba(255,255,255,.02)}
+#pc-svg .pc-faint{fill:none;stroke-width:1.4;opacity:.22}
+#pc-svg .pc-line{fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+#pc-svg .pc-play{stroke:rgba(255,255,255,.5);stroke-width:1;stroke-dasharray:3 3}
+#pc-svg .pc-dot{stroke:#0a0812;stroke-width:1.6}
+.pc-legend{display:flex;flex-wrap:wrap;gap:16px;align-items:center;margin-top:10px;font-size:12.5px;color:var(--txt-dim)}
+.pc-legend i{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:6px;vertical-align:middle}
+.pc-legend .d-speed{background:#7c5cff}
+.pc-legend .d-mem{background:#48dbfb}
+.pc-legend .d-cpu{background:#ff6bd6}
+.pc-note{flex:1 1 320px;min-width:240px;font-size:12px;line-height:1.6;opacity:.85}
+@media(max-width:640px){
+  .pc-live{width:100%}
+  .pc-pill{flex:1;min-width:0}
+  .perf-chart{padding:16px 14px 10px}
+}
+
 /* ---------- 通用区块 ---------- */
 section{padding:78px 0;position:relative}
 .sec-head{text-align:center;margin-bottom:52px}
@@ -654,9 +697,33 @@ footer .sep{margin:0 9px;opacity:.4}
 
       <div class="stats">
         <div class="stat"><div class="n">65.7<span style="font-size:.55em"> MB/s</span></div><div class="l">全程平均速度</div></div>
-        <div class="stat"><div class="n">109<span style="font-size:.55em"> MB/s</span></div><div class="l">实测峰值速度</div></div>
+        <div class="stat"><div class="n">118<span style="font-size:.55em"> MB/s</span></div><div class="l">实测峰值速度</div></div>
         <div class="stat"><div class="n">134<span style="font-size:.55em"> MB</span></div><div class="l">下载中平均内存</div></div>
         <div class="stat"><div class="n">2.6<span style="font-size:.55em">%</span></div><div class="l">下载中平均 CPU（16 核）</div></div>
+      </div>
+
+      <!-- ---------- 实时曲线（真实采样，非示意图） ---------- -->
+      <div class="perf-chart reveal" id="perf-chart">
+        <div class="pc-head">
+          <div class="pc-title">下载过程中的实时占用
+            <span class="pc-sub">下面这条曲线是真实下载里截取的 60 秒，<b>每秒采样一次</b>，不是画出来的示意图。</span>
+          </div>
+          <div class="pc-live">
+            <div class="pc-pill pc-speed"><em>下载速度</em><b><span id="pc-v-speed">0</span><i>MB/s</i></b></div>
+            <div class="pc-pill pc-mem"><em>内存占用</em><b><span id="pc-v-mem">0</span><i>MB</i></b></div>
+            <div class="pc-pill pc-cpu"><em>CPU 占用</em><b><span id="pc-v-cpu">0</span><i>%</i></b></div>
+          </div>
+        </div>
+        <div class="pc-svgwrap">
+          <svg id="pc-svg" viewBox="0 0 920 352" role="img"
+               aria-label="下载速度、内存占用与 CPU 占用随时间变化的实时曲线"></svg>
+        </div>
+        <div class="pc-legend">
+          <span><i class="d-speed"></i>下载速度</span>
+          <span><i class="d-mem"></i>内存占用</span>
+          <span><i class="d-cpu"></i>CPU 占用</span>
+          <span class="pc-note">这 60 秒是满速阶段（平均 114 MB/s、内存 137 MB、CPU 4.4%）；整场 18 分钟的平均要低一些（65.7 MB/s、2.6%），因为收尾阶段速度掉了下来。</span>
+        </div>
       </div>
 
       <div class="table-wrap reveal" style="margin-top:40px">
@@ -675,8 +742,8 @@ footer .sep{margin:0 9px;opacity:.4}
             </tr>
             <tr>
               <td>峰值速度</td>
-              <td><span class="hl">109 MB/s</span></td>
-              <td>128 路动态分块 + 自适应并发，把千兆链路跑到 ~87%</td>
+              <td><span class="hl">118 MB/s</span></td>
+              <td>1 秒采样峰值；128 路动态分块 + 自适应并发，把千兆链路跑满</td>
             </tr>
             <tr>
               <td>内存占用</td>
@@ -699,7 +766,7 @@ footer .sep{margin:0 9px;opacity:.4}
 
       <p style="text-align:center;color:var(--txt-dim);font-size:13.5px;margin-top:18px">
         <b>下 74 GB，只占 134 MB 内存、2.6% CPU</b> —— 后台挂着下载，打游戏、剪视频都不受影响。<br>
-        这不是"轻量版"的妥协：同一份引擎在满速档能把千兆链路跑到 ~87%。<b>够轻，也够快。</b>
+        这不是"轻量版"的妥协：满速阶段实测 114 MB/s，把千兆链路跑满。<b>够轻，也够快。</b>
       </p>
     </div>
   </section>
@@ -1075,6 +1142,156 @@ footer .sep{margin:0 9px;opacity:.4}
   };
   window.addEventListener('scroll', countUp, { passive: true });
   countUp();
+})();
+
+/* ---------- 下载过程实时曲线 ----------
+   数据来源: 一次真实下载（艾尔登法环 74.55 GB）里连续 59 秒的逐秒采样，
+   每秒记录一次：网卡实际接收速率 / 本进程内存 / 本进程 CPU（16 核归一化）。
+   没有平滑、没有美化，就是原始样本。 */
+(function(){
+  var svg = document.getElementById('pc-svg');
+  if (!svg) return;
+  var D = [
+    [115.9,2.13,130.6],[114.8,2.62,130.6],[118.2,2.08,130.6],[117.3,2.91,130.6],[115.1,3.57,130.6],
+    [117.8,4.04,130.6],[111.1,2.89,130.9],[117.4,2.07,130.9],[114.9,2.92,130.9],[110.7,2.26,130.9],
+    [116.3,3.01,130.9],[116.6,2.44,130.9],[117.6,2.64,130.9],[117,2.73,131],[117.3,2.26,131],
+    [111.7,2.89,131.1],[101.8,2.73,131.1],[114,3.28,131.1],[113.4,3.11,131.1],[108.9,3.29,131.1],
+    [115.2,3.55,131.1],[111.4,2.83,131.1],[115.9,3.19,131.1],[112.8,3.09,131.1],[117.3,1.79,131.1],
+    [115.9,2.91,131.1],[108.1,1.98,131.1],[110.5,3.2,131.1],[111.4,2.64,131.1],[111.2,2.43,131.2],
+    [117,4.4,149.4],[111.6,8.09,149.6],[116.9,8.23,149.6],[114.9,9.52,149.7],[114.5,10.16,149.7],
+    [117,8.21,149.7],[112.9,8.85,149.7],[114.8,8.94,149.7],[112.9,9.49,149.5],[114.8,8.85,149.5],
+    [117.4,9.19,149.5],[109.3,7.88,149.5],[117,9.04,149.5],[117.4,9.12,149.6],[116.8,8.74,149.6],
+    [117.8,7.11,135],[116.6,3.56,135.5],[111.7,3.01,135.6],[115.1,2.26,136],[117.4,3.11,136.1],
+    [117.3,2.9,136.1],[108.7,3.67,136.1],[115.9,3.56,136.1],[116.7,3.2,136.1],[117.4,2.92,136.1],
+    [117.2,2.9,136.2],[117.2,3.48,136.2],[112.4,2.35,136.2],[110.4,2.99,136.2]
+  ];
+  var NS = 'http://www.w3.org/2000/svg';
+  var W = 920, L = 62, R = 66;
+  var TA = 22, BA = 198;                 // 上: 下载速度
+  var TB = 228, BB = 332;                // 下: 内存 / CPU
+  var x0 = L, x1 = W - R, N = D.length;
+  var SPD_MAX = 125, MEM_MIN = 120, MEM_MAX = 160, CPU_MAX = 12;
+  var X  = function(i){ return x0 + (x1 - x0) * (i / (N - 1)); };
+  var YA = function(v){ return BA - (BA - TA) * Math.min(v, SPD_MAX) / SPD_MAX; };
+  var YM = function(v){ return BB - (BB - TB) * (Math.min(Math.max(v, MEM_MIN), MEM_MAX) - MEM_MIN) / (MEM_MAX - MEM_MIN); };
+  var YC = function(v){ return BB - (BB - TB) * Math.min(v, CPU_MAX) / CPU_MAX; };
+
+  function el(tag, a){ var e = document.createElementNS(NS, tag); for (var k in a) e.setAttribute(k, a[k]); return e; }
+  function pl(pts){ return pts.map(function(p, i){ return (i ? 'L' : 'M') + p[0].toFixed(1) + ' ' + p[1].toFixed(1); }).join(' '); }
+
+  // defs: 速度面积渐变
+  var defs = el('defs', {});
+  var lg = el('linearGradient', { id: 'pcGrad', x1: '0', y1: '0', x2: '0', y2: '1' });
+  lg.appendChild(el('stop', { offset: '0',   'stop-color': '#7c5cff', 'stop-opacity': '.42' }));
+  lg.appendChild(el('stop', { offset: '1',   'stop-color': '#7c5cff', 'stop-opacity': '0' }));
+  defs.appendChild(lg);
+  svg.appendChild(defs);
+
+  // 面板底 + 网格 + 轴标签
+  [ [TA, BA], [TB, BB] ].forEach(function(p){
+    svg.appendChild(el('rect', { x: x0, y: p[0], width: x1 - x0, height: p[1] - p[0], rx: 6, class: 'pc-panel' }));
+  });
+  function grid(y, label, cls){
+    svg.appendChild(el('line', { x1: x0, y1: y, x2: x1, y2: y, class: 'pc-grid' }));
+    if (label !== null) {
+      var t = el('text', { x: x0 - 9, y: y + 3.5, 'text-anchor': 'end', class: 'pc-ax' });
+      t.textContent = label; svg.appendChild(t);
+    }
+  }
+  [0, 25, 50, 75, 100, 125].forEach(function(v){ grid(YA(v), v, 'a'); });
+  [120, 140, 160].forEach(function(v){ grid(YM(v), v, 'b'); });
+  [0, 6, 12].forEach(function(v){
+    var y = YC(v);
+    svg.appendChild(el('line', { x1: x0, y1: y, x2: x1, y2: y, class: 'pc-grid' }));
+    var t = el('text', { x: x1 + 9, y: y + 3.5, 'text-anchor': 'start', class: 'pc-ax' });
+    t.textContent = v; svg.appendChild(t);
+  });
+  // 轴单位
+  var ua = el('text', { x: x0 - 9, y: TA - 8, 'text-anchor': 'end', class: 'pc-ax' }); ua.textContent = 'MB/s'; svg.appendChild(ua);
+  var ub = el('text', { x: x0 - 9, y: TB - 8, 'text-anchor': 'end', class: 'pc-ax' }); ub.textContent = 'MB'; svg.appendChild(ub);
+  var uc = el('text', { x: x1 + 9, y: TB - 8, 'text-anchor': 'start', class: 'pc-ax' }); uc.textContent = '%'; svg.appendChild(uc);
+  // 时间轴
+  [0, 15, 30, 45, 59].forEach(function(i){
+    var t = el('text', { x: X(i), y: BB + 18, 'text-anchor': 'middle', class: 'pc-ax' });
+    t.textContent = (i === 59 ? 60 : i) + 's'; svg.appendChild(t);
+  });
+
+  var ptsSpeed = D.map(function(d, i){ return [X(i), YA(d[0])]; });
+  var ptsMem   = D.map(function(d, i){ return [X(i), YM(d[2])]; });
+  var ptsCpu   = D.map(function(d, i){ return [X(i), YC(d[1])]; });
+
+  // 静态暗线 (全貌) + 动态亮线 (已扫过部分)
+  var faintS = el('path', { d: pl(ptsSpeed), class: 'pc-faint', stroke: '#7c5cff' }); svg.appendChild(faintS);
+  var faintM = el('path', { d: pl(ptsMem),   class: 'pc-faint', stroke: '#48dbfb' }); svg.appendChild(faintM);
+  var faintC = el('path', { d: pl(ptsCpu),   class: 'pc-faint', stroke: '#ff6bd6' }); svg.appendChild(faintC);
+
+  var areaS = el('path', { fill: 'url(#pcGrad)', stroke: 'none' }); svg.appendChild(areaS);
+  var lineS = el('path', { class: 'pc-line', stroke: '#7c5cff' }); svg.appendChild(lineS);
+  var lineM = el('path', { class: 'pc-line', stroke: '#48dbfb' }); svg.appendChild(lineM);
+  var lineC = el('path', { class: 'pc-line', stroke: '#ff6bd6' }); svg.appendChild(lineC);
+
+  var play = el('line', { y1: TA, y2: BB, class: 'pc-play' }); svg.appendChild(play);
+  var dotS = el('circle', { r: 4, class: 'pc-dot', fill: '#7c5cff' }); svg.appendChild(dotS);
+  var dotM = el('circle', { r: 3.4, class: 'pc-dot', fill: '#48dbfb' }); svg.appendChild(dotM);
+  var dotC = el('circle', { r: 3.4, class: 'pc-dot', fill: '#ff6bd6' }); svg.appendChild(dotC);
+
+  var $s = document.getElementById('pc-v-speed'),
+      $m = document.getElementById('pc-v-mem'),
+      $c = document.getElementById('pc-v-cpu');
+
+  function cut(pts, i){ return pts.slice(0, i + 1); }
+  function area(pts, i){
+    var p = cut(pts, i);
+    return pl(p) + ' L ' + p[p.length - 1][0].toFixed(1) + ' ' + BA + ' L ' + p[0][0].toFixed(1) + ' ' + BA + ' Z';
+  }
+  function render(i){
+    areaS.setAttribute('d', area(ptsSpeed, i));
+    lineS.setAttribute('d', pl(cut(ptsSpeed, i)));
+    lineM.setAttribute('d', pl(cut(ptsMem, i)));
+    lineC.setAttribute('d', pl(cut(ptsCpu, i)));
+    var px = X(i);
+    play.setAttribute('x1', px); play.setAttribute('x2', px);
+    dotS.setAttribute('cx', px); dotS.setAttribute('cy', ptsSpeed[i][1]);
+    dotM.setAttribute('cx', px); dotM.setAttribute('cy', ptsMem[i][1]);
+    dotC.setAttribute('cx', px); dotC.setAttribute('cy', ptsCpu[i][1]);
+    $s.textContent = D[i][0].toFixed(1);
+    $m.textContent = Math.round(D[i][2]);
+    $c.textContent = D[i][1].toFixed(1);
+  }
+
+  var reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  if (reduce) {
+    render(N - 1);
+    $s.textContent = '114.5'; $m.textContent = '137'; $c.textContent = '4.4';
+    play.style.display = 'none';
+    [dotS, dotM, dotC].forEach(function(d){ d.style.display = 'none'; });
+    return;
+  }
+
+  var idx = 0, lastT = 0, hold = 0, running = false, STEP = 190;
+  function frame(t){
+    if (!running) return;
+    if (!lastT) lastT = t;
+    if (t - lastT >= STEP) {
+      lastT = t;
+      if (idx < N - 1) { idx++; }
+      else if (!hold) { hold = t + 1500; }
+      else if (t >= hold) { idx = 0; hold = 0; }
+      render(idx);
+    }
+    requestAnimationFrame(frame);
+  }
+  render(0);
+  if ('IntersectionObserver' in window) {
+    new IntersectionObserver(function(es){
+      es.forEach(function(e){
+        if (e.isIntersecting && !running) { running = true; lastT = 0; requestAnimationFrame(frame); }
+        else if (!e.isIntersecting) { running = false; }
+      });
+    }, { threshold: .25 }).observe(svg);
+  } else {
+    running = true; requestAnimationFrame(frame);
+  }
 })();
 </script>
 </body>
