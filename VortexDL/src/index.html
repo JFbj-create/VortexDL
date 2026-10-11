@@ -651,10 +651,18 @@
                         </div>
                         <!-- ★ 性能模式：低配机器（≤4 核 / ≤4GB 内存）会自动开启，
                              也可以手动勾。开启后关掉全部毛玻璃(156 处 backdrop-filter)
-                             与入场动效，滚动和切页明显更跟手。 -->
+                             与入场动效，滚动和切页明显更跟手。
+                             ★ 2026-10-10: 原来用的是裸 `<input type=checkbox class="setting-checkbox">`，
+                             而这个 class **全项目没有任何 CSS** → 渲染成浏览器默认的小方框
+                             （用户报"美化没做完，像是勾选性能模式的按钮"）。
+                             改用项目里本来就有的 .toggle-switch/.toggle-slider（之前一直是死代码）。
+                             id 不变，所以 app.js 里 `cb.checked` + change 监听照常工作。 -->
                         <div class="setting-item">
                             <label>性能模式（关毛玻璃与动效）</label>
-                            <input type="checkbox" id="perf-mode-toggle" class="setting-checkbox">
+                            <label class="toggle-switch" title="关掉界面毛玻璃与入场动画">
+                                <input type="checkbox" id="perf-mode-toggle">
+                                <span class="toggle-slider"></span>
+                            </label>
                         </div>
                         <div class="setting-item">
                             <div class="kernel-tip">
@@ -693,11 +701,8 @@
                             <span id="license-badge" class="license-badge license-badge--none">未激活</span>
                             <span id="license-detail" class="license-detail"></span>
                         </div>
-                        <div class="setting-item">
-                            <label>设备码</label>
-                            <code id="license-device" class="license-key-code">读取中…</code>
-                            <span class="license-detail">付费密钥绑定到此码，同一台机器可重复激活</span>
-                        </div>
+                        <!-- ★ 2026-10-10 按用户要求删掉「设备码」这一行
+                             （付费密钥绑定机器码的实现仍在后端，只是不再展示）。 -->
                         <div class="setting-item">
                             <label>密钥</label>
                             <input type="text" id="license-key-input" class="setting-input" autocomplete="off" spellcheck="false" placeholder="粘贴密钥后点击激活">

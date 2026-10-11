@@ -2191,9 +2191,8 @@ function renderLicenseUI() {
         const b = document.getElementById('license-gate-free');
         if (b) b.textContent = info.free_key;
     }
-    // 设备码: 付费密钥就绑定在它上面
-    const dev = document.getElementById('license-device');
-    if (dev) dev.textContent = (info && info.device_code) ? info.device_code : '读取失败';
+    // 2026-10-10: 「设备码」那一行已按用户要求从设置页删除（后端仍会算 device_code，
+    // 只是不再展示），这里不再去写 #license-device。
 }
 
 // 免费版把不允许的主题从下拉里直接移除 (而非置灰) —— 用户看到的就是"只有 3 个"
