@@ -144,6 +144,9 @@ document.addEventListener('click', function(e) {
         //   (delete_archive 只在解压成功时生效), 而软件里原本没有任何删除入口,
         //   用户只能去资源管理器删 —— 所以补一个按钮。
         case 'delete': if (typeof window.deleteDownloadFile === 'function') window.deleteDownloadFile(taskId); break;
+        // ★ 新增 (2026-10-12): 手动解压。用户报「这次下载没有触发解压」——
+        //   74GB 的包如果因为设置丢失没解压, 以前只能重新下载。给个逃生口。
+        case 'extract': if (typeof window.extractDownloadedArchive === 'function') window.extractDownloadedArchive(taskId); break;
     }
 }, false);
 
@@ -4762,11 +4765,18 @@ function renderDownloadList() {
         // completed/extracting → [open]
         // failed/canceled → [retry]
         // 其余全部 display:none
+        // ★ 手动解压按钮: 已完成 + 是压缩包 + 还没解压过 才给。
+        //   必须在这里(渲染壳)也判一次 —— patch 里那段只在 canon **变化**时跑,
+        //   刚渲染出来就是 completed 的条目根本不会走那段 → 按钮会一直藏着。
+        const _fpLow0 = String(dl.filePath || dl.name || '').toLowerCase().split('?')[0];
+        const _canExtract0 = (canon === 'completed')
+            && /\.(zip|rar|7z|tar|gz|bz2)$/.test(_fpLow0)
+            && !dl.extractedPath;
         const visibleMap = { // canon → Set(role)
             starting: new Set(['pause','cancel']),
             running:  new Set(['pause','cancel']),
             paused:   new Set(['resume','cancel']),
-            completed:new Set(['open']),
+            completed:new Set(_canExtract0 ? ['open','extract'] : ['open']),
             extracting:new Set(['open']),
             failed:   new Set(['retry','delete']),
             canceled: new Set(['retry','delete']),
@@ -4783,6 +4793,7 @@ function renderDownloadList() {
             + mk('resume', '▶',      '继续')
             + mk('cancel', '✕',      '取消')
             + mk('open',   '📂 打开', '打开文件')
+            + mk('extract','📦 解压', '解压这个压缩包 (下载时没勾自动解压时用)')
             + mk('retry',  '↻ 重试',  '重试')
             + mk('delete', '🗑 删除', '删除已下载的文件 (含失败的压缩包)');
 
@@ -4946,16 +4957,20 @@ function patchDownloadItemIncrementally(dl, id) {
         // 2) 按钮: 按 canon 只改 display, 永远不 append/remove/replace 任何按钮节点!
         const actionsWrap = item.querySelector('.dl-actions');
         if (actionsWrap) {
+            // ★ 手动解压按钮只在「已完成 + 是压缩包 + 还没解压过」时出现
+            const _fpLow = String(dl.filePath || dl.name || '').toLowerCase().split('?')[0];
+            const _isArchive = /\.(zip|rar|7z|tar|gz|bz2)$/.test(_fpLow);
+            const _canExtract = (canon === 'completed') && _isArchive && !dl.extractedPath;
             const visibleMap = {
                 starting: { pause: true, cancel: true },
                 running:  { pause: true, cancel: true },
                 paused:   { resume: true, cancel: true },
-                completed:{ open: true },
+                completed:{ open: true, extract: _canExtract },
                 extracting:{ open: true },
                 failed:   { retry: true },
                 canceled: { retry: true },
             };
-            const roles = ['pause','resume','cancel','open','retry'];
+            const roles = ['pause','resume','cancel','open','extract','retry'];
             const showMap = visibleMap[canon] || visibleMap.running;
             for (let i = 0; i < roles.length; i++) {
                 const r = roles[i];
@@ -4998,7 +5013,7 @@ function patchDownloadItemIncrementally(dl, id) {
                 return;
             }
             // 新壳: 若 data-task-id 还没补 (快速切换时)
-            const roles = ['pause','resume','cancel','open','retry'];
+            const roles = ['pause','resume','cancel','open','extract','retry'];
             for (let i = 0; i < roles.length; i++) {
                 const r = roles[i];
                 const b = actionsWrap.querySelector('.dl-action-btn[data-role="' + r + '"]');
@@ -5578,6 +5593,39 @@ window.deleteDownloadFile = async function(taskId) {
     }
 };
 
+// ★ 手动解压已下载的压缩包 (2026-10-12)
+//   用户报「这次下载没有触发解压」: 后端引擎的任务表是纯内存的, 重启后前端把引擎里
+//   还活着的任务"补"进列表时, autoExtract 会被写成 false (引擎不知道用户勾了什么),
+//   那条任务下完就静默不解压。根因已在 recoverDownloadSettings 里修掉, 但**已经下好
+//   的那个包**总得能救回来 —— 以前只能重新下载 (74GB 的包就是 74GB 的流量)。
+window.extractDownloadedArchive = async function(taskId) {
+    const dl = state.downloads.get(taskId);
+    if (!dl) return;
+    if (!dl.filePath) { try { showToast('这条任务没有文件路径，无法解压', 'error', 3000); } catch(_){} return; }
+    const _p = String(dl.filePath).replace(/\//g, '\\');
+    const _ext = (String(_p).toLowerCase().match(/\.([a-z0-9]+)$/) || [])[1] || '';
+    if (!['zip','rar','7z','tar','gz','bz2'].includes(_ext)) {
+        try { showToast('这个文件不是压缩包，没法解压', 'error', 3000); } catch(_){}
+        return;
+    }
+    // 手动解压 = 用户明确要解 → 打开开关 + 补齐缺失的设置
+    dl.autoExtract = true;
+    if (!dl.extractDir) {
+        const i = _p.lastIndexOf('\\');
+        if (i > 0) dl.extractDir = _p.substring(0, i);
+    }
+    if (dl.createShortcut === undefined) dl.createShortcut = true;
+    frontLog('EX_MANUAL', 'task=' + taskId + ' file=' + _p.slice(0, 90) + ' dest=' + (dl.extractDir || '(自动)'));
+    try { await handleAutoExtract(dl); }
+    catch (e) { try { showToast('解压失败: ' + (e && e.message ? e.message : e), 'error', 4000); } catch(_){} }
+    // 解压成功后把「解压」按钮收掉 (canon 不变不会重跑 visibleMap, 这里直接改 display)
+    if (dl.extractedPath) {
+        const item = document.querySelector('.download-item[data-task-id="' + taskId + '"]');
+        const b = item && item.querySelector('.dl-action-btn[data-role="extract"]');
+        if (b) b.style.display = 'none';
+    }
+};
+
 // 重试下载 (重新发起同一 URL 的下载)
 window.retryDownload = async function(taskId) {
     const dl = state.downloads.get(taskId);
@@ -5622,6 +5670,10 @@ window.retryDownload = async function(taskId) {
         // ★ BT 任务真实 key 是 bt-xxx: 用 realTaskId 作为 Map key 才能收到进度/操作按钮
         const mapKey = realTaskId || newTaskId;
         state.downloads.delete(taskId);
+        // ★ 这条任务如果本身是"补出来的"(extractDir 空 + autoExtract false), 说明用户的
+        //   下载设置早丢了 —— 重试前再从持久化历史捞一次, 否则重试下完还是不解压。
+        const _rec = recoverDownloadSettings(dl.url, dl.name);
+        const _useRec = (!dl.extractDir && !dl.autoExtract);
         state.downloads.set(mapKey, {
             name: dl.name,
             url: dl.url,
@@ -5632,11 +5684,11 @@ window.retryDownload = async function(taskId) {
             total: 0,
             downloaded: 0,
             engine: String(mapKey).startsWith('bt-') ? 'bt' : (dl.engine || undefined),
-            autoExtract: dl.autoExtract,
-            extractDir: dl.extractDir,
-            extractCode: dl.extractCode,
-            deleteArchive: dl.deleteArchive,
-            createFolder: dl.createFolder,
+            autoExtract: _useRec ? _rec.autoExtract : dl.autoExtract,
+            extractDir: _useRec ? (_rec.extractDir || dl.extractDir) : dl.extractDir,
+            extractCode: dl.extractCode || _rec.extractCode,
+            deleteArchive: _useRec ? _rec.deleteArchive : dl.deleteArchive,
+            createFolder: _useRec ? _rec.createFolder : dl.createFolder,
             createShortcut: dl.createShortcut,
             // ★ 重试后仍要保留来源信息，否则下次重试又换不了链、快捷方式也不弹窗了
             source: dl.source || '',
@@ -5722,6 +5774,57 @@ function updateDownloadListDOM() {
     try { patchAllDownloadsIncrementally(); } catch (e) {}
 }
 
+// ============================================================
+// 下载设置恢复
+// ------------------------------------------------------------
+// ★ 用户报「这次下载没有触发解压」(2026-10-12)。
+//   链路: 后端引擎的任务表是**纯内存**的, 重启后前端靠
+//   restoreDownloadsFromSwiftFetch 把引擎里还活着的任务"凭空"补进列表。
+//   那条路径(以及 ensureDownloadEntry / pollDownloadsStatus 两个兜底建条目的地方)
+//   把 autoExtract/extractDir/createFolder **硬编码成 false/空** ——
+//   因为引擎根本不知道用户在下载弹窗里勾了什么。
+//   于是这种"补出来的"条目一旦下完, 或者被用户点「重试」接着下完,
+//   autoExtract 是 false → onDownloadFinished 里 `if (dl.autoExtract || _looksBT)`
+//   直接落空 → **静默不解压**, 连 EX_START 日志都不会有。
+//   (证据: 同一次 ELDEN RING 下载, 弹窗建的条目 autoExtract=true/extractDir=D:\game\艾尔登法环,
+//    而实际下完的那条 autoExtract=false/extractDir='' —— 就是补出来的那条。)
+//
+//   这里按 URL(其次文件名) 去持久化历史里把用户当时的选择捞回来;
+//   捞不到就返回当前默认值(不解压), 模块内下载(修改器/模组)不受影响。
+function recoverDownloadSettings(url, name) {
+    const def = {
+        autoExtract: false, extractDir: '', createFolder: false,
+        deleteArchive: false, extractCode: '', createShortcut: true,
+    };
+    try {
+        const raw = localStorage.getItem('vortex_downloads_v2');
+        if (!raw) return def;
+        const arr = JSON.parse(raw);
+        if (!Array.isArray(arr) || !arr.length) return def;
+        const key = String(url || '').trim();
+        let hit = null;
+        if (key) {
+            for (let i = arr.length - 1; i >= 0; i--) {
+                if (String(arr[i].url || '').trim() === key) { hit = arr[i]; break; }
+            }
+        }
+        if (!hit && name) {
+            for (let i = arr.length - 1; i >= 0; i--) {
+                if (String(arr[i].name || '') === String(name)) { hit = arr[i]; break; }
+            }
+        }
+        if (!hit) return def;
+        return {
+            autoExtract: hit.autoExtract === true,
+            extractDir: hit.extractDir || '',
+            createFolder: hit.createFolder === true,
+            deleteArchive: hit.deleteArchive === true,
+            extractCode: hit.extractCode || '',
+            createShortcut: hit.createShortcut !== false,
+        };
+    } catch (_) { return def; }
+}
+
 // 下载完成处理 (可被事件监听和轮询共同调用)
 // 把事件里的任务登记进下载列表。
 // ★ 模块内下载 (修改器 / MC 模组) 也走主下载引擎, 前端这边并不是
@@ -5730,6 +5833,9 @@ function updateDownloadListDOM() {
 function ensureDownloadEntry(p) {
     let dl = state.downloads.get(p.task_id);
     if (dl) return dl;
+    // ★ 补条目时把用户当初在弹窗里的选择捞回来 (见 recoverDownloadSettings 注释),
+    //   否则"下载后自动解压"会在重启/重试之后被静默丢掉。
+    const rec = recoverDownloadSettings(p.url, p.name || p.filename);
     dl = {
         name: p.name || p.filename || '下载中',
         url: p.url || '',
@@ -5739,11 +5845,12 @@ function ensureDownloadEntry(p) {
         state: p.state || 'starting',
         total: p.total || 0,
         downloaded: p.downloaded || 0,
-        autoExtract: false,   // 模块内下载不自动解压
-        extractDir: '',
-        extractCode: '',
-        createFolder: false,
-        deleteArchive: false,
+        autoExtract: rec.autoExtract,
+        extractDir: rec.extractDir,
+        extractCode: rec.extractCode,
+        createFolder: rec.createFolder,
+        deleteArchive: rec.deleteArchive,
+        createShortcut: rec.createShortcut,
         _finished: false,
         engine: p.engine || 'speed',
     };
@@ -6266,6 +6373,9 @@ async function restoreDownloadsFromSwiftFetch() {
 
             const stateStr = normalizeDlState(dl.state || 'running');
             const isFinished = stateStr === 'completed' || stateStr === 'failed';
+            // ★ 引擎不知道用户在弹窗里勾了什么 → 去持久化历史里捞回来,
+            //   否则这种"补出来的"条目下完不会自动解压 (用户报的 bug 就是这条链路)
+            const rec = recoverDownloadSettings(dl.url, dl.file_name);
 
             state.downloads.set(taskId, {
                 name: dl.file_name || '下载中',
@@ -6278,11 +6388,12 @@ async function restoreDownloadsFromSwiftFetch() {
                 state: stateStr,
                 total: total,
                 downloaded: downloaded,
-                autoExtract: false,
-                extractDir: '',
-                extractCode: '',
-                createFolder: false,
-                deleteArchive: false,
+                autoExtract: rec.autoExtract,
+                extractDir: rec.extractDir,
+                extractCode: rec.extractCode,
+                createFolder: rec.createFolder,
+                deleteArchive: rec.deleteArchive,
+                createShortcut: rec.createShortcut,
                 _finished: isFinished,
                 engine: dl.engine || 'speed',
             });
@@ -6374,6 +6485,9 @@ async function pollDownloadsStatus() {
                 if (!dl) {
                     // 初始化 state (只在首次创建时跑一次)
                     const initialState = normalizeDlState((t.state === 'starting') ? 'starting' : 'running');
+                    // ★ 同 restoreDownloadsFromSwiftFetch: 补条目时恢复用户的下载设置,
+                    //   否则下完不会自动解压
+                    const rec = recoverDownloadSettings(t.url, t.file_name);
                     dl = {
                         name: t.file_name || '下载中',
                         url: t.url || '',
@@ -6386,11 +6500,12 @@ async function pollDownloadsStatus() {
                         state: initialState,
                         total: t.total || 0,
                         downloaded: t.downloaded || 0,
-                        autoExtract: false,
-                        extractDir: '',
-                        extractCode: '',
-                        createFolder: false,
-                        deleteArchive: false,
+                        autoExtract: rec.autoExtract,
+                        extractDir: rec.extractDir,
+                        extractCode: rec.extractCode,
+                        createFolder: rec.createFolder,
+                        deleteArchive: rec.deleteArchive,
+                        createShortcut: rec.createShortcut,
                         _finished: false,
                         _last_state: initialState,
                         engine: t.engine || 'speed',
