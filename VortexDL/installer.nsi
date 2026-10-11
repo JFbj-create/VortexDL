@@ -6,7 +6,7 @@
 
 !define APP_NAME "VortexDL"
 !define APP_FULL_NAME "漩涡下载器 VortexDL"
-!define APP_VERSION "1.0"
+!define APP_VERSION "1.1"
 !define APP_PUBLISHER "VortexDL"
 !define APP_EXE "VortexDL.exe"
 !define APP_URL "https://vortexdl.app"
@@ -50,16 +50,16 @@ RequestExecutionLevel admin
 
 ; ---------- 安装信息 ----------
 Name "${APP_FULL_NAME}"
-OutFile "F:\vdgame\VortexDL-Setup.exe"
+OutFile "F:\vdgame\VortexDL-Setup-v${APP_VERSION}.exe"
 InstallDir "$PROGRAMFILES64\VortexDL"
 InstallDirRegKey HKLM "${APP_UNINSTALL_KEY}" "InstallLocation"
 ShowInstDetails show
 ShowUnInstDetails show
 ; 左下角品牌文本 (显示版本号)
-BrandingText "1.0"
+BrandingText "${APP_VERSION}"
 
 ; ---------- 版本信息 (在 exe 属性中显示) ----------
-VIProductVersion "1.0.0.0"
+VIProductVersion "1.1.0.0"
 VIAddVersionKey "ProductName" "${APP_FULL_NAME}"
 VIAddVersionKey "CompanyName" "${APP_PUBLISHER}"
 VIAddVersionKey "FileDescription" "${APP_FULL_NAME} 安装程序"

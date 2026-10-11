@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "VortexDL",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "identifier": "com.vortexdl.app",
   "build": {
     "frontendDist": "../src",
@@ -60,7 +60,17 @@
       }
     },
     "resources": [
-      "resources_main/module_tutorial/**/*"
+      "resources_main/*.dll",
+      "resources_main/WebView2Loader.dll",
+      "resources_main/swiftfetch.exe",
+      "resources_main/game_index.json",
+      "resources_main/translations.json",
+      "resources_main/7z/7z.exe",
+      "resources_main/7z/7z.dll",
+      "resources_main/archives/*",
+      "resources_main/module_tutorial/**/*",
+      "resources_main/modules/**/*",
+      "resources_main/dlss5/**/*"
     ],
     "externalBin": []
   }
