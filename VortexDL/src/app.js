@@ -5938,14 +5938,19 @@ async function setupDownloadListeners() {
             if (p.progress_percent !== undefined && typeof p.progress_percent === 'number' && isFinite(p.progress_percent)) {
                 // ★★★ 统一浮点精度 (0.1%), 去 Math.floor → 避免 dl.progress 在整数/浮点间跳变
                 // 进度百分比必须单调递增: 防止倒退导致进度条一跳一跳 (35%->33%)
-                // 容差 0.001% 仅用于倒退保护, 不设前进门槛 (否则小增量永远卡住不更新)
+                // 容差 0.0001% 仅用于倒退保护, 不设前进门槛 (否则小增量永远卡住不更新)
                 const pctIn = Math.max(0, Math.min(100, p.progress_percent));
-                // ★ 与 poll 统一浮点容差: 0.0001% (原0.001%), 任何微小增量都能显示 (否则事件里永远卡整数边界)
-                if (pctIn >= dl.progress - 0.0001) {
-                    dl.progress = Math.max(dl.progress, Math.min(100, pctIn));
-                    changed = true;
-                } else if (pctIn >= 100 && dl.progress < 100) {
-                    dl.progress = 100;
+                // ★ 2026-10-11: **未完成的任务封顶 99.9%**。
+                //   后端 pct = downloaded/total, 而有些 CDN 的 Content-Length 比真实内容小
+                //   (本文件下面 DL_FIN_FAIL_RESCUED 那段就是给同一个坑兜底的: downloaded > total),
+                //   于是 pct 会**提前**到 100; 这里又是单调取 max →
+                //   一次瞬时 100 就把进度条永久钉在满格, 后面再怎么下都不动
+                //   (用户报「进度条不跟随下载进度变化直接变满」)。
+                //   真正的 100% 只由 state=completed 那条路径设置, 这里永远不写 100。
+                const PCT_CAP = 99.9;
+                const pctCapped = Math.min(pctIn, PCT_CAP);
+                if (pctCapped >= dl.progress - 0.0001) {
+                    dl.progress = Math.max(dl.progress, pctCapped);
                     changed = true;
                 }
             }
