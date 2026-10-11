@@ -417,31 +417,74 @@ async fn probe_games_action(c: &reqwest::Client, action: &str) -> bool {
     }
 }
 
-/// 调一次 server action
+/// 调一次 server action（不重试 —— 批量同步走这条，失败要快速暴露）
 async fn call_action(
     c: &reqwest::Client,
     url: &str,
     action: &str,
     body: &str,
 ) -> Result<String, String> {
-    let r = c
-        .post(url)
-        .header("Accept", "text/x-component")
-        .header("Content-Type", "text/plain;charset=UTF-8")
-        .header("next-action", action)
-        .header("Origin", ORIGIN)
-        .header("Referer", url)
-        .header("Cookie", CONTENT_COOKIE)
-        .body(body.to_string())
-        .send()
-        .await
-        .map_err(|e| format!("action 请求失败: {e}"))?;
-    let st = r.status();
-    let t = r.text().await.map_err(|e| format!("action 读响应失败: {e}"))?;
-    if !st.is_success() {
-        return Err(format!("action HTTP {st}: {}", t.chars().take(200).collect::<String>()));
+    call_action_n(c, url, action, body, 1).await
+}
+
+/// 调一次 server action，带退避重试（**用户交互路径**用这个）。
+///
+/// ★ 用户报「弱网时弹 加载详情失败: 取详情页失败: error sending request for url (...)」：
+///   详情页一进来会同时发 HTML 请求和这个 server action（取下载资源），
+///   弱网下两边都可能抖一下。这里对瞬时错误退避重试，最终失败也回**人话**。
+async fn call_action_n(
+    c: &reqwest::Client,
+    url: &str,
+    action: &str,
+    body: &str,
+    tries: u32,
+) -> Result<String, String> {
+    let mut last = String::new();
+    for attempt in 0..tries.max(1) {
+        match c
+            .post(url)
+            .header("Accept", "text/x-component")
+            .header("Content-Type", "text/plain;charset=UTF-8")
+            .header("next-action", action)
+            .header("Origin", ORIGIN)
+            .header("Referer", url)
+            .header("Cookie", CONTENT_COOKIE)
+            .body(body.to_string())
+            .send()
+            .await
+        {
+            Ok(r) => {
+                let st = r.status();
+                match r.text().await {
+                    Ok(t) => {
+                        if st.is_success() {
+                            return Ok(t);
+                        }
+                        if st.is_server_error() || st.as_u16() == 429 {
+                            eprintln!("[gx] action 返回 HTTP {} (第 {} 次)", st.as_u16(), attempt + 1);
+                            last = format!("站点暂时不可用（HTTP {}），请稍后重试", st.as_u16());
+                        } else {
+                            return Err(format!(
+                                "action HTTP {st}: {}",
+                                t.chars().take(200).collect::<String>()
+                            ));
+                        }
+                    }
+                    Err(e) => last = friendly_net_err(&e),
+                }
+            }
+            Err(e) => {
+                if !worth_retry(&e) {
+                    return Err(friendly_net_err(&e));
+                }
+                last = friendly_net_err(&e);
+            }
+        }
+        if attempt + 1 < tries.max(1) {
+            tokio::time::sleep(std::time::Duration::from_millis(500 * (attempt as u64 + 1))).await;
+        }
     }
-    Ok(t)
+    Err(last)
 }
 
 // ============================================================
@@ -745,6 +788,68 @@ pub struct GxDetail {
     pub genres: Vec<String>,
 }
 
+/// 弱网下值得重试的 reqwest 错误：超时 / 连接失败 / 请求发送失败 / 响应体中断。
+/// （DNS 解析失败也算 is_connect —— 弱网下经常是"抖一下"，重试一次通常就好，代价很低。）
+fn worth_retry(e: &reqwest::Error) -> bool {
+    e.is_timeout() || e.is_connect() || e.is_request() || e.is_body()
+}
+
+/// 把 reqwest 的报错翻成**人话**。
+/// ★ 用户报「弱网弹 加载详情失败: 取详情页失败: error sending request for url
+///   (https://www.galgamex.net/game/xxxx)」—— 原文里带着 URL 和连接细节，
+///   直接甩给用户既看不懂也没法处理。原文写进 stderr.log（stderr.log 里可查）。
+fn friendly_net_err(e: &reqwest::Error) -> String {
+    eprintln!("[gx] 网络错误(原始): {e}");
+    if e.is_timeout() {
+        "网络太慢，请求超时了（可稍后重试）".to_string()
+    } else if e.is_connect() {
+        "连不上站点，请检查网络后重试".to_string()
+    } else {
+        "网络请求失败，请稍后重试".to_string()
+    }
+}
+
+/// 取一个 HTML 页面，对瞬时错误做退避重试；最终失败返回**人话**。
+async fn get_html_retry(c: &reqwest::Client, url: &str, tries: u32) -> Result<String, String> {
+    let mut last = String::new();
+    for attempt in 0..tries.max(1) {
+        match c
+            .get(url)
+            .header("Accept", "text/html,application/xhtml+xml,*/*;q=0.8")
+            .header("Cookie", CONTENT_COOKIE)
+            .send()
+            .await
+        {
+            Ok(resp) => {
+                let st = resp.status();
+                if st.is_success() {
+                    match resp.text().await {
+                        Ok(t) => return Ok(t),
+                        Err(e) => last = friendly_net_err(&e),
+                    }
+                } else if st.is_server_error() || st.as_u16() == 429 {
+                    // 站点抽风 / 限流 → 值得重试
+                    eprintln!("[gx] 取 {url} 返回 HTTP {}", st.as_u16());
+                    last = format!("站点暂时不可用（HTTP {}），请稍后重试", st.as_u16());
+                } else {
+                    // 4xx 重试没意义
+                    return Err(format!("站点返回 HTTP {}", st.as_u16()));
+                }
+            }
+            Err(e) => {
+                if !worth_retry(&e) {
+                    return Err(friendly_net_err(&e));
+                }
+                last = friendly_net_err(&e);
+            }
+        }
+        if attempt + 1 < tries.max(1) {
+            tokio::time::sleep(std::time::Duration::from_millis(500 * (attempt as u64 + 1))).await;
+        }
+    }
+    Err(last)
+}
+
 pub async fn detail(slug: &str) -> Result<GxDetail, String> {
     let card = index_lock()
         .lock()
@@ -756,16 +861,8 @@ pub async fn detail(slug: &str) -> Result<GxDetail, String> {
     }
 
     let c = client();
-    let html = c
-        .get(format!("{ORIGIN}/game/{slug}"))
-        .header("Accept", "text/html,application/xhtml+xml,*/*;q=0.8")
-        .header("Cookie", CONTENT_COOKIE)
-        .send()
-        .await
-        .map_err(|e| format!("取详情页失败: {e}"))?
-        .text()
-        .await
-        .map_err(|e| format!("读详情页失败: {e}"))?;
+    // ★ 3 次退避重试；失败也只回人话（原来是把 reqwest 原文直接弹给用户）
+    let html = get_html_retry(&c, &format!("{ORIGIN}/game/{slug}"), 3).await?;
 
     let mut d = GxDetail { card, ..Default::default() };
     // 详情页里有 JSON-LD（schema.org VideoGame），name/description/genre/author 都在里面
@@ -959,7 +1056,8 @@ pub async fn resources(slug: &str, game_id: u64) -> Result<Vec<GxResource>, Stri
     };
 
     let url = format!("{ORIGIN}/game/{slug}");
-    let txt = call_action(&c, &url, &action, &format!("[{game_id}]")).await?;
+    // ★ 用户交互路径：重试 3 次（弱网下这一步失败就是"读取下载资源失败"）
+    let txt = call_action_n(&c, &url, &action, &format!("[{game_id}]"), 3).await?;
     let v = parse_array_payload(&txt)?;
     let arr = v.as_array().cloned().unwrap_or_default();
 

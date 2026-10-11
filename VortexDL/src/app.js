@@ -4038,7 +4038,16 @@ window.selectDownloadLink = function(idx) {
                 if (el) el.innerHTML = '<div class="mod-empty">暂无相关推荐</div>';
             });
         } catch (e) {
-            box.innerHTML = '<div class="mod-empty">加载详情失败: ' + esc(e && e.message ? e.message : e) + '</div>';
+            // ★ 2026-10-11: 弱网下原来直接把后端原文（含 reqwest 的 URL/连接细节）甩出来，
+            //   用户报「弹 加载详情失败: 取详情页失败: error sending request for url (...)」。
+            //   后端已改成"人话 + 3 次退避重试"，这里再补一个**重试按钮**：
+            //   弱网抖一下不用退回列表再点一次。
+            const msg = esc(e && e.message ? e.message : e);
+            box.innerHTML = '<div class="mod-empty">' + msg
+                + '<div style="margin-top:12px"><button class="btn btn-primary" id="gx-detail-retry">重试</button></div>'
+                + '</div>';
+            const rb = document.getElementById('gx-detail-retry');
+            if (rb) rb.addEventListener('click', function () { openDetail(slug, id); });
         }
     }
 
