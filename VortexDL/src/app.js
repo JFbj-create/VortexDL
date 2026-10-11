@@ -6528,7 +6528,20 @@ async function pollDownloadsStatus() {
                         setTimeout(async () => {
                             try {
                                 const r = await invoke('check_bt_disk_progress', { dir: dl.filePath });
-                                if (r && r.disk_bytes > 0 && r.file_count > 0) {
+                                // ★ 2026-10-11 修「BT 刚开始进度条直接跑满」。
+                                //   check_bt_disk_progress 数的是**文件逻辑长度之和**
+                                //   (commands.rs: metadata().len())，而 BT 客户端一上来就把文件
+                                //   预分配到全量、目录里也可能本来就有旧文件 → disk_bytes ≈ total
+                                //   → 下面 min(99, disk/total*100) 直接把进度顶到 99%。
+                                //   实测日志：
+                                //     [BT_DISK_FIX] task=bt-1791726543909 disk_bytes=23912614849 files=261
+                                //   （任务才刚开始 5 秒）
+                                //   现在只有"磁盘值确实是一部分数据"时才采信它：必须 < total 的 90%。
+                                //   真·半途卡住的任务（磁盘上有 30%、引擎报 0）照旧能被救回来；
+                                //   而"磁盘≈全量"（预分配 / 已经下完）不再被当成进度。
+                                const plausible = r && r.disk_bytes > 0 && r.file_count > 0
+                                    && (!(dl.total > 0) || r.disk_bytes < dl.total * 0.9);
+                                if (plausible) {
                                     // 磁盘有数据但后端报0 → 用磁盘数据
                                     dl.downloaded = r.disk_bytes;
                                     if (dl.total > 0) {
@@ -6536,6 +6549,8 @@ async function pollDownloadsStatus() {
                                     }
                                     frontLog('BT_DISK_FIX', 'task=' + t.task_id + ' disk_bytes=' + r.disk_bytes + ' files=' + r.file_count + ' → 补充 downloaded');
                                     try { patchDownloadItemIncrementally(dl, t.task_id); } catch (e) {}
+                                } else if (r && r.disk_bytes > 0) {
+                                    frontLog('BT_DISK_SKIP', 'task=' + t.task_id + ' disk_bytes=' + r.disk_bytes + ' total=' + dl.total + ' → 磁盘≈全量(预分配/已下完), 不用它推进度');
                                 }
                             } catch (e) { /* 静默 */ }
                             // 30s 后允许再次检查
