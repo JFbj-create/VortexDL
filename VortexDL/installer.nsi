@@ -174,6 +174,17 @@ Section "主程序 (必需)" SecMain
   ; ----- 创建卸载程序 -----
   WriteUninstaller "$INSTDIR\uninstall.exe"
 
+  ; ----- ★ 2026-10-11: 给安装目录写权限 -----
+  ; 为什么必须给：app 会往自己目录里写 data\ logs\ game_index.json 等。
+  ;   装在 Program Files 下默认**只有管理员可写**（Users 仅 RX），于是：
+  ;     · 从开始菜单启动（普通权限）→ 存不了设置、存不了密钥；
+  ;     · 安装器用 Exec 启动的那份 → 继承提权令牌，而**提权窗口收不到中文输入法、
+  ;       也接不了资源管理器的拖放（UIPI 拦跨完整性级别的输入/拖放）**
+  ;       —— 用户报的「不能打字」「长按左键拖不动」就是这个。
+  ;   给了写权限后 app 就能以普通权限跑，输入法和拖放都恢复正常。
+  ;   *S-1-5-32-545 = BUILTIN\Users（用 SID，避开中文系统下的本地化组名）。
+  nsExec::ExecToLog 'icacls "$INSTDIR" /grant "*S-1-5-32-545:(OI)(CI)M" /T /C /Q'
+
 SectionEnd
 
 ; ==========================================================================
@@ -224,7 +235,11 @@ FunctionEnd
 Function .onInstSuccess
   ; 安装成功后询问是否立即启动
   MessageBox MB_YESNO|MB_ICONQUESTION "VortexDL 已成功安装!$\n$\n是否立即启动?" IDNO no_launch
-    Exec '"$INSTDIR\${APP_EXE}"'
+    ; ★ 2026-10-11: 必须经 explorer.exe 启动。
+    ;   安装器是提权的（RequestExecutionLevel admin），NSIS 的 Exec 会让子进程
+    ;   **继承管理员令牌**；而提权窗口收不到中文输入法、也接不了资源管理器的拖放。
+    ;   explorer.exe 以当前用户的普通权限运行，由它拉起的 app 才是正常权限。
+    Exec 'explorer.exe "$INSTDIR\${APP_EXE}"'
   no_launch:
 FunctionEnd
 
