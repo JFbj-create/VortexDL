@@ -23,8 +23,8 @@
   /* 主题 - 绯红（与软件 [data-theme="crimson"] 完全一致） */
   --bg:#fdefe7;
   --bg2:#fce0db;
-  --card:rgba(235,51,51,.08);
-  --card-bd:rgba(235,51,51,.2);
+  --card:rgba(235,51,51,.11);
+  --card-bd:rgba(235,51,51,.26);
   --txt:#111827;
   --txt-dim:#374151;
   --pri:#eb3333;
@@ -39,7 +39,7 @@
 html{scroll-behavior:smooth}
 body{
   font-family:"Noto Sans SC",-apple-system,"Segoe UI",system-ui,sans-serif;
-  background:linear-gradient(135deg,#fcdfe4 0%,#fac6ca 20%,#fbd1ce 40%,#fce0db 60%,#fdede7 80%,#fdefe7 100%);
+  background:linear-gradient(135deg,#f9bdc1 0%,#f7a9ac 20%,#f8b1af 40%,#f9bdb9 60%,#f9c8c3 80%,#f9c9c3 100%);
   background-attachment:fixed;
   color:var(--txt);
   line-height:1.75;-webkit-font-smoothing:antialiased;
@@ -1349,18 +1349,19 @@ footer .love{font-size:16.5px;font-weight:800;color:var(--pri);letter-spacing:.1
 
 /* ---------- 动态樱花特效 ----------
    满屏飘落的樱花花瓣（canvas 粒子）。花瓣大小/速度/摆动相位/旋转都随机，
-   飘出屏幕就回到顶上重新开始。尊重 prefers-reduced-motion；页面切到后台自动暂停。 */
+   飘出屏幕就回到顶上重新开始。页面切到后台自动暂停（省电）。 */
 (function(){
-  var reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  // 用户明确要「整个页面飘着樱花」，所以不因 prefers-reduced-motion 关掉整个特效
   var cv = document.createElement('canvas');
   cv.id = 'sakura';
   document.body.appendChild(cv);
   var ctx = cv.getContext('2d');
   var W = 0, H = 0, DPR = 1, petals = [], raf = null, last = 0, running = false;
-  var COLORS = ['#ffd9e6', '#ffc3d8', '#ffb0cc', '#ffe3ee', '#f79ec0'];
+  // ★ 必须是能和粉底拉开对比的**深玫红**：原来用浅粉花瓣飘在浅粉底上，等于看不见
+  var COLORS = ['#f2668f', '#e8467a', '#ff8fb4', '#d9356a', '#ffa8c6', '#ffd9e6'];
   function rnd(a, b){ return a + Math.random() * (b - a); }
   function newPetal(spread){
-    var sz = rnd(5, 12);
+    var sz = rnd(7, 16);
     return {
       x: rnd(-30, W + 30),
       y: spread ? rnd(-H, H) : rnd(-40, -10),
@@ -1370,7 +1371,7 @@ footer .love{font-size:16.5px;font-weight:800;color:var(--pri);letter-spacing:.1
       sway: rnd(10, 30), ph: rnd(0, 6.283), phs: rnd(0.3, 0.85),
       rot: rnd(0, 6.283), vrot: rnd(-1.1, 1.1),
       c: COLORS[(Math.random() * COLORS.length) | 0],
-      a: rnd(0.45, 0.9)
+      a: rnd(0.65, 1)
     };
   }
   function resize(){
@@ -1380,7 +1381,7 @@ footer .love{font-size:16.5px;font-weight:800;color:var(--pri);letter-spacing:.1
     cv.height = Math.max(1, Math.floor(H * DPR));
     cv.style.width = W + 'px'; cv.style.height = H + 'px';
     ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
-    var want = reduce ? 0 : Math.round(Math.min(58, Math.max(20, W / 26)));
+    var want = Math.round(Math.min(74, Math.max(26, W / 17)));
     while (petals.length < want) petals.push(newPetal(true));
     petals.length = want;
   }
@@ -1396,6 +1397,10 @@ footer .love{font-size:16.5px;font-weight:800;color:var(--pri);letter-spacing:.1
     ctx.bezierCurveTo(sz * 0.95, -sz * 0.42, sz * 0.7, sz * 0.62, 0, sz);
     ctx.bezierCurveTo(-sz * 0.7, sz * 0.62, -sz * 0.95, -sz * 0.42, 0, -sz);
     ctx.fill();
+    ctx.globalAlpha = p.a * 0.35;
+    ctx.strokeStyle = '#b02552';
+    ctx.lineWidth = 0.8;
+    ctx.stroke();
     // 花瓣中间那道浅色脉络
     ctx.globalAlpha = p.a * 0.45;
     ctx.fillStyle = '#ffffff';
@@ -1423,7 +1428,7 @@ footer .love{font-size:16.5px;font-weight:800;color:var(--pri);letter-spacing:.1
     }
     raf = requestAnimationFrame(frame);
   }
-  function start(){ if (reduce || running) return; running = true; last = 0; raf = requestAnimationFrame(frame); }
+  function start(){ if (running) return; running = true; last = 0; raf = requestAnimationFrame(frame); }
   function stop(){ running = false; if (raf) cancelAnimationFrame(raf); raf = null; }
   resize();
   window.addEventListener('resize', resize);
