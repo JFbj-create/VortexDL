@@ -1348,32 +1348,113 @@ footer .love{font-size:16.5px;font-weight:800;color:var(--pri);letter-spacing:.1
 })();
 
 /* ---------- 动态樱花特效 ----------
-   满屏飘落的樱花花瓣（canvas 粒子）。花瓣大小/速度/摆动相位/旋转都随机，
-   飘出屏幕就回到顶上重新开始。页面切到后台自动暂停（省电）。 */
+   满屏飘落的樱花：多数是单片花瓣，少量是五瓣小花。
+   花瓣形状是樱花特有的「尖头带缺口」轮廓（不是椭圆、也没有中间那道白脉络，
+   否则小尺寸下会看成两片嘴唇）。素材在启动时预渲染成离屏 canvas 精灵，
+   绘制时只做旋转 / 缩放 / 透明，所以 60 个粒子也几乎不耗性能。
+   飘出屏幕就回到顶上重新开始；页面切到后台自动暂停。 */
 (function(){
   // 用户明确要「整个页面飘着樱花」，所以不因 prefers-reduced-motion 关掉整个特效
   var cv = document.createElement('canvas');
   cv.id = 'sakura';
   document.body.appendChild(cv);
   var ctx = cv.getContext('2d');
-  var W = 0, H = 0, DPR = 1, petals = [], raf = null, last = 0, running = false;
-  // ★ 必须是能和粉底拉开对比的**深玫红**：原来用浅粉花瓣飘在浅粉底上，等于看不见
-  var COLORS = ['#f2668f', '#e8467a', '#ff8fb4', '#d9356a', '#ffa8c6', '#ffd9e6'];
+  var W = 0, H = 0, DPR = 1, items = [], raf = null, last = 0, running = false;
+
   function rnd(a, b){ return a + Math.random() * (b - a); }
-  function newPetal(spread){
-    var sz = rnd(7, 16);
+
+  /* 调色：白 + 淡粉 + 玫红。粉底上必须有一部分是白的/深的，
+     全是浅粉就等于看不见（上一版就栽在这）。e = 边缘/花心色，f = 花瓣主色 */
+  var PAL = [
+    { f: '#ffffff', e: '#e79cbb' },
+    { f: '#fff3f8', e: '#e291b4' },
+    { f: '#ffd8e7', e: '#dd6d9c' },
+    { f: '#f78fb2', e: '#c33e6e' },
+    { f: '#e85b89', e: '#a72a55' }
+  ];
+
+  /* 单片花瓣轮廓：细长的椭圆，最宽处在中上部，顶端只有**一个浅浅的小缺口**。
+     ★ 缺口不能挖深、两侧不能鼓成圆——那样画出来是心形，跟嘴唇一样糟。 */
+  function petalPath(g, s){
+    g.beginPath();
+    g.moveTo(0, s);
+    g.bezierCurveTo(-s * 0.34,  s * 0.88, -s * 0.62,  s * 0.46, -s * 0.62, -s * 0.14);
+    g.bezierCurveTo(-s * 0.62, -s * 0.64, -s * 0.42, -s * 0.94, -s * 0.15, -s * 0.99);
+    g.bezierCurveTo(-s * 0.08, -s * 0.86, -s * 0.05, -s * 0.80,  0,         -s * 0.78);
+    g.bezierCurveTo( s * 0.05, -s * 0.80,  s * 0.08, -s * 0.86,  s * 0.15,  -s * 0.99);
+    g.bezierCurveTo( s * 0.42, -s * 0.94,  s * 0.62, -s * 0.64,  s * 0.62,  -s * 0.14);
+    g.bezierCurveTo( s * 0.62,  s * 0.46,  s * 0.34,  s * 0.88,  0,          s);
+    g.closePath();
+  }
+
+  function spritePetal(col){
+    var R = 64, c = document.createElement('canvas');
+    c.width = c.height = R;
+    var g = c.getContext('2d');
+    g.translate(R / 2, R / 2);
+    var s = R / 2 * 0.90;
+    petalPath(g, s);
+    // 花心深、瓣尖浅，看起来才是一片有厚度的花瓣
+    var lg = g.createLinearGradient(0, s, 0, -s);
+    lg.addColorStop(0, col.e);
+    lg.addColorStop(0.34, col.f);
+    lg.addColorStop(1, col.f);
+    g.fillStyle = lg;
+    g.fill();
+    g.globalAlpha = 0.55;
+    g.lineWidth = 1.2;
+    g.strokeStyle = col.e;
+    g.stroke();
+    return c;
+  }
+
+  function spriteBlossom(col){
+    var R = 96, c = document.createElement('canvas');
+    c.width = c.height = R;
+    var g = c.getContext('2d');
+    g.translate(R / 2, R / 2);
+    var s = R / 2 * 0.46;
+    for (var i = 0; i < 5; i++){
+      g.save();
+      g.rotate(i * Math.PI * 2 / 5);
+      g.translate(0, -s * 0.92);
+      petalPath(g, s);
+      g.fillStyle = col.f;
+      g.fill();
+      g.globalAlpha = 0.6;
+      g.lineWidth = 1;
+      g.strokeStyle = col.e;
+      g.stroke();
+      g.restore();
+    }
+    g.globalAlpha = 1;
+    // 花心：淡黄一圈 + 更小的深黄点，代替细密的花蕊
+    g.beginPath(); g.arc(0, 0, s * 0.42, 0, 6.2832); g.fillStyle = '#fff2c2'; g.fill();
+    g.beginPath(); g.arc(0, 0, s * 0.18, 0, 6.2832); g.fillStyle = '#e8b84a'; g.fill();
+    return c;
+  }
+
+  var PETALS = PAL.map(spritePetal);
+  var BLOSSOMS = [spriteBlossom(PAL[0]), spriteBlossom(PAL[1]), spriteBlossom(PAL[2]), spriteBlossom(PAL[3])];
+
+  function newItem(spread){
+    var blossom = Math.random() < 0.22;
+    var sz = blossom ? rnd(15, 27) : rnd(8, 18);
+    var sp = blossom
+      ? BLOSSOMS[(Math.random() * BLOSSOMS.length) | 0]
+      : PETALS[(Math.random() * PETALS.length) | 0];
     return {
+      sp: sp, sz: sz, blossom: blossom,
       x: rnd(-30, W + 30),
-      y: spread ? rnd(-H, H) : rnd(-40, -10),
-      s: sz,
-      vy: rnd(16, 46) * (0.55 + sz / 16),
+      y: spread ? rnd(-H, H) : rnd(-60, -14),
+      vy: rnd(15, 42) * (0.5 + sz / 20),
       vx: rnd(-12, 12),
       sway: rnd(10, 30), ph: rnd(0, 6.283), phs: rnd(0.3, 0.85),
-      rot: rnd(0, 6.283), vrot: rnd(-1.1, 1.1),
-      c: COLORS[(Math.random() * COLORS.length) | 0],
-      a: rnd(0.65, 1)
+      rot: rnd(0, 6.283), vrot: rnd(-1.1, 1.1) * (blossom ? 0.55 : 1),
+      a: rnd(0.7, 1)
     };
   }
+
   function resize(){
     DPR = Math.min(window.devicePixelRatio || 1, 2);
     W = window.innerWidth; H = window.innerHeight;
@@ -1382,49 +1463,29 @@ footer .love{font-size:16.5px;font-weight:800;color:var(--pri);letter-spacing:.1
     cv.style.width = W + 'px'; cv.style.height = H + 'px';
     ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
     var want = Math.round(Math.min(74, Math.max(26, W / 17)));
-    while (petals.length < want) petals.push(newPetal(true));
-    petals.length = want;
+    while (items.length < want) items.push(newItem(true));
+    items.length = want;
   }
-  function drawPetal(p){
-    var sz = p.s;
-    ctx.save();
-    ctx.translate(p.x, p.y);
-    ctx.rotate(p.rot);
-    ctx.globalAlpha = p.a;
-    ctx.fillStyle = p.c;
-    ctx.beginPath();
-    ctx.moveTo(0, -sz);
-    ctx.bezierCurveTo(sz * 0.95, -sz * 0.42, sz * 0.7, sz * 0.62, 0, sz);
-    ctx.bezierCurveTo(-sz * 0.7, sz * 0.62, -sz * 0.95, -sz * 0.42, 0, -sz);
-    ctx.fill();
-    ctx.globalAlpha = p.a * 0.35;
-    ctx.strokeStyle = '#b02552';
-    ctx.lineWidth = 0.8;
-    ctx.stroke();
-    // 花瓣中间那道浅色脉络
-    ctx.globalAlpha = p.a * 0.45;
-    ctx.fillStyle = '#ffffff';
-    ctx.beginPath();
-    ctx.moveTo(0, -sz * 0.72);
-    ctx.quadraticCurveTo(sz * 0.2, 0, 0, sz * 0.68);
-    ctx.quadraticCurveTo(-sz * 0.2, 0, 0, -sz * 0.72);
-    ctx.fill();
-    ctx.restore();
-  }
+
   function frame(t){
     if (!running) return;
     if (!last) last = t;
     var dt = Math.min(0.05, (t - last) / 1000);
     last = t;
     ctx.clearRect(0, 0, W, H);
-    for (var i = 0; i < petals.length; i++) {
-      var p = petals[i];
+    for (var i = 0; i < items.length; i++){
+      var p = items[i];
       p.ph += p.phs * dt;
       p.x += (p.vx + Math.sin(p.ph) * p.sway) * dt;
       p.y += p.vy * dt;
       p.rot += p.vrot * dt;
-      if (p.y - p.s > H + 24 || p.x < -70 || p.x > W + 70) { petals[i] = newPetal(false); continue; }
-      drawPetal(p);
+      if (p.y - p.sz > H + 30 || p.x < -80 || p.x > W + 80) { items[i] = newItem(false); continue; }
+      ctx.save();
+      ctx.translate(p.x, p.y);
+      ctx.rotate(p.rot);
+      ctx.globalAlpha = p.a;
+      ctx.drawImage(p.sp, -p.sz / 2, -p.sz / 2, p.sz, p.sz);
+      ctx.restore();
     }
     raf = requestAnimationFrame(frame);
   }
