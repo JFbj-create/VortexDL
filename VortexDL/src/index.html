@@ -618,9 +618,6 @@
                                 <option value="steel">钢青</option>
                                 <option value="morandi">莫兰迪</option>
                                 <option value="ink">水墨</option>
-                                <option value="purewhite">纯白</option>
-                                <option value="puregray">纯灰</option>
-                                <option value="pureblack">纯黑</option>
                                 <option value="duotone">撞色</option>
                                 <option value="acid">酸性绿</option>
                                 <option value="sunbeam">日光</option>
@@ -657,6 +654,21 @@
                              （用户报"美化没做完，像是勾选性能模式的按钮"）。
                              改用项目里本来就有的 .toggle-switch/.toggle-slider（之前一直是死代码）。
                              id 不变，所以 app.js 里 `cb.checked` + change 监听照常工作。 -->
+                        <div class="setting-item">
+                            <label>主题装饰动效</label>
+                            <label class="toggle-switch" title="部分主题的飘落/漂浮素材（绯红=樱花、森林=落叶…）">
+                                <input type="checkbox" id="theme-fx-toggle">
+                                <span class="toggle-slider"></span>
+                            </label>
+                        </div>
+                        <div class="setting-item">
+                            <div class="kernel-tip">
+                                <b>主题装饰动效</b>：绯红/樱花/玫瑰飘樱花、森林/苔藓飘落叶、深海/碧海浮气泡、
+                                星河/星云闪星星、矩阵绿/赛博朋克下数字雨、余烬/烛火升火星……<br>
+                                素材颜色跟着当前主题主色走；皇室/水墨/莫兰迪这类素净主题<b>不带动效</b>。
+                                性能模式下会自动关闭。
+                            </div>
+                        </div>
                         <div class="setting-item">
                             <label>性能模式（关毛玻璃与动效）</label>
                             <label class="toggle-switch" title="关掉界面毛玻璃与入场动画">
@@ -876,6 +888,30 @@
             </div>
             <div class="changelog-modal-footer">
                 <button class="btn btn-primary" onclick="closeChangelogModal()">知道了</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ★ 自动更新弹窗：启动时查到仓库有更新的版本就弹这个（app.js 的 showUpdateModal）。
+         内容 = Release 里的更新说明；点「立即更新」会下载安装包并提权静默安装、自动重启。 -->
+    <div id="update-modal" class="changelog-modal-overlay" style="display:none;">
+        <div class="changelog-modal update-modal">
+            <div class="changelog-modal-header">
+                <h2><span class="inline-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-3-6.7"/><polyline points="21 3 21 9 15 9"/><line x1="12" y1="8" x2="12" y2="13"/><line x1="12" y1="16.5" x2="12" y2="17"/></svg></span>发现新版本 <span id="update-ver"></span></h2>
+                <button class="changelog-close-btn" onclick="closeUpdateModal()">✕</button>
+            </div>
+            <div class="changelog-modal-body">
+                <div class="upd-meta" id="update-meta"></div>
+                <div class="upd-notes" id="update-notes"></div>
+                <div class="upd-progress" id="update-progress" style="display:none;">
+                    <div class="upd-bar"><i id="update-bar"></i></div>
+                    <div class="upd-pct" id="update-pct">0%</div>
+                </div>
+                <div class="upd-status" id="update-status" style="display:none;"></div>
+            </div>
+            <div class="changelog-modal-footer">
+                <button class="btn" id="update-later" onclick="closeUpdateModal()">稍后再说</button>
+                <button class="btn btn-primary" id="update-now" onclick="startAppUpdate()">立即更新</button>
             </div>
         </div>
     </div>

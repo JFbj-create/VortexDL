@@ -221,6 +221,10 @@ Function .onInit
   nsExec::ExecToLog 'taskkill /F /IM "swiftfetch.exe"'
   Sleep 1000
 
+  ; ★ 2026-10-12: 静默模式（应用内自动更新传的 /S）**不能弹任何 MessageBox** ——
+  ;   静默安装时弹窗没人点，安装会永远停在这一步。直接原地覆盖安装。
+  IfSilent init_done
+
   ; 检查是否已安装旧版本
   ReadRegStr $0 HKLM "${APP_UNINSTALL_KEY}" "InstallLocation"
   StrCmp $0 "" init_done 0
@@ -233,14 +237,16 @@ Function .onInit
 FunctionEnd
 
 Function .onInstSuccess
-  ; 安装成功后询问是否立即启动
-  MessageBox MB_YESNO|MB_ICONQUESTION "VortexDL 已成功安装!$\n$\n是否立即启动?" IDNO no_launch
+  ; ★ 静默安装（应用内自动更新）: 不询问, 直接拉起 —— 用户点了「立即更新」就是想要它重开
+  IfSilent vx_launch
+  MessageBox MB_YESNO|MB_ICONQUESTION "VortexDL 已成功安装!$\n$\n是否立即启动?" IDNO vx_no_launch
+  vx_launch:
     ; ★ 2026-10-11: 必须经 explorer.exe 启动。
     ;   安装器是提权的（RequestExecutionLevel admin），NSIS 的 Exec 会让子进程
     ;   **继承管理员令牌**；而提权窗口收不到中文输入法、也接不了资源管理器的拖放。
     ;   explorer.exe 以当前用户的普通权限运行，由它拉起的 app 才是正常权限。
     Exec 'explorer.exe "$INSTDIR\${APP_EXE}"'
-  no_launch:
+  vx_no_launch:
 FunctionEnd
 
 ; ==========================================================================
@@ -315,10 +321,13 @@ Section "Uninstall"
 SectionEnd
 
 Function un.onInit
+  ; 静默卸载（/S）不问
+  IfSilent +3
   MessageBox MB_YESNO|MB_ICONQUESTION "您确定要完全卸载 VortexDL 吗?$\n$\n所有安装的文件和快捷方式都将被删除。" IDYES +2
   Abort
 FunctionEnd
 
 Function un.onUnInstSuccess
+  IfSilent +2
   MessageBox MB_OK|MB_ICONINFORMATION "VortexDL 已成功卸载。"
 FunctionEnd

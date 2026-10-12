@@ -67,7 +67,7 @@ pub const FREE_THEMES: [&str; 3] = ["purple", "ocean", "mint"];
 pub const FREE_SPEED_RATIO: f64 = 0.8;
 
 /// 全部主题 (与前端 index.html 的下拉选项一致, 顺序也一致)
-pub const ALL_THEMES: [&str; 77] = [
+pub const ALL_THEMES: [&str; 74] = [
     "purple", "violet", "lilac", "lavender", "orchid", "grape",
     "plum", "magenta", "neon", "berry", "rose", "sakura",
     "peach", "blush", "rosegold", "coral", "crimson", "sunset",
@@ -76,11 +76,11 @@ pub const ALL_THEMES: [&str; 77] = [
     "matcha", "mint", "emerald", "forest", "jade", "teal",
     "aurora", "turquoise", "aqua", "cyber", "sky", "ocean",
     "sapphire", "indigo", "twilight", "steel", "morandi", "ink",
-    "purewhite", "puregray", "pureblack", "duotone", "acid", "sunbeam",
-    "deepsea", "clay", "iris", "lava", "tundra", "royal",
-    "sakuranight", "midnight", "nord", "abyss", "obsidian", "void",
-    "galaxy", "nebula", "dracula", "plumNight", "bloodmoon", "ember",
-    "candle", "matrix", "forestnight", "graphite", "cyberpunk",
+    "duotone", "acid", "sunbeam", "deepsea", "clay", "iris",
+    "lava", "tundra", "royal", "sakuranight", "midnight", "nord",
+    "abyss", "obsidian", "void", "galaxy", "nebula", "dracula",
+    "plumNight", "bloodmoon", "ember", "candle", "matrix", "forestnight",
+    "graphite", "cyberpunk",
 ];
 
 // ============================================================

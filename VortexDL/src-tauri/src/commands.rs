@@ -1851,11 +1851,14 @@ pub async fn check_app_update() -> Result<crate::updater::AppUpdateResult, Strin
 }
 
 #[tauri::command]
-pub async fn download_app_update(update: Option<serde_json::Value>) -> Result<String, String> {
+pub async fn download_app_update(
+    app: tauri::AppHandle,
+    update: Option<serde_json::Value>,
+) -> Result<String, String> {
     let _ = update; // 前端会传 update 对象, 后端自行 check_app_update 获取最新信息
     let r = crate::updater::check_app_update().await;
     if !r.has_update { return Ok("当前已是最新版本".to_string()); }
-    crate::updater::download_and_install(r).await
+    crate::updater::download_and_install(&app, r).await
 }
 
 // ===================== 系统监控 =====================

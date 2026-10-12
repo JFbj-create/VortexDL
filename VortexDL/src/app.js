@@ -2071,6 +2071,9 @@ function applyTheme(themeName) {
     if (themeSelect && themeSelect.value !== themeName) {
         themeSelect.value = themeName;
     }
+
+    // 主题装饰动效（绯红=樱花、森林=落叶…）跟着主题走；没有素材的主题会自己停掉
+    if (typeof ThemeFx !== 'undefined' && ThemeFx) ThemeFx.setTheme(themeName);
 }
 
 // 将 switchTheme 暴露给全局 onclick
@@ -2098,6 +2101,8 @@ function applyPerfMode(on) {
     try { document.body.classList.toggle('lite-mode', !!on); } catch (e) {}
     const cb = document.getElementById('perf-mode-toggle');
     if (cb) cb.checked = !!on;
+    // 性能模式下主题装饰动效一起停掉（lite-mode 已在 setTheme 里判断）
+    if (typeof ThemeFx !== 'undefined' && ThemeFx) ThemeFx.refresh();
 }
 function initPerfMode() {
     let on = null;
@@ -7630,52 +7635,145 @@ async function checkAppVersion() {
     // 无论是否弹窗, 都标记当前版本已查看
     await invoke('mark_version_seen').catch(() => {});
 
-    // 后台检查 123云盘是否有新版本 (延迟 3 秒, 不阻塞启动)
+    // 后台查仓库最新 Release (延迟 3 秒, 不阻塞启动)
     setTimeout(() => {
-        checkPanUpdate().catch(e => console.warn('123云盘更新检测失败:', e));
+        checkAppUpdateFromRepo().catch(e => console.warn('[更新] 检查失败:', e));
     }, 3000);
 }
 
-/// 检查 123云盘是否有新版本
-let panUpdateInfo = null;
-async function checkPanUpdate() {
-    const r = await invoke('check_app_update');
-    if (r.error) {
-        console.warn('123云盘检查失败:', r.error);
+// ============================================================
+// 应用自更新（GitHub Release）
+// ------------------------------------------------------------
+// 启动 3 秒后查一次仓库的最新 Release；比当前版本新就弹窗展示更新内容，
+// 点「立即更新」→ 下载安装包（带进度）→ 后端提权静默安装并自动重启。
+// ★ 版本只认仓库：发版必须建对应 tag 的 Release 并上传
+//   `VortexDL-Setup-v<版本>.exe`（自动更新下载的就是它）+ 便携版 zip。
+// ============================================================
+let appUpdateInfo = null;
+let appUpdateBusy = false;
+let appUpdateUnlisten = null;
+
+async function checkAppUpdateFromRepo() {
+    let r;
+    try { r = await invoke('check_app_update'); }
+    catch (e) { console.warn('[更新] 检查失败:', e); return; }
+    if (!r || !r.has_update) {
+        // 网络不通/没有 Release 都走这里，静默跳过，不要打扰用户
+        if (r && r.error) console.warn('[更新]', r.error);
         return;
     }
-    if (r.has_update) {
-        panUpdateInfo = r;
-        showPanUpdatePrompt(r);
+    appUpdateInfo = r;
+    showUpdateModal(r);
+}
+
+/// 极简 Markdown 渲染（先转义再替换，避免注入）
+function mdLite(md) {
+    const esc = String(md || '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+    const lines = esc.split(/\r?\n/);
+    const out = [];
+    let inList = false;
+    const inline = (s) => s
+        .replace(/\*\*([^*]+)\*\*/g, '<b>$1</b>')
+        .replace(/`([^`]+)`/g, '<code>$1</code>')
+        .replace(/\[([^\]]+)\]\((https?:[^)\s]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
+    for (let raw of lines) {
+        const l = raw.trim();
+        if (!l) { if (inList) { out.push('</ul>'); inList = false; } continue; }
+        const h = l.match(/^#{1,6}\s+(.*)$/);
+        if (h) { if (inList) { out.push('</ul>'); inList = false; } out.push('<h4>' + inline(h[1]) + '</h4>'); continue; }
+        const li = l.match(/^[-*+]\s+(.*)$/);
+        if (li) { if (!inList) { out.push('<ul>'); inList = true; } out.push('<li>' + inline(li[1]) + '</li>'); continue; }
+        if (inList) { out.push('</ul>'); inList = false; }
+        out.push('<p>' + inline(l) + '</p>');
+    }
+    if (inList) out.push('</ul>');
+    return out.join('');
+}
+
+function showUpdateModal(r) {
+    const modal = document.getElementById('update-modal');
+    if (!modal) return;
+    const ver = document.getElementById('update-ver');
+    if (ver) ver.textContent = 'v' + r.latest_version;
+    const meta = document.getElementById('update-meta');
+    if (meta) {
+        const sizeMB = r.file_size ? (r.file_size / 1024 / 1024).toFixed(1) + ' MB' : '未知大小';
+        const when = r.created_at ? String(r.created_at).slice(0, 10) : '';
+        meta.innerHTML = `当前版本 <b>v${r.current_version}</b> → 最新版本 <b>v${r.latest_version}</b>` +
+            `<span class="upd-sub">安装包 ${sizeMB}${when ? ' · 发布于 ' + when : ''}</span>`;
+    }
+    const notes = document.getElementById('update-notes');
+    if (notes) {
+        const html = mdLite(r.release_notes);
+        notes.innerHTML = html || '<p>（本次更新没有写说明）</p>';
+    }
+    const prog = document.getElementById('update-progress');
+    if (prog) prog.style.display = 'none';
+    const btn = document.getElementById('update-now');
+    if (btn) { btn.disabled = false; btn.textContent = '立即更新'; }
+    const later = document.getElementById('update-later');
+    if (later) { later.disabled = false; later.textContent = '稍后再说'; }
+    modal.style.display = 'flex';
+}
+
+function closeUpdateModal() {
+    if (appUpdateBusy) return;   // 正在下载时别关，避免用户以为没反应
+    const modal = document.getElementById('update-modal');
+    if (modal) modal.style.display = 'none';
+}
+window.closeUpdateModal = closeUpdateModal;
+
+function setUpdateStatus(text, isErr) {
+    const el = document.getElementById('update-status');
+    if (!el) return;
+    el.textContent = text || '';
+    el.style.color = isErr ? '#e5484d' : '';
+    el.style.display = text ? 'block' : 'none';
+}
+
+function onUpdateProgress(p) {
+    if (!p) return;
+    const total = p.total || 0;
+    const pct = total > 0 ? Math.min(100, Math.round(p.downloaded / total * 100)) : 0;
+    const bar = document.getElementById('update-bar');
+    if (bar) bar.style.width = pct + '%';
+    const txt = document.getElementById('update-pct');
+    if (txt) {
+        const mb = (n) => (n / 1024 / 1024).toFixed(1);
+        txt.textContent = total > 0
+            ? `${pct}%  ${mb(p.downloaded)} / ${mb(total)} MB`
+            : `${mb(p.downloaded)} MB`;
     }
 }
 
-/// 显示 123云盘新版本提示弹窗
-async function showPanUpdatePrompt(r) {
-    const sizeMB = (r.file_size / 1024 / 1024).toFixed(1);
-    const msg = `发现新版本 v${r.latest_version}\n\n` +
-        `当前版本: v${r.current_version}\n` +
-        `文件大小: ${sizeMB} MB\n` +
-        `发布时间: ${r.created_at || '未知'}\n\n` +
-        `是否下载并安装新版本?\n(下载完成后会自动运行安装程序)`;
-    if (!(await vxConfirm(msg))) return;
-    downloadPanUpdate(r);
-}
+async function startAppUpdate() {
+    if (appUpdateBusy || !appUpdateInfo) return;
+    appUpdateBusy = true;
+    const btn = document.getElementById('update-now');
+    const later = document.getElementById('update-later');
+    if (btn) { btn.disabled = true; btn.textContent = '正在下载…'; }
+    if (later) later.disabled = true;
+    const prog = document.getElementById('update-progress');
+    if (prog) prog.style.display = 'block';
+    setUpdateStatus('正在下载安装包…');
 
-/// 下载新版本安装包
-async function downloadPanUpdate(r) {
-    showToast(`正在下载 v${r.latest_version} 安装包...`);
+    if (!appUpdateUnlisten) {
+        try { appUpdateUnlisten = await listen('app-update-progress', (ev) => onUpdateProgress(ev.payload)); }
+        catch (_) {}
+    }
     try {
-        const setupPath = await invoke('download_app_update', { update: r });
-        showToast('安装包下载完成, 即将运行安装程序');
-        // 延迟 1 秒后运行安装程序
-        setTimeout(() => {
-            invoke('open_file', { path: setupPath }).catch(() => {});
-        }, 1000);
+        await invoke('download_app_update', { update: appUpdateInfo });
+        setUpdateStatus('下载完成，正在启动安装程序…软件会自动关闭并重新打开');
+        if (btn) btn.textContent = '安装中…';
     } catch (e) {
-        vxAlert(`下载新版本失败: ${e}`);
+        appUpdateBusy = false;
+        if (btn) { btn.disabled = false; btn.textContent = '立即更新'; }
+        if (later) later.disabled = false;
+        setUpdateStatus('更新失败：' + e, true);
+        vxAlert('自动更新失败：' + e + '\n\n可以到项目主页手动下载安装包。');
     }
 }
+window.startAppUpdate = startAppUpdate;
 
 /// 显示更新日志弹窗
 /// changelog: [[版本号, [更新条目...]], ...]  从新到旧
@@ -11475,3 +11573,413 @@ window.__vxBk = (function () {
         subShown: subShown,
     };
 })();
+
+// ============================================================
+// 主题装饰动效（canvas 粒子）
+// ------------------------------------------------------------
+// 部分主题配一个专属的飘落/漂浮素材：绯红=樱花、森林=落叶、深海=气泡、
+// 矩阵绿=数字雨……素材颜色**从当前主题的 --theme-primary / --theme-accent 现算**，
+// 所以同一个樱花在绯红/玫瑰/夜樱下是不同的粉。
+//
+// ★ 只有 _gen_themes.js 里 FX 表列出的主题才有；皇室 / 水墨 / 莫兰迪 / 钢青这类
+//   素净主题**故意不给**（用户明确说「皇室这种不要」）。要加/减主题，改生成器的
+//   FX 表再跑 `node _gen_themes.js --write`，别手改下面那张表。
+// ★ 画布挂在 body 下、z-index 0（#app 是 z-index 1），粒子在内容**后面**飘：
+//   侧边栏/卡片本身半透明，能透出来，但不会糊住文字。
+// ★ 性能模式(lite-mode) 或用户关掉开关时整个不跑。
+// ============================================================
+
+/* @@THEME_FX_MAP_BEGIN@@ (由 _gen_themes.js 生成, 不要手改) */
+var THEME_FX_MAP = {
+    'acid': 'glow', 'aqua': 'bubble', 'aurora': 'star',
+    'blush': 'sakura', 'candle': 'ember', 'crimson': 'sakura',
+    'cyber': 'glow', 'cyberpunk': 'rain', 'deepsea': 'bubble',
+    'ember': 'ember', 'forest': 'leaf', 'forestnight': 'leaf',
+    'galaxy': 'star', 'lava': 'ember', 'matcha': 'leaf',
+    'matrix': 'rain', 'midnight': 'star', 'moss': 'leaf',
+    'nebula': 'star', 'neon': 'glow', 'nord': 'snow',
+    'ocean': 'bubble', 'plumNight': 'sakura', 'rose': 'sakura',
+    'rosegold': 'sakura', 'sakura': 'sakura', 'sakuranight': 'sakura',
+    'tundra': 'snow', 'turquoise': 'bubble', 'void': 'star',
+};
+/* @@THEME_FX_MAP_END@@ */
+
+var ThemeFx = (function () {
+  var FX_KEY = 'vortex_theme_fx';
+  var cv = null, ctx = null, W = 0, H = 0, DPR = 1;
+  var items = [], raf = null, last = 0, running = false;
+  var mat = null, sprites = null, cfg = null, curName = null;
+  var enabled = true;
+
+  function rnd(a, b) { return a + Math.random() * (b - a); }
+  function clamp(v, a, b) { return v < a ? a : (v > b ? b : v); }
+
+  // ---------- 颜色 ----------
+  function toRgb(h) {
+    h = String(h || '').trim();
+    var m = h.match(/^#([0-9a-f]{3,6})$/i);
+    if (m) {
+      var s = m[1];
+      if (s.length === 3) s = s[0] + s[0] + s[1] + s[1] + s[2] + s[2];
+      var v = parseInt(s, 16);
+      return [(v >> 16) & 255, (v >> 8) & 255, v & 255];
+    }
+    m = h.match(/^rgba?\(([^)]+)\)/i);
+    if (m) {
+      var p = m[1].split(',').map(function (x) { return parseFloat(x); });
+      return [p[0] | 0, p[1] | 0, p[2] | 0];
+    }
+    return null;
+  }
+  function mix(a, b, t) {
+    return [0, 1, 2].map(function (i) { return Math.round(a[i] + (b[i] - a[i]) * t); });
+  }
+  var WHITE = [255, 255, 255], BLACK = [0, 0, 0];
+  function css(c, a) { return 'rgba(' + c[0] + ',' + c[1] + ',' + c[2] + ',' + a + ')'; }
+  function hex(c) {
+    return '#' + c.map(function (v) { return clamp(Math.round(v), 0, 255).toString(16).padStart(2, '0'); }).join('');
+  }
+  function themeColors() {
+    var cs = getComputedStyle(document.documentElement);
+    var pri = toRgb(cs.getPropertyValue('--theme-primary')) || [99, 102, 241];
+    var acc = toRgb(cs.getPropertyValue('--theme-accent')) || pri;
+    var dark = document.body.classList.contains('lite-mode') ? false : false;
+    // 深色主题下主色偏亮，粒子要更实一点才看得见
+    var isDark = false;
+    try {
+      var bg = toRgb(cs.getPropertyValue('--theme-bg-start'));
+      if (bg) isDark = (bg[0] * 0.299 + bg[1] * 0.587 + bg[2] * 0.114) < 110;
+    } catch (e) {}
+    return { pri: pri, acc: acc, dark: isDark };
+  }
+
+  // ---------- 素材：单片花瓣（细长椭圆 + 顶端浅缺口） ----------
+  // ★ 缺口不能挖深、两侧不能鼓圆 —— 那样画出来是爱心，小尺寸下又会被看成嘴唇。
+  function petalPath(g, s) {
+    g.beginPath();
+    g.moveTo(0, s);
+    g.bezierCurveTo(-s * 0.34, s * 0.88, -s * 0.62, s * 0.46, -s * 0.62, -s * 0.14);
+    g.bezierCurveTo(-s * 0.62, -s * 0.64, -s * 0.42, -s * 0.94, -s * 0.15, -s * 0.99);
+    g.bezierCurveTo(-s * 0.08, -s * 0.86, -s * 0.05, -s * 0.80, 0, -s * 0.78);
+    g.bezierCurveTo(s * 0.05, -s * 0.80, s * 0.08, -s * 0.86, s * 0.15, -s * 0.99);
+    g.bezierCurveTo(s * 0.42, -s * 0.94, s * 0.62, -s * 0.64, s * 0.62, -s * 0.14);
+    g.bezierCurveTo(s * 0.62, s * 0.46, s * 0.34, s * 0.88, 0, s);
+    g.closePath();
+  }
+  function mkCanvas(R) {
+    var c = document.createElement('canvas');
+    c.width = c.height = R;
+    return c;
+  }
+  function spritePetal(f, e) {
+    var R = 64, c = mkCanvas(R), g = c.getContext('2d');
+    g.translate(R / 2, R / 2);
+    var s = R / 2 * 0.90;
+    petalPath(g, s);
+    var lg = g.createLinearGradient(0, s, 0, -s);
+    lg.addColorStop(0, css(e, 1)); lg.addColorStop(0.34, css(f, 1)); lg.addColorStop(1, css(f, 1));
+    g.fillStyle = lg; g.fill();
+    g.globalAlpha = 0.5; g.lineWidth = 1.2; g.strokeStyle = css(e, 1); g.stroke();
+    return c;
+  }
+  function spriteBlossom(f, e) {
+    var R = 96, c = mkCanvas(R), g = c.getContext('2d');
+    g.translate(R / 2, R / 2);
+    var s = R / 2 * 0.46;
+    for (var i = 0; i < 5; i++) {
+      g.save(); g.rotate(i * Math.PI * 2 / 5); g.translate(0, -s * 0.92);
+      petalPath(g, s); g.fillStyle = css(f, 1); g.fill();
+      g.globalAlpha = 0.55; g.lineWidth = 1; g.strokeStyle = css(e, 1); g.stroke();
+      g.restore();
+    }
+    g.globalAlpha = 1;
+    g.beginPath(); g.arc(0, 0, s * 0.42, 0, 6.2832); g.fillStyle = '#fff2c2'; g.fill();
+    g.beginPath(); g.arc(0, 0, s * 0.18, 0, 6.2832); g.fillStyle = '#e8b84a'; g.fill();
+    return c;
+  }
+  // 落叶：带中脉和短梗的尖头椭圆（和花瓣区分开，有梗、更宽、颜色偏黄绿）
+  function spriteLeaf(f, e) {
+    var R = 64, c = mkCanvas(R), g = c.getContext('2d');
+    g.translate(R / 2, R / 2);
+    var s = R / 2 * 0.86;
+    g.beginPath();
+    g.moveTo(0, s * 1.0);
+    g.bezierCurveTo(-s * 0.95, s * 0.28, -s * 0.86, -s * 0.72, 0, -s * 1.0);
+    g.bezierCurveTo(s * 0.86, -s * 0.72, s * 0.95, s * 0.28, 0, s * 1.0);
+    g.closePath();
+    var lg = g.createLinearGradient(0, s, 0, -s);
+    lg.addColorStop(0, css(e, 1)); lg.addColorStop(1, css(f, 1));
+    g.fillStyle = lg; g.fill();
+    g.globalAlpha = 0.55; g.lineWidth = 1.1; g.strokeStyle = css(e, 1); g.stroke();
+    g.globalAlpha = 0.45; g.beginPath(); g.moveTo(0, s * 0.92); g.lineTo(0, -s * 0.9);
+    g.lineWidth = 1.1; g.strokeStyle = css(e, 1); g.stroke();
+    g.globalAlpha = 0.8; g.beginPath(); g.moveTo(0, s * 1.0); g.lineTo(0, s * 1.28);
+    g.lineWidth = 2; g.strokeStyle = css(e, 1); g.stroke();
+    return c;
+  }
+  function spriteSnow(f, e) {
+    var R = 64, c = mkCanvas(R), g = c.getContext('2d');
+    g.translate(R / 2, R / 2);
+    var s = R / 2 * 0.82;
+    g.strokeStyle = css(f, 1); g.lineWidth = 2.4; g.lineCap = 'round';
+    for (var i = 0; i < 6; i++) {
+      g.save(); g.rotate(i * Math.PI / 3);
+      g.beginPath(); g.moveTo(0, 0); g.lineTo(0, -s); g.stroke();
+      g.beginPath(); g.moveTo(0, -s * 0.58); g.lineTo(-s * 0.26, -s * 0.82); g.stroke();
+      g.beginPath(); g.moveTo(0, -s * 0.58); g.lineTo(s * 0.26, -s * 0.82); g.stroke();
+      g.restore();
+    }
+    return c;
+  }
+  function spriteBubble(f, e) {
+    var R = 64, c = mkCanvas(R), g = c.getContext('2d');
+    g.translate(R / 2, R / 2);
+    var s = R / 2 * 0.78;
+    var rg = g.createRadialGradient(-s * 0.3, -s * 0.3, s * 0.1, 0, 0, s);
+    rg.addColorStop(0, css(WHITE, 0.9));
+    rg.addColorStop(0.45, css(f, 0.30));
+    rg.addColorStop(1, css(e, 0.42));
+    g.beginPath(); g.arc(0, 0, s, 0, 6.2832); g.fillStyle = rg; g.fill();
+    g.lineWidth = 1.6; g.strokeStyle = css(WHITE, 0.6); g.stroke();
+    g.beginPath(); g.arc(-s * 0.34, -s * 0.36, s * 0.2, 0, 6.2832);
+    g.fillStyle = css(WHITE, 0.85); g.fill();
+    return c;
+  }
+  function spriteStar(f) {
+    var R = 64, c = mkCanvas(R), g = c.getContext('2d');
+    g.translate(R / 2, R / 2);
+    var s = R / 2 * 0.8, w = s * 0.16;
+    var rg = g.createRadialGradient(0, 0, 0, 0, 0, s);
+    rg.addColorStop(0, css(WHITE, 1)); rg.addColorStop(0.35, css(f, 0.85));
+    rg.addColorStop(1, css(f, 0));
+    g.beginPath();
+    g.moveTo(0, -s); g.quadraticCurveTo(w, -w, s, 0); g.quadraticCurveTo(w, w, 0, s);
+    g.quadraticCurveTo(-w, w, -s, 0); g.quadraticCurveTo(-w, -w, 0, -s);
+    g.fillStyle = rg; g.fill();
+    return c;
+  }
+  function spriteGlow(f) {
+    var R = 64, c = mkCanvas(R), g = c.getContext('2d');
+    g.translate(R / 2, R / 2);
+    var s = R / 2 * 0.92;
+    var rg = g.createRadialGradient(0, 0, 0, 0, 0, s);
+    rg.addColorStop(0, css(WHITE, 0.85)); rg.addColorStop(0.3, css(f, 0.55));
+    rg.addColorStop(1, css(f, 0));
+    g.beginPath(); g.arc(0, 0, s, 0, 6.2832); g.fillStyle = rg; g.fill();
+    return c;
+  }
+
+  // ---------- 每个素材一套调色 ----------
+  function palette(kind, c) {
+    var pri = c.pri, acc = c.acc;
+    var lift = c.dark ? 0.42 : 0.5;
+    if (kind === 'sakura') {
+      var base = mix(pri, acc, 0.35);
+      return [
+        [mix(base, WHITE, 0.72), mix(base, WHITE, 0.30)],
+        [mix(base, WHITE, 0.45), base],
+        [base, mix(base, BLACK, 0.16)],
+        [mix(acc, WHITE, 0.35), acc]
+      ];
+    }
+    if (kind === 'leaf') {
+      var l = mix(pri, [214, 168, 62], 0.35);
+      return [
+        [mix(l, WHITE, 0.30), l],
+        [l, mix(l, BLACK, 0.22)],
+        [mix(l, [200, 96, 48], 0.55), mix(l, BLACK, 0.18)]
+      ];
+    }
+    if (kind === 'snow') return [[mix(pri, WHITE, lift), mix(pri, WHITE, 0.15)]];
+    if (kind === 'bubble') return [[mix(pri, WHITE, 0.55), pri], [mix(acc, WHITE, 0.4), acc]];
+    if (kind === 'star') return [[mix(pri, WHITE, 0.5)], [mix(acc, WHITE, 0.45)], [WHITE]];
+    if (kind === 'glow') return [[pri], [acc], [mix(pri, acc, 0.5)]];
+    if (kind === 'ember') return [[mix(acc, [255, 190, 90], 0.6)], [mix(pri, [255, 120, 60], 0.5)], [mix(acc, WHITE, 0.4)]];
+    return [[pri]];
+  }
+
+  function buildSprites(kind, col) {
+    var pal = palette(kind, col), out = [];
+    for (var i = 0; i < pal.length; i++) {
+      var f = pal[i][0], e = pal[i][1] || pal[i][0];
+      if (kind === 'sakura') {
+        out.push(spritePetal(f, e));
+        if (i === 0 || i === 1) out.push(spriteBlossom(f, e));
+      } else if (kind === 'leaf') out.push(spriteLeaf(f, e));
+      else if (kind === 'snow') out.push(spriteSnow(f, e));
+      else if (kind === 'bubble') out.push(spriteBubble(f, e));
+      else if (kind === 'star') out.push(spriteStar(f));
+      else if (kind === 'glow') out.push(spriteGlow(f));
+      else if (kind === 'ember') out.push(spriteGlow(f));
+    }
+    return out;
+  }
+
+  // ---------- 素材参数 ----------
+  var MATS = {
+    sakura: { mode: 'fall', size: [8, 18], vy: [16, 46], sway: [12, 32], spin: 1.1, alpha: [0.62, 0.95], big: 1.45 },
+    leaf: { mode: 'fall', size: [10, 20], vy: [22, 54], sway: [24, 50], spin: 1.7, alpha: [0.55, 0.9], big: 1.0 },
+    snow: { mode: 'fall', size: [5, 12], vy: [10, 26], sway: [12, 26], spin: 0.45, alpha: [0.5, 0.9], big: 1.0 },
+    bubble: { mode: 'rise', size: [6, 16], vy: [14, 34], sway: [7, 18], spin: 0.25, alpha: [0.35, 0.7], big: 1.0 },
+    star: { mode: 'twinkle', size: [6, 16], vy: [2, 8], sway: [2, 7], spin: 0.15, alpha: [0.35, 0.95], big: 1.0 },
+    glow: { mode: 'rise', size: [12, 30], vy: [5, 15], sway: [8, 22], spin: 0.2, alpha: [0.18, 0.42], big: 1.0 },
+    ember: { mode: 'rise', size: [4, 10], vy: [26, 64], sway: [10, 28], spin: 0, alpha: [0.4, 0.9], big: 1.0 },
+    rain: { mode: 'rain', size: [12, 26], vy: [90, 210], sway: [0, 0], spin: 0, alpha: [0.25, 0.6], big: 1.0 }
+  };
+
+  function newItem(spread) {
+    var c = cfg;
+    var sz = rnd(c.size[0], c.size[1]);
+    var it = {
+      sz: sz,
+      x: rnd(-40, W + 40),
+      vy: rnd(c.vy[0], c.vy[1]) * (0.55 + sz / 20),
+      vx: rnd(-10, 10),
+      sway: rnd(c.sway[0], c.sway[1]),
+      ph: rnd(0, 6.283), phs: rnd(0.25, 0.8),
+      rot: rnd(0, 6.283), vrot: rnd(-c.spin, c.spin),
+      a: rnd(c.alpha[0], c.alpha[1]),
+      sp: sprites[(Math.random() * sprites.length) | 0],
+      tw: rnd(0, 6.283), tws: rnd(0.6, 1.8)
+    };
+    if (c.mode === 'rise') it.y = spread ? rnd(0, H) : rnd(H + 20, H + 90);
+    else it.y = spread ? rnd(-H, H) : rnd(-70, -16);
+    if (c.mode === 'rain') { it.x = rnd(-20, W + 20); it.rot = 0; }
+    return it;
+  }
+
+  function resize() {
+    DPR = Math.min(window.devicePixelRatio || 1, 2);
+    W = window.innerWidth; H = window.innerHeight;
+    cv.width = Math.max(1, Math.floor(W * DPR));
+    cv.height = Math.max(1, Math.floor(H * DPR));
+    cv.style.width = W + 'px'; cv.style.height = H + 'px';
+    ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+    var want = clamp(Math.round(W * H / 24000), 14, 78);
+    if (cfg.mode === 'twinkle') want = Math.round(want * 0.75);
+    while (items.length < want) items.push(newItem(true));
+    items.length = want;
+  }
+
+  function frame(t) {
+    if (!running) return;
+    if (!last) last = t;
+    var dt = Math.min(0.05, (t - last) / 1000);
+    last = t;
+    ctx.clearRect(0, 0, W, H);
+    for (var i = 0; i < items.length; i++) {
+      var p = items[i];
+      p.ph += p.phs * dt;
+      p.tw += p.tws * dt;
+      p.x += (p.vx + Math.sin(p.ph) * p.sway) * dt;
+      p.y += (cfg.mode === 'rise' ? -p.vy : p.vy) * dt;
+      p.rot += p.vrot * dt;
+      var out = cfg.mode === 'rise'
+        ? (p.y + p.sz < -20 || p.x < -80 || p.x > W + 80)
+        : (p.y - p.sz > H + 30 || p.x < -80 || p.x > W + 80);
+      if (out) { items[i] = newItem(false); continue; }
+      var a = p.a;
+      if (cfg.mode === 'twinkle') a = p.a * (0.45 + 0.55 * (0.5 + 0.5 * Math.sin(p.tw)));
+      ctx.save();
+      ctx.globalAlpha = a;
+      if (cfg.mode === 'rain') {
+        // 数字雨：直接画短竖线，不用精灵
+        ctx.translate(p.x, p.y);
+        ctx.strokeStyle = p.sp;
+        ctx.lineWidth = Math.max(1, p.sz / 9);
+        ctx.lineCap = 'round';
+        ctx.beginPath(); ctx.moveTo(0, -p.sz * 0.5); ctx.lineTo(0, p.sz * 0.5); ctx.stroke();
+      } else {
+        ctx.translate(p.x, p.y);
+        ctx.rotate(p.rot);
+        ctx.drawImage(p.sp, -p.sz / 2, -p.sz / 2, p.sz, p.sz);
+      }
+      ctx.restore();
+    }
+    raf = requestAnimationFrame(frame);
+  }
+  function start() {
+    if (running || !mat || !enabled) return;
+    running = true; last = 0;
+    raf = requestAnimationFrame(frame);
+  }
+  function stop() {
+    running = false;
+    if (raf) cancelAnimationFrame(raf);
+    raf = null;
+    if (ctx) ctx.clearRect(0, 0, W, H);
+  }
+
+  function ensureCanvas() {
+    if (cv) return;
+    cv = document.createElement('canvas');
+    cv.id = 'theme-fx';
+    cv.setAttribute('aria-hidden', 'true');
+    document.body.appendChild(cv);
+    ctx = cv.getContext('2d');
+    window.addEventListener('resize', function () { if (mat) resize(); });
+    document.addEventListener('visibilitychange', function () {
+      document.hidden ? stop() : start();
+    });
+  }
+
+  function setTheme(name) {
+    var next = enabled && !document.body.classList.contains('lite-mode')
+      ? (THEME_FX_MAP[name] || null) : null;
+    // 同一个主题重复调用（切页/重设）不要重建，否则粒子会一次次从起点重来
+    if (name === curName && next === mat) return;
+    curName = name;
+    stop();
+    mat = next;
+    items = [];
+    if (!mat) { if (cv) cv.style.display = 'none'; return; }
+    ensureCanvas();
+    cv.style.display = 'block';
+    var col = themeColors();
+    sprites = mat === 'rain'
+      ? palette('glow', col).map(function (p) { return css(p[0], 0.9); })
+      : buildSprites(mat, col);
+    cfg = MATS[mat];
+    resize();
+    start();
+  }
+
+  // 强制重建（比如 lite-mode 切换、设置里改了颜色相关的项）
+  function refresh() {
+    curName = null;
+    var el = document.querySelector('#theme-select');
+    setTheme(el ? el.value : 'purple');
+  }
+
+  function setEnabled(on) {
+    enabled = !!on;
+    if (!enabled) { mat = null; curName = null; stop(); if (cv) cv.style.display = 'none'; }
+    else { curName = null; refresh(); }
+  }
+
+  function init() {
+    try {
+      var saved = localStorage.getItem(FX_KEY);
+      enabled = saved === null ? true : saved === '1';
+    } catch (e) { enabled = true; }
+    var cb = document.getElementById('theme-fx-toggle');
+    if (cb) {
+      cb.checked = enabled;
+      cb.addEventListener('change', function () {
+        setEnabled(cb.checked);
+        try { localStorage.setItem(FX_KEY, cb.checked ? '1' : '0'); } catch (e) {}
+        if (typeof showToast === 'function') {
+          showToast(cb.checked ? '已开启主题装饰动效' : '已关闭主题装饰动效');
+        }
+      });
+    }
+    curName = null;
+    refresh();
+  }
+
+  return { init: init, setTheme: setTheme, refresh: refresh, setEnabled: setEnabled, stop: stop, start: start };
+})();
+
+document.addEventListener('DOMContentLoaded', function () {
+  try { ThemeFx.init(); } catch (e) { console.warn('[主题动效] 初始化失败:', e); }
+});
