@@ -1861,6 +1861,75 @@ pub async fn download_app_update(
     crate::updater::download_and_install(&app, r).await
 }
 
+// ===================== 网盘解析 =====================
+// 让下载器直接吃网盘分享链接：识别 -> 列文件 -> 解析出带签名的直链 -> 交给 start_download。
+// ★ 登录态由用户在「设置 → 网盘」粘贴自己的 Cookie/token，这里只存不验证；
+//   验证发生在真正调网盘接口的时候（错误会翻成人话回给前端）。
+
+#[tauri::command]
+pub fn pan_recognize(url: String) -> Option<crate::netdisk::PanLink> {
+    let r = crate::netdisk::link::recognize(&url);
+    crate::app_logger::log_command(
+        "pan_recognize",
+        &format!("in={} -> {:?}", url.chars().take(80).collect::<String>(),
+                 r.as_ref().map(|l| (l.drive.id(), l.share_id.clone()))),
+    );
+    r
+}
+
+#[tauri::command]
+pub fn pan_cookie_status() -> Vec<crate::netdisk::CookieStatus> {
+    crate::netdisk::cookie_status()
+}
+
+#[tauri::command]
+pub fn pan_set_cookie(drive: String, cookie: Option<String>, refresh_token: Option<String>) -> Result<(), String> {
+    let d = crate::netdisk::Drive::from_id(&drive).ok_or_else(|| format!("不认识的网盘: {}", drive))?;
+    crate::netdisk::set_cookie(d, cookie.as_deref().unwrap_or(""), refresh_token.as_deref().unwrap_or(""))
+}
+
+#[tauri::command]
+pub fn pan_clear_cookie(drive: String) -> Result<(), String> {
+    let d = crate::netdisk::Drive::from_id(&drive).ok_or_else(|| format!("不认识的网盘: {}", drive))?;
+    crate::netdisk::clear_cookie(d)
+}
+
+#[tauri::command]
+pub async fn pan_list(url: String, passcode: Option<String>) -> Result<Vec<crate::netdisk::PanEntry>, String> {
+    let link = crate::netdisk::link::recognize(&url)
+        .ok_or_else(|| "没认出这是哪个网盘的分享链接（目前支持夸克 / 百度；迅雷只支持自己网盘）".to_string())?;
+    crate::netdisk::list_share(&link, passcode.as_deref().unwrap_or("")).await
+}
+
+#[tauri::command]
+pub async fn pan_resolve(
+    url: String,
+    passcode: Option<String>,
+    entries: Vec<crate::netdisk::PanEntry>,
+) -> Result<Vec<crate::netdisk::PanResolved>, String> {
+    if entries.is_empty() {
+        return Err("没有选中任何文件".to_string());
+    }
+    let link = crate::netdisk::link::recognize(&url)
+        .ok_or_else(|| "没认出这是哪个网盘的分享链接".to_string())?;
+    crate::netdisk::resolve(&link, passcode.as_deref().unwrap_or(""), &entries).await
+}
+
+#[tauri::command]
+pub async fn pan_list_mine(drive: String, parent_id: Option<String>) -> Result<Vec<crate::netdisk::PanEntry>, String> {
+    let d = crate::netdisk::Drive::from_id(&drive).ok_or_else(|| format!("不认识的网盘: {}", drive))?;
+    crate::netdisk::list_mine(d, parent_id.as_deref().unwrap_or("")).await
+}
+
+#[tauri::command]
+pub async fn pan_resolve_mine(
+    drive: String,
+    entries: Vec<crate::netdisk::PanEntry>,
+) -> Result<Vec<crate::netdisk::PanResolved>, String> {
+    let d = crate::netdisk::Drive::from_id(&drive).ok_or_else(|| format!("不认识的网盘: {}", drive))?;
+    crate::netdisk::resolve_mine(d, &entries).await
+}
+
 // ===================== 系统监控 =====================
 #[tauri::command]
 pub async fn get_system_status() -> Result<Value, String> {

@@ -6,7 +6,7 @@
 
 !define APP_NAME "VortexDL"
 !define APP_FULL_NAME "漩涡下载器 VortexDL"
-!define APP_VERSION "1.1"
+!define APP_VERSION "1.2"
 !define APP_PUBLISHER "VortexDL"
 !define APP_EXE "VortexDL.exe"
 !define APP_URL "https://vortexdl.app"
@@ -59,7 +59,7 @@ ShowUnInstDetails show
 BrandingText "${APP_VERSION}"
 
 ; ---------- 版本信息 (在 exe 属性中显示) ----------
-VIProductVersion "1.1.0.0"
+VIProductVersion "1.2.0.0"
 VIAddVersionKey "ProductName" "${APP_FULL_NAME}"
 VIAddVersionKey "CompanyName" "${APP_PUBLISHER}"
 VIAddVersionKey "FileDescription" "${APP_FULL_NAME} 安装程序"
@@ -156,6 +156,8 @@ Section "主程序 (必需)" SecMain
   File /nonfatal /r "F:\vdgame\VortexDL\src-tauri\resources_main\modules\*.*"
 
   ; ----- 写入注册表 (卸载信息) -----
+  ; ★ 同上：必须 64 位视图，否则卸载项落在 WOW6432Node 里
+  SetRegView 64
   WriteRegStr HKLM "${APP_UNINSTALL_KEY}" "DisplayName" "${APP_FULL_NAME}"
   WriteRegStr HKLM "${APP_UNINSTALL_KEY}" "DisplayVersion" "${APP_VERSION}"
   WriteRegStr HKLM "${APP_UNINSTALL_KEY}" "DisplayIcon" "$INSTDIR\${APP_EXE}"
@@ -215,6 +217,11 @@ SectionEnd
 ; 安装初始化
 ; ==========================================================================
 Function .onInit
+  ; ★ 2026-10-12: NSIS 出的是 **32 位** 安装包，不切视图的话 HKLM\Software\... 会被
+  ;   WOW6432Node 重定向 —— 卸载项跑到 WOW6432Node 下面去了，
+  ;   64 位的「应用和功能」读的是另一个视图（实测这台机器就写错地方了）。
+  SetRegView 64
+
   ; ★ 静默杀掉可能正在运行的 VortexDL 进程 (避免文件占用导致写入失败)
   nsExec::ExecToLog 'taskkill /F /IM "${APP_EXE}"'
   nsExec::ExecToLog 'taskkill /F /IM "vortex-dl.exe"'
@@ -253,6 +260,7 @@ FunctionEnd
 ; 卸载
 ; ==========================================================================
 Section "Uninstall"
+  SetRegView 64   ; ★ 与安装端保持同一视图，否则删不掉那条卸载项
   ; 删除主程序
   Delete "$INSTDIR\${APP_EXE}"
   Delete "$INSTDIR\uninstall.exe"

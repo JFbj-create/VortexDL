@@ -23,6 +23,7 @@ mod licensing;
 mod paths;
 mod books;
 mod mobi;
+mod netdisk;
 mod search_engine;
 mod snapshot;
 mod system_monitor;
@@ -66,6 +67,8 @@ use crate::commands::{
     open_folder, open_file, delete_path, launch_program, program_exists, extract_archive, list_archives, check_bt_disk_progress, browse_path, get_game_translator_path,
     copy_to_clipboard,
     get_app_info, mark_version_seen, check_app_update, download_app_update,
+    pan_recognize, pan_cookie_status, pan_set_cookie, pan_clear_cookie,
+    pan_list, pan_resolve, pan_list_mine, pan_resolve_mine,
     get_system_status, append_frontend_log,
     open_external_browser,
     create_desktop_shortcut, list_exe_candidates,
@@ -485,6 +488,9 @@ fn main() {
             open_folder, open_file, delete_path, launch_program, program_exists, extract_archive, list_archives, check_bt_disk_progress, browse_path, get_game_translator_path,
             copy_to_clipboard,
             get_app_info, mark_version_seen, check_app_update, download_app_update,
+            // —— 网盘解析 ——
+            pan_recognize, pan_cookie_status, pan_set_cookie, pan_clear_cookie,
+            pan_list, pan_resolve, pan_list_mine, pan_resolve_mine,
             get_system_status, append_frontend_log,
             open_external_browser,
             game_scrape_site, game_scrape_pick_download,

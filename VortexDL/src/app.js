@@ -7652,6 +7652,7 @@ async function checkAppVersion() {
 let appUpdateInfo = null;
 let appUpdateBusy = false;
 let appUpdateUnlisten = null;
+let appUpdateUnlisten2 = null;
 
 async function checkAppUpdateFromRepo() {
     let r;
@@ -7761,6 +7762,26 @@ async function startAppUpdate() {
         try { appUpdateUnlisten = await listen('app-update-progress', (ev) => onUpdateProgress(ev.payload)); }
         catch (_) {}
     }
+    // ★ 后端按「直连 → 加速镜像」的顺序试，卡住就换源；把当前源显示出来，
+    //   否则进度条长时间不动会被当成死掉（国内直连 GitHub 就是这个表现）。
+    if (!appUpdateUnlisten2) {
+        try {
+            appUpdateUnlisten2 = await listen('app-update-source', (ev) => {
+                const q = ev.payload || {};
+                setUpdateStatus('正在从 ' + (q.label || '下载源') + ' 下载…（第 ' + ((q.index || 0) + 1) + '/' + (q.total || 1) + ' 个源）');
+            });
+        } catch (_) {}
+    }
+    // ★ 后端按「直连 → 加速镜像」的顺序试，卡住就换源；把当前源显示出来，
+    //   否则进度条长时间不动会被当成死掉（国内直连 GitHub 就是这样）。
+    if (!appUpdateUnlisten2) {
+        try {
+            appUpdateUnlisten2 = await listen('app-update-source', (ev) => {
+                const q = ev.payload || {};
+                setUpdateStatus('正在从 ' + (q.label || '下载源') + ' 下载…（第 ' + ((q.index || 0) + 1) + '/' + (q.total || 1) + ' 个源）');
+            });
+        } catch (_) {}
+    }
     try {
         await invoke('download_app_update', { update: appUpdateInfo });
         setUpdateStatus('下载完成，正在启动安装程序…软件会自动关闭并重新打开');
@@ -7770,7 +7791,9 @@ async function startAppUpdate() {
         if (btn) { btn.disabled = false; btn.textContent = '立即更新'; }
         if (later) later.disabled = false;
         setUpdateStatus('更新失败：' + e, true);
-        vxAlert('自动更新失败：' + e + '\n\n可以到项目主页手动下载安装包。');
+        vxAlert('自动更新失败：' + e +
+            '\n\n已经自动试过直连和几个加速镜像。'
+            + '可以到项目主页手动下载安装包。');
     }
 }
 window.startAppUpdate = startAppUpdate;
@@ -9101,7 +9124,7 @@ if (document.readyState === 'loading') {
         }
     }
     function vxModTabShown(pageId, tab) {
-        const key = { 'page-books': '__vxBk', 'page-trainer': '__vxTr', 'page-anime': '__vxAn' }[pageId];
+        const key = { 'page-books': '__vxBk', 'page-trainer': '__vxTr', 'page-anime': '__vxAn', 'page-netdisk': '__vxPan' }[pageId];
         if (key && window[key] && typeof window[key].tabShown === 'function') {
             try { window[key].tabShown(tab); } catch (e) { console.warn('[vx] 标签初始化失败', tab, e); }
         }
@@ -11983,3 +12006,280 @@ var ThemeFx = (function () {
 document.addEventListener('DOMContentLoaded', function () {
   try { ThemeFx.init(); } catch (e) { console.warn('[主题动效] 初始化失败:', e); }
 });
+
+// ============================================================
+// 网盘解析页（夸克 / 百度 / 迅雷）
+// ------------------------------------------------------------
+// 流程：粘贴分享链接 → pan_list 列出文件 → 勾选 → pan_resolve 拿**带签名的直链**
+//       → 交给现有的 start_download（多线程 / 断点续传 / 自动解压 / 快捷方式全部复用）。
+//
+// ★ 直链是**临时**的（夸克/Baidu 的签名大约 1 小时），所以解析完要尽快下。
+// ★ 下载必须带驱动返回的 headers：百度不伪装 `User-Agent: pan.baidu.com` 会 403，
+//   夸克要带 Cookie + Referer。headers 直接从后端原样传给 start_download。
+// ============================================================
+(function () {
+  function $(id) { return document.getElementById(id); }
+  function esc(s) {
+    return String(s == null ? '' : s).replace(/[&<>"]/g, function (c) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c];
+    });
+  }
+  function fmtSize(n) {
+    n = Number(n) || 0;
+    if (n <= 0) return '—';
+    var u = ['B', 'KB', 'MB', 'GB', 'TB'], i = 0;
+    while (n >= 1024 && i < u.length - 1) { n /= 1024; i++; }
+    return (i === 0 ? n : n.toFixed(n >= 100 ? 0 : 1)) + ' ' + u[i];
+  }
+  function safeName(s) {
+    return String(s || 'file').replace(/[\\/:*?"<>|]/g, '_').replace(/^\.+/, '_').slice(0, 180);
+  }
+  function setStatus(el, text, isErr) {
+    if (!el) return;
+    el.textContent = text || '';
+    el.style.display = text ? 'block' : 'none';
+    el.style.color = isErr ? '#e5484d' : '';
+  }
+
+  var lastUrl = '', lastPwd = '', lastEntries = [];
+
+  // ---------- 列表渲染 ----------
+  function renderList(box, entries, withCheck) {
+    if (!box) return;
+    if (!entries || !entries.length) {
+      box.innerHTML = '<div class="pan-empty">没有文件</div>';
+      return;
+    }
+    box.innerHTML = entries.map(function (e, i) {
+      return '<label class="pan-item">' +
+        (withCheck ? '<input type="checkbox" data-i="' + i + '">' : '') +
+        '<span class="pan-name" title="' + esc(e.path || e.name) + '">' + esc(e.name) + '</span>' +
+        '<span class="pan-size">' + fmtSize(e.size) + '</span>' +
+        '</label>';
+    }).join('');
+  }
+
+  function picked(box, entries) {
+    var out = [];
+    [].forEach.call(box.querySelectorAll('input[type=checkbox]:checked'), function (c) {
+      var e = entries[+c.dataset.i];
+      if (e) out.push(e);
+    });
+    return out;
+  }
+
+  // ---------- 解析 ----------
+  async function doParse() {
+    var url = ($('pan-url').value || '').trim();
+    var pwd = ($('pan-pwd').value || '').trim();
+    var st = $('pan-status'), box = $('pan-list'), head = $('pan-head');
+    if (!url) { setStatus(st, '先粘贴分享链接', true); return; }
+    lastUrl = url; lastPwd = pwd; lastEntries = [];
+    if (head) head.style.display = 'none';
+    if (box) box.innerHTML = '';
+    setStatus(st, '正在解析…');
+    var btn = $('pan-parse-btn');
+    if (btn) { btn.disabled = true; btn.textContent = '解析中…'; }
+    try {
+      var entries = await invoke('pan_list', { url: url, passcode: pwd });
+      lastEntries = entries || [];
+      renderList(box, lastEntries, true);
+      var total = lastEntries.reduce(function (a, e) { return a + (Number(e.size) || 0); }, 0);
+      if (head) head.style.display = 'flex';
+      if ($('pan-count')) $('pan-count').textContent = lastEntries.length + ' 个文件 · ' + fmtSize(total);
+      setStatus(st, '解析成功，勾选要下载的文件');
+    } catch (e) {
+      setStatus(st, '解析失败：' + e, true);
+    } finally {
+      if (btn) { btn.disabled = false; btn.textContent = '解析'; }
+    }
+  }
+
+  async function doDownload() {
+    var box = $('pan-list'), st = $('pan-status');
+    var sel = picked(box, lastEntries);
+    if (!sel.length) { setStatus(st, '先勾选要下载的文件', true); return; }
+    var btn = $('pan-dl-btn');
+    if (btn) { btn.disabled = true; btn.textContent = '取直链中…'; }
+    setStatus(st, '正在获取直链…');
+    try {
+      var list = await invoke('pan_resolve', { url: lastUrl, passcode: lastPwd, entries: sel });
+      var dir = 'D:\\game';
+      try { var cfg = await invoke('get_config'); if (cfg && cfg.download_dir) dir = cfg.download_dir; } catch (_) {}
+      var ok = 0, fail = [];
+      for (var i = 0; i < list.length; i++) {
+        var r = list[i];
+        try {
+          await invoke('start_download', {
+            taskId: 'pan_' + Date.now() + '_' + i,
+            url: r.url,
+            filePath: dir + '\\' + safeName(r.name),
+            headers: r.headers || null,
+          });
+          ok++;
+        } catch (e) { fail.push(r.name + ': ' + e); }
+      }
+      if (ok) {
+        setStatus(st, '已加入下载 ' + ok + ' 个文件（到「下载」页看进度）' +
+          (fail.length ? '；失败 ' + fail.length + ' 个：' + fail.join('；') : ''),
+          fail.length > 0);
+        if (typeof showToast === 'function') showToast('已加入下载：' + ok + ' 个');
+      } else {
+        setStatus(st, '全部加入失败：' + fail.join('；'), true);
+      }
+    } catch (e) {
+      setStatus(st, '取直链失败：' + e, true);
+    } finally {
+      if (btn) { btn.disabled = false; btn.textContent = '下载选中'; }
+    }
+  }
+
+  // ---------- 我的网盘 ----------
+  async function loadMine() {
+    var d = ($('pan-mine-drive') || {}).value || 'xunlei';
+    var st = $('pan-mine-status'), box = $('pan-mine-list');
+    setStatus(st, '正在读取…');
+    if (box) box.innerHTML = '';
+    try {
+      var entries = await invoke('pan_list_mine', { drive: d, parentId: '' });
+      window.__panMineEntries = entries || [];
+      renderList(box, window.__panMineEntries, true);
+      var head = document.createElement('div');
+      setStatus(st, '共 ' + window.__panMineEntries.length + ' 项（目录请用网页版展开后再取文件）');
+      var dlBtn = $('pan-mine-dl');
+      if (!dlBtn && box) {
+        dlBtn = document.createElement('button');
+        dlBtn.id = 'pan-mine-dl';
+        dlBtn.className = 'btn btn-primary';
+        dlBtn.textContent = '下载选中';
+        dlBtn.style.marginTop = '10px';
+        dlBtn.onclick = downloadMine;
+        box.parentNode.insertBefore(dlBtn, box.nextSibling);
+      }
+    } catch (e) {
+      setStatus(st, '读取失败：' + e, true);
+    }
+  }
+
+  async function downloadMine() {
+    var box = $('pan-mine-list'), st = $('pan-mine-status');
+    var all = window.__panMineEntries || [];
+    var sel = picked(box, all).filter(function (e) { return !e.is_dir; });
+    if (!sel.length) { setStatus(st, '先勾选要下载的文件（目录不支持）', true); return; }
+    setStatus(st, '正在获取直链…');
+    try {
+      var d = ($('pan-mine-drive') || {}).value || 'xunlei';
+      var list = await invoke('pan_resolve_mine', { drive: d, entries: sel });
+      var dir = 'D:\\game';
+      try { var cfg = await invoke('get_config'); if (cfg && cfg.download_dir) dir = cfg.download_dir; } catch (_) {}
+      var ok = 0;
+      for (var i = 0; i < list.length; i++) {
+        await invoke('start_download', {
+          taskId: 'pan_' + Date.now() + '_' + i,
+          url: list[i].url,
+          filePath: dir + '\\' + safeName(list[i].name),
+          headers: list[i].headers || null,
+        });
+        ok++;
+      }
+      setStatus(st, '已加入下载 ' + ok + ' 个文件');
+    } catch (e) {
+      setStatus(st, '取直链失败：' + e, true);
+    }
+  }
+
+  // ---------- 登录设置 ----------
+  async function loadCookieStatus() {
+    try {
+      var list = await invoke('pan_cookie_status');
+      (list || []).forEach(function (c) {
+        var el = $('pan-state-' + c.drive);
+        if (!el) return;
+        if (c.has_cookie || c.has_refresh_token) {
+          var when = c.updated_at ? new Date(c.updated_at).toLocaleString() : '';
+          el.textContent = '已设置' + (c.cookie_len ? '（' + c.cookie_len + ' 字符）' : '') + (when ? ' · ' + when : '');
+          el.classList.add('ok');
+        } else {
+          el.textContent = '未设置';
+          el.classList.remove('ok');
+        }
+      });
+    } catch (e) { console.warn('[网盘] 读取状态失败', e); }
+  }
+
+  async function saveCookie(drive) {
+    var ta = $('pan-cookie-' + drive);
+    var v = ta ? (ta.value || '').trim() : '';
+    if (!v) { if (typeof showToast === 'function') showToast('先粘贴内容再保存'); return; }
+    try {
+      if (drive === 'xunlei') await invoke('pan_set_cookie', { drive: drive, refreshToken: v });
+      else await invoke('pan_set_cookie', { drive: drive, cookie: v });
+      if (ta) ta.value = '';
+      if (typeof showToast === 'function') showToast('已保存');
+      loadCookieStatus();
+    } catch (e) {
+      if (typeof vxAlert === 'function') vxAlert('保存失败：' + e);
+    }
+  }
+
+  async function clearCookie(drive) {
+    if (typeof vxConfirm === 'function' && !(await vxConfirm('确定清除 ' + drive + ' 的登录信息吗？'))) return;
+    try {
+      await invoke('pan_clear_cookie', { drive: drive });
+      if (typeof showToast === 'function') showToast('已清除');
+      loadCookieStatus();
+    } catch (e) {
+      if (typeof vxAlert === 'function') vxAlert('清除失败：' + e);
+    }
+  }
+
+  // ---------- 事件绑定（模块加载时一次性挂好） ----------
+  document.addEventListener('click', function (e) {
+    var t = e.target;
+    if (!t || !t.closest) return;
+    var save = t.closest('[data-pan-save]');
+    if (save) { saveCookie(save.dataset.panSave); return; }
+    var clr = t.closest('[data-pan-clear]');
+    if (clr) { clearCookie(clr.dataset.panClear); return; }
+  });
+
+  document.addEventListener('DOMContentLoaded', function () {
+    var pb = $('pan-parse-btn'); if (pb) pb.onclick = doParse;
+    var db = $('pan-dl-btn'); if (db) db.onclick = doDownload;
+    var ml = $('pan-mine-load'); if (ml) ml.onclick = loadMine;
+    var all = $('pan-all');
+    if (all) {
+      all.onchange = function () {
+        [].forEach.call(document.querySelectorAll('#pan-list input[type=checkbox]'), function (c) {
+          c.checked = all.checked;
+        });
+      };
+    }
+    var urlInput = $('pan-url');
+    if (urlInput) {
+      // 粘贴后自动识别一下，省得用户还得点「解析」才发现链接不对
+      urlInput.addEventListener('paste', function () {
+        setTimeout(async function () {
+          try {
+            var r = await invoke('pan_recognize', { url: urlInput.value });
+            var st = $('pan-status');
+            if (r) {
+              if (r.passcode && !($('pan-pwd').value || '').trim()) $('pan-pwd').value = r.passcode;
+              setStatus(st, '识别为 ' + (r.drive === 'quark' ? '夸克网盘' : r.drive === 'baidu' ? '百度网盘' : '迅雷云盘') +
+                '，点「解析」列文件');
+            } else {
+              setStatus(st, '没认出这是哪个网盘的分享链接（目前支持夸克 / 百度）', true);
+            }
+          } catch (_) {}
+        }, 60);
+      });
+    }
+    loadCookieStatus();
+  });
+
+  window.__vxPan = {
+    tabShown: function (tab) {
+      if (tab === 'setup') loadCookieStatus();
+    },
+  };
+})();
