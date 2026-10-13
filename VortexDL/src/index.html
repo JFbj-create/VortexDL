@@ -64,11 +64,6 @@
                     <span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/><line x1="9" y1="7" x2="16" y2="7"/><line x1="9" y1="11" x2="16" y2="11"/></svg></span>
                     <span class="nav-label">书库</span>
                 </button>
-                <!-- ★ 网盘解析（夸克/百度分享链接 → 直链 → 交给下载引擎） -->
-                <button class="nav-btn" data-page="netdisk">
-                    <span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M17.5 19a4.5 4.5 0 0 0 .5-8.97A6.5 6.5 0 0 0 5.6 11.2A3.9 3.9 0 0 0 6.5 19z"/><path d="M12 12v6"/><path d="m9.5 15.5 2.5 2.5 2.5-2.5"/></svg></span>
-                    <span class="nav-label">网盘</span>
-                </button>
                 <button class="nav-btn" data-page="resources">
                     <span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polygon points="16.24 7.76 14.12 14.12 7.76 16.24 9.88 9.88 16.24 7.76"/></svg></span>
                     <span class="nav-label">资源导航</span>
@@ -512,92 +507,6 @@
 
 
             <!-- 资源导航页 -->
-            <!-- ★ 网盘解析页。左导轨三档：解析下载 / 我的网盘 / 登录设置。
-                 解析出来的直链交给现有的 start_download（多线程 + 断点续传 + 解压全复用）。 -->
-            <section id="page-netdisk" class="page">
-                <h2 class="page-title"><span class="inline-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M17.5 19a4.5 4.5 0 0 0 .5-8.97A6.5 6.5 0 0 0 5.6 11.2A3.9 3.9 0 0 0 6.5 19z"/><path d="M12 12v6"/><path d="m9.5 15.5 2.5 2.5 2.5-2.5"/></svg></span>网盘解析</h2>
-                <div class="mod-shell">
-                    <nav class="mod-rail" data-rail="netdisk">
-                        <button class="mod-rail-btn active" data-tab="parse">解析下载</button>
-                        <button class="mod-rail-btn" data-tab="mine">我的网盘</button>
-                        <button class="mod-rail-btn" data-tab="setup">登录设置</button>
-                    </nav>
-                    <div class="mod-body">
-                        <!-- ===== 解析下载 ===== -->
-                        <div class="mod-panel active" data-tab="parse">
-                            <div class="pan-bar">
-                                <input type="text" id="pan-url" class="setting-input" autocomplete="off"
-                                       placeholder="粘贴分享链接 —— 夸克 / 百度（例：https://pan.quark.cn/s/xxxx）">
-                                <input type="text" id="pan-pwd" class="setting-input pan-pwd" autocomplete="off"
-                                       maxlength="8" placeholder="提取码">
-                                <button class="btn btn-primary" id="pan-parse-btn">解析</button>
-                            </div>
-                            <div class="kernel-tip">
-                                <b>支持</b>：夸克网盘、百度网盘的<b>分享链接</b>；迅雷云盘只支持「我的网盘」（它的分享链接全网没有公开可用的解析方式）。<br>
-                                解析出来的是<b>带签名的临时直链</b>，会过期 —— 解析完尽快下载。需要登录态的网盘请先去
-                                「登录设置」粘贴你自己的 Cookie。
-                            </div>
-                            <div class="pan-status" id="pan-status" style="display:none"></div>
-                            <div class="pan-head" id="pan-head" style="display:none">
-                                <label class="pan-check"><input type="checkbox" id="pan-all"> 全选</label>
-                                <span class="pan-count" id="pan-count"></span>
-                                <button class="btn btn-primary" id="pan-dl-btn">下载选中</button>
-                            </div>
-                            <div class="pan-list" id="pan-list"></div>
-                        </div>
-                        <!-- ===== 我的网盘 ===== -->
-                        <div class="mod-panel" data-tab="mine">
-                            <div class="pan-bar">
-                                <select class="setting-input pan-drive" id="pan-mine-drive">
-                                    <option value="xunlei">迅雷云盘</option>
-                                </select>
-                                <button class="btn btn-primary" id="pan-mine-load">读取文件列表</button>
-                            </div>
-                            <div class="kernel-tip">
-                                目前只做了迅雷的「我的网盘」（接口有公开实现、可验证）。
-                                夸克/百度请用分享链接方式。
-                            </div>
-                            <div class="pan-status" id="pan-mine-status" style="display:none"></div>
-                            <div class="pan-list" id="pan-mine-list"></div>
-                        </div>
-                        <!-- ===== 登录设置 ===== -->
-                        <div class="mod-panel" data-tab="setup">
-                            <div class="kernel-tip">
-                                网盘的下载直链是<b>按账号签名</b>的，必须带登录态。这里只存你<b>自己粘贴</b>的 Cookie，
-                                不存账号密码，也不会外发。粘贴方法：浏览器登录网盘 → F12 → Network → 随便点一个请求 →
-                                复制请求头里的 <code>Cookie:</code> 整行（迅雷是复制 <code>refresh_token</code>）。
-                            </div>
-                            <div class="pan-cookie-row" data-drive="quark">
-                                <div class="pan-cookie-head"><b>夸克网盘</b><span class="pan-cookie-state" id="pan-state-quark">未设置</span></div>
-                                <textarea class="setting-input pan-cookie" id="pan-cookie-quark" rows="3"
-                                          placeholder="Cookie（需要含 __puus；分享直下还需要 __pugs）"></textarea>
-                                <div class="pan-cookie-actions">
-                                    <button class="btn" data-pan-save="quark">保存</button>
-                                    <button class="btn" data-pan-clear="quark">清除</button>
-                                </div>
-                            </div>
-                            <div class="pan-cookie-row" data-drive="baidu">
-                                <div class="pan-cookie-head"><b>百度网盘</b><span class="pan-cookie-state" id="pan-state-baidu">未设置</span></div>
-                                <textarea class="setting-input pan-cookie" id="pan-cookie-baidu" rows="3"
-                                          placeholder="Cookie（至少要有 BDUSS，最好连 BAIDUID / STOKEN 一起）"></textarea>
-                                <div class="pan-cookie-actions">
-                                    <button class="btn" data-pan-save="baidu">保存</button>
-                                    <button class="btn" data-pan-clear="baidu">清除</button>
-                                </div>
-                            </div>
-                            <div class="pan-cookie-row" data-drive="xunlei">
-                                <div class="pan-cookie-head"><b>迅雷云盘</b><span class="pan-cookie-state" id="pan-state-xunlei">未设置</span></div>
-                                <textarea class="setting-input pan-cookie" id="pan-cookie-xunlei" rows="2"
-                                          placeholder="refresh_token（不是 Cookie；从浏览器登录迅雷后的请求体里取）"></textarea>
-                                <div class="pan-cookie-actions">
-                                    <button class="btn" data-pan-save="xunlei">保存</button>
-                                    <button class="btn" data-pan-clear="xunlei">清除</button>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </section>
             <section id="page-resources" class="page">
                 <h2 class="page-title"><span class="inline-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polygon points="16.24 7.76 14.12 14.12 7.76 16.24 9.88 9.88 16.24 7.76"/></svg></span>资源导航</h2>
                 <div id="resources-grid" class="nav-grid" style="grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 12px;"></div>

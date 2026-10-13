@@ -57,8 +57,22 @@ fn check(body: &serde_json::Value) -> Result<(), String> {
     Err(format!("code={} status={} {}", code, status, msg))
 }
 
-/// 分享 -> stoken
-pub async fn share_token(pwd_id: &str, passcode: &str, cookie: &str) -> Result<String, String> {
+/// 从响应头里收 Set-Cookie（只要 __pugs / __pus / __puus —— 这些是夸克下发的会话态）
+fn pick_set_cookie(resp: &reqwest::Response) -> Vec<String> {
+    let mut out = Vec::new();
+    for v in resp.headers().get_all(reqwest::header::SET_COOKIE).iter() {
+        if let Ok(sv) = v.to_str() {
+            let first = sv.split(';').next().unwrap_or("").trim();
+            if first.starts_with("__pugs=") || first.starts_with("__pus=") || first.starts_with("__puus=") {
+                out.push(first.to_string());
+            }
+        }
+    }
+    out
+}
+
+/// 分享 -> (stoken, 服务端下发的会话 cookie)
+pub async fn share_token(pwd_id: &str, passcode: &str, cookie: &str) -> Result<(String, Vec<String>), String> {
     let url = format!("{}/share/sharepage/token?{}", BASE, anti_bot());
     let body = serde_json::json!({ "pwd_id": pwd_id, "passcode": passcode });
     let resp = req(reqwest::Method::POST, &url, cookie)
@@ -66,14 +80,17 @@ pub async fn share_token(pwd_id: &str, passcode: &str, cookie: &str) -> Result<S
         .send()
         .await
         .map_err(|e| friendly_err(Drive::Quark, "sharepage/token", &e.to_string()))?;
+    let setck = pick_set_cookie(&resp);
     let text = resp.text().await.unwrap_or_default();
     let v: serde_json::Value = serde_json::from_str(&text)
         .map_err(|_| friendly_err(Drive::Quark, "sharepage/token", &text))?;
     check(&v).map_err(|e| friendly_err(Drive::Quark, "sharepage/token", &e))?;
-    v.pointer("/data/stoken")
+    let stoken = v
+        .pointer("/data/stoken")
         .and_then(|x| x.as_str())
         .map(|s| s.to_string())
-        .ok_or_else(|| friendly_err(Drive::Quark, "sharepage/token", "返回里没有 stoken"))
+        .ok_or_else(|| friendly_err(Drive::Quark, "sharepage/token", "返回里没有 stoken"))?;
+    Ok((stoken, setck))
 }
 
 /// 列一层目录
@@ -155,7 +172,7 @@ fn entry_of(it: &serde_json::Value, prefix: &str) -> PanEntry {
 pub async fn list_share(pwd_id: &str, passcode: &str) -> Result<Vec<PanEntry>, String> {
     let ck = super::get_cookie(Drive::Quark);
     let cookie = ck.cookie;
-    let stoken = share_token(pwd_id, passcode, &cookie).await?;
+    let (stoken, _ck) = share_token(pwd_id, passcode, &cookie).await?;
 
     let (top, _is_owner) = list_dir(pwd_id, &stoken, "0", &cookie).await?;
     let mut files: Vec<PanEntry> = Vec::new();
@@ -190,6 +207,36 @@ pub async fn list_share(pwd_id: &str, passcode: &str) -> Result<Vec<PanEntry>, S
     Ok(files)
 }
 
+/// 游客下载需要 `__pugs` —— 访问分享页时夸克会在 Set-Cookie 里下发。
+/// ★ 不登录也能拿到，只是有**大小上限**（超了会返回 code 23018）。
+/// 有登录 Cookie 时这个用不着，但带上无害，所以无脑合并。
+async fn guest_cookie(pwd_id: &str) -> String {
+    let url = format!("https://pan.quark.cn/s/{}", pwd_id);
+    let resp = match req(reqwest::Method::GET, &url, "").send().await {
+        Ok(r) => r,
+        Err(e) => {
+            crate::app_logger::log_command("netdisk", &format!("[夸克] 取游客 cookie 失败: {}", e));
+            return String::new();
+        }
+    };
+    let mut parts: Vec<String> = Vec::new();
+    for v in resp.headers().get_all(reqwest::header::SET_COOKIE).iter() {
+        if let Ok(sv) = v.to_str() {
+            // Set-Cookie 形如 "__pugs=xxx; Path=/; ..."，只要第一段
+            let first = sv.split(';').next().unwrap_or("").trim();
+            if first.starts_with("__pugs=") || first.starts_with("__pus=") {
+                parts.push(first.to_string());
+            }
+        }
+    }
+    let joined = parts.join("; ");
+    crate::app_logger::log_command(
+        "netdisk",
+        &format!("[夸克] 游客 cookie: {}", if joined.is_empty() { "没拿到".into() } else { format!("{} 项", parts.len()) }),
+    );
+    joined
+}
+
 fn urlencode(s: &str) -> String {
     url::form_urlencoded::byte_serialize(s.as_bytes()).collect()
 }
@@ -197,11 +244,58 @@ fn urlencode(s: &str) -> String {
 /// 拿直链：先试"分享直下"，失败再"转存到自己网盘再下"。
 pub async fn resolve(pwd_id: &str, passcode: &str, entries: &[PanEntry]) -> Result<Vec<PanResolved>, String> {
     let ck = super::get_cookie(Drive::Quark);
-    let cookie = ck.cookie;
-    let stoken = share_token(pwd_id, passcode, &cookie).await?;
+    // ★ 不登录时也要能试一次「分享直下」：把分享页下发的游客 cookie 合并进来。
+    //   有登录 cookie 的话这段是多余的，但不会有害。
+    let mut guest = guest_cookie(pwd_id).await;
+    let mut cookie = if guest.is_empty() {
+        ck.cookie.clone()
+    } else if ck.cookie.trim().is_empty() {
+        guest.clone()
+    } else {
+        format!("{}; {}", ck.cookie.trim_end_matches(';'), guest)
+    };
+    let (stoken, setck) = share_token(pwd_id, passcode, &cookie).await?;
+    // ★ token 接口的 Set-Cookie 里通常才有 __pugs（游客下载要用），
+    //   拿到就并进去再试一次直下 —— 这是"不登录也能下小文件"的关键。
+    if !setck.is_empty() {
+        let extra = setck.join("; ");
+        cookie = if cookie.trim().is_empty() { extra.clone() } else { format!("{}; {}", cookie.trim_end_matches(';'), extra) };
+        guest = format!("{}; {}", guest, extra);
+        crate::app_logger::log_command("netdisk", &format!("[夸克] token 接口下发 cookie {} 项，已并入", setck.len()));
+    }
 
+    // ★★ 关键：`share_fid_token` 是**绑在 stoken 会话上**的。
+    //   上一轮 list_share 拿到的 token 配这一轮新取的 stoken 会直接被夸克拒掉
+    //   （报 code=41020 "转存文件token校验异常" —— 看起来像"没登录"，其实是 token 不匹配）。
+    //   所以这里**用新 stoken 重新列一遍**，按 fid 取新鲜的 token。
+    let tokens: Vec<String> = {
+        let mut map = std::collections::HashMap::new();
+        let mut stack = vec!["0".to_string()];
+        let mut seen = 0;
+        while let Some(dir) = stack.pop() {
+            if seen > 40 { break; }
+            seen += 1;
+            match list_dir(pwd_id, &stoken, &dir, &cookie).await {
+                Ok((kids, _)) => {
+                    for k in kids {
+                        if k.is_dir {
+                            stack.push(k.fid.clone());
+                        } else if !k.token.is_empty() {
+                            map.insert(k.fid.clone(), k.token.clone());
+                        }
+                    }
+                }
+                Err(e) => {
+                    crate::app_logger::log_command("netdisk", &format!("[夸克] 刷新 token 时列目录失败: {}", e));
+                }
+            }
+        }
+        entries
+            .iter()
+            .map(|e| map.get(&e.fid).cloned().unwrap_or_else(|| e.token.clone()))
+            .collect()
+    };
     let fids: Vec<String> = entries.iter().map(|e| e.fid.clone()).collect();
-    let tokens: Vec<String> = entries.iter().map(|e| e.token.clone()).collect();
 
     // ---- 路线 1：带 share token 直接要下载地址（不落盘，最干净）----
     if tokens.iter().all(|t| !t.is_empty()) {
@@ -217,7 +311,7 @@ pub async fn resolve(pwd_id: &str, passcode: &str, entries: &[PanEntry]) -> Resu
         });
         match post_download(&url, &body, &cookie).await {
             Ok(list) if !list.is_empty() => {
-                return Ok(merge(entries, list));
+                return Ok(merge(entries, list, &cookie));
             }
             Ok(_) => {}
             Err(e) => {
@@ -234,7 +328,7 @@ pub async fn resolve(pwd_id: &str, passcode: &str, entries: &[PanEntry]) -> Resu
     if list.is_empty() {
         return Err("转存成功但没拿到下载地址（可能该文件被网盘限制下载）".to_string());
     }
-    Ok(merge(entries, list))
+    Ok(merge(entries, list, &cookie))
 }
 
 /// POST /file/download -> [(file_name, download_url, size)]
@@ -391,9 +485,9 @@ async fn find_saved_fids(want: usize, cookie: &str) -> Result<Vec<String>, Strin
 }
 
 /// 把 download_url 列表和原始 entries 对齐（夸克按 fid 顺序返回，但名字以返回的为准）
-fn merge(entries: &[PanEntry], list: Vec<(String, String, u64)>) -> Vec<PanResolved> {
+fn merge(entries: &[PanEntry], list: Vec<(String, String, u64)>, cookie: &str) -> Vec<PanResolved> {
     let headers = vec![
-        ("Cookie".to_string(), super::get_cookie(Drive::Quark).cookie),
+        ("Cookie".to_string(), cookie.to_string()),
         ("Referer".to_string(), "https://pan.quark.cn/".to_string()),
         ("User-Agent".to_string(), QUARK_UA.to_string()),
     ];
@@ -479,7 +573,7 @@ mod tests {
             fid: "1".into(), name: "x.bin".into(), is_dir: false, size: 5,
             token: "t".into(), path: "x.bin".into(),
         }];
-        let out = merge(&entries, vec![("x.bin".into(), "https://cdn/x".into(), 5)]);
+        let out = merge(&entries, vec![("x.bin".into(), "https://cdn/x".into(), 5)], "");
         assert_eq!(out.len(), 1);
         // 没配 cookie 时不能塞一个空的 Cookie 头
         assert!(out[0].headers.iter().all(|(k, v)| !(k == "Cookie" && v.is_empty())));
