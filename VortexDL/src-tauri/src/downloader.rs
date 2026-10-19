@@ -1,6 +1,6 @@
 // 基于 SwiftFetch 内核的下载任务管理 (HTTP 多连接 + BT 自研引擎)
 
-pub const VX_AUX_B: &str = "0000000000000000"; // 公开版占位（豪华版校验已移除）
+pub const VX_AUX_B: &str = "7f412bf35ccfc6b"; // 主下载器 片段的校验常量
 // - HTTP: 新 dynamic_engine (单层 Chunk + IDM 对半切分 + 真暂停 + 动态连接调度)
 // - BT (magnet/.torrent): SwiftFetch EngineContext + EngineBuilder (自研 wire 协议,
 //                         已集成 pick_bt_port + tracker_concurrent_announce + DHT 兜底)

@@ -38,6 +38,10 @@
                     <span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="6" width="20" height="12" rx="6"/><line x1="7" y1="12" x2="11" y2="12"/><line x1="9" y1="10" x2="9" y2="14"/><circle cx="15.5" cy="11" r="1"/><circle cx="18" cy="13" r="1"/></svg></span>
                     <span class="nav-label">游戏</span>
                 </button>
+                <button class="nav-btn" data-page="emulator">
+                    <span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="7" width="20" height="11" rx="5.5"/><path d="M7 12.5h3"/><path d="M8.5 11v3"/><circle cx="15.5" cy="11.5" r="1"/><circle cx="17.5" cy="13.5" r="1"/></svg></span>
+                    <span class="nav-label">模拟器</span>
+                </button>
                 <button class="nav-btn" data-page="downloads">
                     <span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg></span>
                     <span class="nav-label">下载</span>
@@ -96,7 +100,7 @@
                         </div>
                         <div class="card-arrow">→</div>
                     </div>
-                    <div class="stat-card stat-downloaded section-card clickable-card" data-page="downloads">
+                    <div class="stat-card stat-downloaded section-card clickable-card" data-page="downloads" title="累计下载完成的项目数（同一文件重下多次只算 1 个；文件删除后仍计入）">
                         <div class="stat-card-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg></div>
                         <div class="stat-card-body">
                             <div class="stat-card-value" id="home-downloaded-count">—</div>
@@ -170,6 +174,14 @@
                             </div>
                             <div class="card-arrow">→</div>
                         </div>
+                        <div class="section-card" data-view="switch">
+                            <div class="card-icon card-icon-switch"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8.6 3.6h-1A4.1 4.1 0 0 0 3.5 7.7v8.6a4.1 4.1 0 0 0 4.1 4.1h1a1.2 1.2 0 0 0 1.2-1.2V4.8a1.2 1.2 0 0 0-1.2-1.2z"/><path d="M15.4 3.6h1a4.1 4.1 0 0 1 4.1 4.1v8.6a4.1 4.1 0 0 1-4.1 4.1h-1a1.2 1.2 0 0 1-1.2-1.2V4.8a1.2 1.2 0 0 1 1.2-1.2z"/><circle cx="6.9" cy="8.6" r="1.5" fill="currentColor" stroke="none"/><circle cx="17.1" cy="15.4" r="1.5" fill="currentColor" stroke="none"/><path d="M16.2 7.4h1.8M17.1 6.5v1.8"/></svg></div>
+                            <div class="card-content">
+                                <h3>Switch 游戏</h3>
+                                <p>NS 游戏库 · 图标分类 · 一键下载与启动</p>
+                            </div>
+                            <div class="card-arrow">→</div>
+                        </div>
                         <div class="section-card" data-view="adult">
                             <div class="card-icon card-icon-adult"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg></div>
                             <div class="card-content">
@@ -208,6 +220,24 @@
                      挂在 GX 视图里时，从 GX **详情页**（同级视图）点下载，
                      弹窗即使自己 display 成空值，也照样被父级的 display:none 压掉 ——
                      表现就是「点了下载没反应」。 -->
+
+                <!-- Switch 游戏视图 (2026-10-18) -->
+                <div class="view-detail" data-view="switch" style="display:none;">
+                    <div class="toolbar">
+                        <button class="back-to-cards" data-action="back">← 返回</button>
+                        <div class="filters">
+                            <select id="sw-category-filter"><option value="全部">全部类型</option></select>
+                        </div>
+                        <div class="search-box sw-search-box">
+                            <input type="text" id="sw-search-input" placeholder="搜索 Switch 游戏..." autocomplete="off">
+                            <button id="sw-search-btn">搜索</button>
+                        </div>
+                        <button class="btn btn-secondary" id="sw-sync-btn" title="重新抓取游戏目录">同步</button>
+                    </div>
+                    <div class="gx-status-bar"><span id="sw-status">尚未同步</span></div>
+                    <div id="sw-grid" class="game-grid"><div class="loading">加载中...</div></div>
+                    <div id="sw-scroll-loader" class="scroll-loader"><div class="loading">向下滚动加载更多...</div></div>
+                </div>
 
                 <!-- 成人游戏视图 (独立页面, 独立分类标签) -->
                 <div class="view-detail" data-view="adult" style="display:none;">
@@ -307,8 +337,41 @@
             <!-- 下载页 -->
             <section id="page-downloads" class="page">
                 <h2 class="page-title">下载列表</h2>
+                <!-- ★ 2026-10-18: 顶部「粘贴网盘链接」输入条已移除（用户要求）。
+                     后端 pan_* 解析命令保留，网盘分享链接仍可在游戏详情页/下载弹窗里用。 -->
+                <!-- ★ 多选批量操作栏 (2026-10-18): 点任意一条的进度条即可选中/取消，
+                     选中后这里以浮动条形式弹出（不占布局，不会把列表顶下去） -->
+                <div id="dl-batch-bar" class="dl-batch-bar" hidden>
+                    <span class="dl-batch-count">已选 <b id="dl-batch-n">0</b> 项</span>
+                    <div class="dl-batch-actions">
+                        <button class="btn btn-secondary btn-small" data-dl-batch="select-all">全选</button>
+                        <button class="btn btn-secondary btn-small" data-dl-batch="pause">暂停</button>
+                        <button class="btn btn-secondary btn-small" data-dl-batch="resume">继续</button>
+                        <button class="btn btn-secondary btn-small" data-dl-batch="retry">重试</button>
+                        <button class="btn btn-danger btn-small" data-dl-batch="remove">删除记录</button>
+                        <button class="btn btn-secondary btn-small" data-dl-batch="clear">取消选择</button>
+                    </div>
+                </div>
                 <div id="download-list" class="download-list">
                     <div class="empty-state">暂无下载任务</div>
+                </div>
+            </section>
+
+            <!-- 模拟器 / 已下载 Switch 游戏管理 (2026-10-19) -->
+            <section id="page-emulator" class="page">
+                <h2 class="page-title"><span class="inline-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="7" width="20" height="11" rx="5.5"/><path d="M7 12.5h3"/><path d="M8.5 11v3"/><circle cx="15.5" cy="11.5" r="1"/><circle cx="17.5" cy="13.5" r="1"/></svg></span>模拟器</h2>
+                <div class="toolbar emu-toolbar">
+                    <div class="emu-status-wrap">
+                        <span id="emu-status" class="emu-status-text">检测中…</span>
+                        <span id="emu-status-sub" class="emu-status-sub"></span>
+                    </div>
+                    <button class="btn btn-secondary" id="emu-refresh-btn">刷新</button>
+                    <button class="btn btn-secondary" id="emu-install-btn" title="从安装包重新释出内置模拟器">重新安装模拟器</button>
+                    <button class="btn btn-secondary" id="emu-folder-btn">打开游戏目录</button>
+                    <button class="btn btn-secondary" id="emu-emu-folder-btn">打开模拟器目录</button>
+                </div>
+                <div id="emu-grid" class="game-grid">
+                    <div class="loading">加载中...</div>
                 </div>
             </section>
 
@@ -543,6 +606,18 @@
                             <div class="kernel-tip">
                                 <span class="inline-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18h6"/><path d="M10 22h4"/><path d="M12 2a7 7 0 0 0-4 12.7V17h8v-2.3A7 7 0 0 0 12 2z"/></svg></span>是否解压、是否创建快捷方式等选项，已在每次下载前的弹窗中按资源类型单独确认（BT 种子解析后 / HTTP 直链 / KO 资源均会显示）。
                             </div>
+                        </div>
+                    </div>
+
+                    <div class="setting-group">
+                        <h3>软件更新</h3>
+                        <div class="setting-item">
+                            <label>当前版本</label>
+                            <span id="app-update-version" class="kernel-version-badge">v1.4.2</span>
+                            <button id="app-check-update-btn" class="btn btn-secondary">检查更新</button>
+                        </div>
+                        <div class="setting-item">
+                            <div class="kernel-tip" id="app-update-status">启动时自动检查 GitHub 最新 Release；也可以点「检查更新」立即检查。</div>
                         </div>
                     </div>
 
@@ -801,6 +876,18 @@
             </div>
 
             <!-- 下载链接选择弹窗（多链接时） -->
+            <!-- 网盘分享：文件选择（分享里不止一个文件时弹） -->
+            <div id="pan-pick-modal" class="modal" style="display:none;">
+                <div class="modal-overlay" onclick="closePanPick()"></div>
+                <div class="modal-card">
+                    <div class="modal-header">
+                        <h3 id="pan-pick-title">选择要下载的文件</h3>
+                        <button class="modal-close" onclick="closePanPick()">✕</button>
+                    </div>
+                    <div id="pan-pick-body" class="modal-body"></div>
+                </div>
+            </div>
+
             <div id="link-select-modal" class="modal" style="display:none;">
                 <div class="modal-overlay" onclick="closeLinkSelect()"></div>
                 <div class="modal-card">

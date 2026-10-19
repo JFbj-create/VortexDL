@@ -451,8 +451,11 @@ pub async fn start_download(
     };
 
     // BT 任务 ID 统一 bt-xxx 前缀 (前端据此渲染 BT 进度条与跳过自动解压)
+    // ★ 2026-10-18: 重试时前端会把原来的 `bt-xxx` 原样传回来，这里必须先剥掉
+    //   已有的 bt- 前缀，否则会变成 bt-bt-xxx（列表里对不上、进度收不到）。
     let real_id = if crate::downloader::is_bt_url(&effective_url) {
-        format!("bt-{}", task_id.trim_start_matches("dl_"))
+        let base = task_id.trim_start_matches("dl_").trim_start_matches("bt-");
+        format!("bt-{}", base)
     } else {
         task_id.clone()
     };
@@ -696,11 +699,23 @@ pub async fn resume_download(task_id: String, app: AppHandle, state: State<'_, A
 #[tauri::command]
 pub async fn retry_download(task_id: String, app: AppHandle, state: State<'_, AppState>) -> Result<(), String> {
     // 前端停滞检测自动恢复: 中止当前 future, 重置状态, 重新 spawn_download
+    //
+    // ★ 2026-10-18: 任务不存在时必须**返回 Err**。以前是静默 Ok(())，前端
+    //   "重试"看起来点了没反应，于是又调 start_download 新建一条 —— 对签名
+    //   直链/网盘来说就是重新申请链接，点几次就 403。现在前端据此走
+    //   "同一个 taskId 重新 start" 的兜底，绝不新建申请。
     let task = {
         let m = state.download_tasks.lock().await;
         m.get(&task_id).cloned()
     };
-    if let Some(t) = task {
+    let t = match task {
+        Some(t) => t,
+        None => {
+            crate::app_logger::log_command("retry_download", &format!("task_id={} 不存在（重启后需重新 start）", task_id));
+            return Err(format!("任务 {} 不在引擎中", task_id));
+        }
+    };
+    {
         // 中止当前下载 future
         if let Some(h) = t.handle.lock().await.take() {
             h.abort();
@@ -752,6 +767,24 @@ pub fn aria2_get_active_downloads() -> Result<Vec<Value>, String> { Ok(vec![]) }
 // ===================== 快照 / 缓存 =====================
 #[tauri::command]
 pub fn clear_cache(state: State<'_, AppState>) -> Result<String, String> { Ok(state.cache.clear()) }
+
+/// 浏览缓存统计（详情 / 中英文名 / 封面图）
+#[tauri::command]
+pub fn game_cache_stats() -> crate::game_cache::CacheStats {
+    crate::game_cache::stats()
+}
+
+/// 清空浏览缓存（详情 / 名字索引 / 封面图）
+#[tauri::command]
+pub fn game_cache_clear() -> String {
+    crate::game_cache::clear()
+}
+
+/// 立刻把浏览缓存落盘（退出前调用，避免节流窗口内丢数据）
+#[tauri::command]
+pub fn game_cache_flush() {
+    crate::game_cache::save_now();
+}
 
 // ===================== 缓存清理 (设置页 2026-10-01) =====================
 
@@ -807,7 +840,16 @@ pub fn get_cache_usage() -> Result<Value, String> {
     let mut temp_bytes = path_size(&temp_cache_dir());
     for p in scan_system_temp() { temp_bytes += path_size(&p); }
     let logs_bytes = path_size(&logs_dir_path());
-    Ok(json!({ "temp_bytes": temp_bytes, "logs_bytes": logs_bytes }))
+    // ★ 2026-10-18: 浏览缓存（详情/名字索引/封面图）也计入，设置页能看到实际占用
+    let browse = crate::game_cache::stats();
+    Ok(json!({
+        "temp_bytes": temp_bytes,
+        "logs_bytes": logs_bytes,
+        "browse_bytes": browse.disk_bytes,
+        "browse_details": browse.details,
+        "browse_names": browse.names,
+        "browse_images": browse.images,
+    }))
 }
 
 /// 清理临时缓存: BT 解析临时产物 + 运行日志 + 本程序系统临时文件
@@ -1757,11 +1799,28 @@ pub fn list_archives(dir: String) -> Result<Value, String> {
     Ok(json!({ "archives": archives }))
 }
 
+/// ★ 批量判断路径是否存在（2026-10-18）
+///
+/// 启动时前端要把「记录还在、文件已经被用户在资源管理器里删掉」的下载任务标成
+/// 「已删除」。逐条调 check_bt_disk_progress 会为每个任务走一遍 WalkDir（几十条
+/// 记录就是几十次目录遍历），这里只做一次 Path::exists，并且放到阻塞线程池，
+/// 不会因为某个网络盘卡住而冻结 UI。
+#[tauri::command]
+pub async fn paths_exist(paths: Vec<String>) -> Result<Vec<bool>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        paths
+            .iter()
+            .map(|p| !p.trim().is_empty() && Path::new(p).exists())
+            .collect::<Vec<bool>>()
+    })
+    .await
+    .map_err(|e| format!("paths_exist 失败: {e}"))
+}
+
 /// ★ BT 下载磁盘进度检查: 扫描 BT 输出目录, 返回实际文件总大小
 /// 用于前端当 BT 进度卡在 0 时, 检查磁盘上是否已有数据写入
 #[tauri::command]
-pub fn check_bt_disk_progress(dir: String) -> Result<Value, String> {
-    use walkdir::WalkDir;
+pub fn check_bt_disk_progress(dir: String) -> Result<Value, String> {    use walkdir::WalkDir;
     let base = PathBuf::from(&dir);
     if !base.exists() {
         return Ok(json!({ "disk_bytes": 0, "file_count": 0, "exists": false }));
@@ -1875,6 +1934,22 @@ pub fn pan_recognize(url: String) -> Option<crate::netdisk::PanLink> {
                  r.as_ref().map(|l| (l.drive.id(), l.share_id.clone()))),
     );
     r
+}
+
+/// 各网盘的能力表（前端据此提示"这个网盘需要登录"，而不是让用户白等一次必然失败的解析）。
+/// ★ 真相只写在 Rust 侧（`Drive::needs_login()`），前端不自己维护一份，免得两边漂移。
+#[tauri::command]
+pub fn pan_drives() -> Vec<serde_json::Value> {
+    crate::netdisk::Drive::all()
+        .iter()
+        .map(|d| {
+            serde_json::json!({
+                "id": d.id(),
+                "name": d.name(),
+                "needs_login": d.needs_login(),
+            })
+        })
+        .collect()
 }
 
 #[tauri::command]
@@ -2637,4 +2712,184 @@ mod shortcut_tests {
             println!("  auto={} icon={} {} | {}", c.auto, c.has_icon, c.name, c.rel);
         }
     }
+}
+
+// ===================== Switch 游戏库 =====================
+
+#[tauri::command]
+pub fn switch_catalog_stats() -> crate::switch_games::CatalogStats {
+    crate::switch_games::stats()
+}
+
+#[tauri::command]
+pub async fn switch_refresh(app: tauri::AppHandle) -> Result<crate::switch_games::CatalogStats, String> {
+    use tauri::Emitter;
+    let app2 = app.clone();
+    crate::switch_games::refresh(&|msg: &str, done: usize, total: usize| {
+        let _ = app2.emit(
+            "switch-refresh-progress",
+            serde_json::json!({ "msg": msg, "done": done, "total": total }),
+        );
+    })
+    .await
+}
+
+#[tauri::command]
+pub fn switch_list(
+    cat: Option<String>,
+    query: Option<String>,
+    offset: Option<usize>,
+    limit: Option<usize>,
+) -> serde_json::Value {
+    let (items, total) = crate::switch_games::list(
+        cat.as_deref().unwrap_or(""),
+        query.as_deref().unwrap_or(""),
+        offset.unwrap_or(0),
+        limit.unwrap_or(60),
+    );
+    serde_json::json!({ "items": items, "total": total })
+}
+
+#[tauri::command]
+pub async fn switch_detail(id: String) -> Result<crate::switch_games::SwitchGame, String> {
+    crate::switch_games::detail(&id).await
+}
+
+#[tauri::command]
+pub async fn switch_download(id: String) -> Result<Vec<crate::switch_games::SwitchFile>, String> {
+    crate::switch_games::download(&id).await
+}
+
+/// 解压 Switch 压缩包到模拟器目录（下载目录只放压缩包）
+#[tauri::command]
+pub async fn switch_install(archive: String, title: String) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        crate::switch_games::install_archive(&archive, &title)
+    })
+    .await
+    .map_err(|e| format!("解压任务失败: {}", e))?
+}
+
+#[tauri::command]
+pub fn switch_download_dir() -> String {
+    crate::switch_games::download_dir().to_string_lossy().to_string()
+}
+
+#[tauri::command]
+pub fn switch_downloaded() -> Vec<crate::switch_games::DownloadedGame> {
+    crate::switch_games::downloaded()
+}
+
+#[tauri::command]
+pub fn switch_find_local(title: String) -> Option<String> {
+    crate::switch_games::find_local(&title)
+}
+
+#[tauri::command]
+pub fn switch_emu_status() -> serde_json::Value {
+    match crate::switch_games::emu_scan() {
+        Some(p) => serde_json::json!({ "found": true, "path": p.to_string_lossy() }),
+        None => serde_json::json!({ "found": false, "path": "" }),
+    }
+}
+
+#[tauri::command]
+pub fn switch_emu_launch(path: String) -> Result<String, String> {
+    crate::switch_games::emu_launch(&path)
+}
+
+// ===================== 模拟器 =====================
+
+#[tauri::command]
+pub fn emu_info() -> crate::emulator::EmuInfo {
+    crate::emulator::info()
+}
+
+#[tauri::command]
+pub fn emu_launch(path: String) -> Result<String, String> {
+    crate::emulator::launch(&path)
+}
+
+#[tauri::command]
+pub fn emu_stop() -> Result<(), String> {
+    crate::emulator::stop()
+}
+
+#[tauri::command]
+pub fn emu_alive() -> bool {
+    crate::emulator::alive()
+}
+
+#[tauri::command]
+pub fn emu_input() -> crate::emulator::InputState {
+    crate::emulator::input::poll()
+}
+
+#[tauri::command]
+pub fn emu_binds_get() -> std::collections::HashMap<String, u16> {
+    crate::emulator::input::get_binds()
+}
+
+#[tauri::command]
+pub fn emu_binds_set(binds: std::collections::HashMap<String, u16>) -> Result<(), String> {
+    crate::emulator::input::save_binds(&binds)
+}
+
+#[tauri::command]
+pub fn emu_binds_reset() -> std::collections::HashMap<String, u16> {
+    crate::emulator::input::reset_binds()
+}
+
+#[tauri::command]
+pub fn emu_toggle_max() -> Result<(), String> {
+    crate::emulator::toggle_maximize()
+}
+
+#[tauri::command]
+pub fn emu_toggle_fullscreen() -> Result<(), String> {
+    crate::emulator::toggle_fullscreen()
+}
+
+/// ★ 必须是 async：同步命令跑在主线程上，而建窗口要等主线程消息循环 → 直接死锁
+///   （实测调用 15 秒不返回、窗口也不出现）。async 命令在 worker 线程执行才正常。
+#[tauri::command]
+pub async fn emu_overlay_open(app: tauri::AppHandle) -> Result<(), String> {
+    crate::emulator::overlay::open(&app)?;
+    crate::emulator::overlay::dock_top(&app);
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn emu_overlay_resize(app: tauri::AppHandle, height: f64) {
+    crate::emulator::overlay::resize(&app, height.clamp(44.0, 700.0));
+}
+
+#[tauri::command]
+pub async fn emu_overlay_close(app: tauri::AppHandle) {
+    crate::emulator::overlay::close(&app);
+}
+
+#[tauri::command]
+pub fn emu_register_game(dir: String) -> Result<(), String> {
+    crate::emulator::register_game(&dir)
+}
+
+#[tauri::command]
+pub fn emu_settings_get() -> crate::emulator::EmuSettings {
+    crate::emulator::load_settings()
+}
+
+#[tauri::command]
+pub fn emu_settings_set(s: crate::emulator::EmuSettings) -> Result<(), String> {
+    crate::emulator::save_settings(&s)
+}
+
+/// 安装随包内置的模拟器（首次运行调一次；已经装过就返回 installed=false）
+#[tauri::command]
+pub fn emu_ensure_bundled() -> Result<serde_json::Value, String> {
+    let (installed, dir) = crate::emulator::ensure_bundled()?;
+    Ok(serde_json::json!({
+        "installed": installed,
+        "dir": dir.to_string_lossy(),
+    }))
 }

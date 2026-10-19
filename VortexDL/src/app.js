@@ -147,6 +147,9 @@ document.addEventListener('click', function(e) {
         // ★ 新增 (2026-10-12): 手动解压。用户报「这次下载没有触发解压」——
         //   74GB 的包如果因为设置丢失没解压, 以前只能重新下载。给个逃生口。
         case 'extract': if (typeof window.extractDownloadedArchive === 'function') window.extractDownloadedArchive(taskId); break;
+        // ★ 新增 (2026-10-18): 已删除条目的两个动作 —— 重新下载 / 移除记录
+        case 'redownload': if (typeof window.redownloadDeleted === 'function') window.redownloadDeleted(taskId); break;
+        case 'remove': if (typeof window.removeDownloadRecord === 'function') window.removeDownloadRecord(taskId); break;
     }
 }, false);
 
@@ -176,6 +179,73 @@ const listen = (...args) => {
 };
 
 // ============================================================
+// 封面图本地缓存 (2026-10-18)
+// ------------------------------------------------------------
+// 用户要求：只要浏览到的游戏，图片就缓存到本地，第二次打开别再重新爬。
+// 做法：把所有 http(s) 的 <img> 改写成本地协议
+//      vxasset://localhost/img?u=<encodeURIComponent(原地址)>
+// 后端先查 data/cache/images，未命中才联网抓一次并落盘（见 game_cache.rs）。
+// ★ 加载失败会自动回退原始地址，绝不会因为缓存层出问题把图弄没。
+// ============================================================
+(function setupImageCache() {
+    // ★ Windows 上 Tauri 的自定义协议实际是 `http://<scheme>.localhost/<path>`
+    //   （`vxasset://localhost/...` 在 WebView2 里直接 error，实测确认）。
+    const PROXY = 'http://vxasset.localhost/img?u=';
+    const isHttp = (u) => typeof u === 'string' && /^https?:\/\//i.test(u);
+    const available = () => {
+        try { return !!(window.__TAURI_INTERNALS__ || window.__TAURI__); } catch (_) { return false; }
+    };
+    window.vxImgUrl = function (u) {
+        if (!available() || !isHttp(u)) return u;
+        return PROXY + encodeURIComponent(u);
+    };
+    const rewrite = (img) => {
+        if (!img || img.tagName !== 'IMG') return;
+        if (img.dataset.vxFailed === '1') return;
+        const s = img.getAttribute('src');
+        if (!s || !isHttp(s) || !available()) return;
+        // ★ 已经是本地代理地址 → 绝不能再包一层（双层代理必然 404，图会被 onerror 隐藏）
+        if (s.indexOf(PROXY) === 0 || s.indexOf('vxasset.localhost') >= 0) return;
+        if (img.dataset.vxProxied === '1') return;
+        img.dataset.vxProxied = '1';
+        img.dataset.vxOrig = s;
+        img.addEventListener('error', function onErr() {
+            img.removeEventListener('error', onErr);
+            img.dataset.vxFailed = '1';
+            const o = img.dataset.vxOrig;
+            if (o) img.setAttribute('src', o);
+        }, { once: true });
+        img.setAttribute('src', PROXY + encodeURIComponent(s));
+    };
+    const scan = (root) => {
+        if (!root) return;
+        if (root.nodeType === 1 && root.tagName === 'IMG') rewrite(root);
+        if (root.querySelectorAll) {
+            const imgs = root.querySelectorAll('img[src^="http"]');
+            for (let i = 0; i < imgs.length; i++) rewrite(imgs[i]);
+        }
+    };
+    const start = () => {
+        scan(document.documentElement);
+        try {
+            const mo = new MutationObserver((muts) => {
+                for (const m of muts) {
+                    if (m.type === 'attributes') rewrite(m.target);
+                    else if (m.addedNodes && m.addedNodes.length) {
+                        for (const n of m.addedNodes) scan(n);
+                    }
+                }
+            });
+            mo.observe(document.documentElement, {
+                childList: true, subtree: true, attributes: true, attributeFilter: ['src'],
+            });
+        } catch (_) {}
+    };
+    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start);
+    else start();
+})();
+
+// ============================================================
 // 全局状态
 // ============================================================
 const state = {
@@ -187,6 +257,7 @@ const state = {
     detailFromPage: null, // 详情页来源页 (resource/adult), 返回时回到对应页
     currentDetailDownloads: [], // 当前详情页的下载列表(供弹窗使用)
     downloads: new Map(),       // task_id -> download info
+    selectedDownloads: new Set(), // ★ 多选 (2026-10-18): 点进度条选中，支持批量操作
     infiniteScrollLoading: false,
     infiniteScrollEnd: false,
     categoryRetryCount: 0, // 分类筛选缓存未就绪时的重试次数
@@ -294,6 +365,9 @@ function navigateToPage(page) {
         stopMonitor();
     } else if (page === 'resources') {
         loadNavResourcesTo('resources-grid');
+        stopMonitor();
+    } else if (page === 'emulator') {
+        if (window.__vxEmu && window.__vxEmu.onShow) window.__vxEmu.onShow();
         stopMonitor();
     } else if (page === 'fav') {
         renderFavPage();
@@ -599,6 +673,9 @@ async function switchPageView(pageName, viewName) {
                 } else if (pageName === 'game' && viewName === 'gx') {
                     // ★ GX (galgamex 游戏库): 本地全量索引, 首次进入拉状态 + 标签 + 首屏
                     if (window.__vxGx && window.__vxGx.onShow) window.__vxGx.onShow();
+                } else if (pageName === 'game' && viewName === 'switch') {
+                    // ★ Switch 游戏库 (2026-10-18): 首次进入读目录，之后保留
+                    if (window.__vxSw && window.__vxSw.onShow) window.__vxSw.onShow();
                 }
             }
     }
@@ -692,6 +769,83 @@ let currentActiveView = 'cards';
 // 模块化工具系统已移除 (2026-09-13)
 // =================================================================
 
+// =================================================================
+// 首页「已下载」统计 (2026-10-18 重做)
+//
+// ★ 用户反馈「首页已下载数量不对」，查实两个真问题:
+//   ① 只数 state==='completed'：文件被删/被移走后条目变成 'deleted'，数字立刻往下掉。
+//      实测本地 46 条完成过的记录（10 已完成 + 36 已删除）只显示成 10，
+//      用户下载过几十个却看到 10，自然觉得不对。
+//   ② 只在启动和预热阶段算一次，下载完成 / 删除文件 / 移除记录都不刷新 → 数字一直是旧的。
+//
+// 现在: 数「完成过」的条目 (completed + deleted)，按文件去重（同一文件重下多次算 1 个），
+//       排除自测假任务；下载完成/删除/移除后立即重算。
+// =================================================================
+function dlStatKey(d) {
+    const id = String(d.id || d.task_id || '');
+    const norm = (s) => String(s == null ? '' : s).replace(/\//g, '\\').trim().toLowerCase();
+    const fp = norm(d.filePath || d.file_path);
+    // BT 任务的 filePath 常是输出目录下的通用名 (download)，用目录当键
+    if (id.indexOf('bt-') === 0) {
+        const dir = fp.replace(/\\[^\\]*$/, '');
+        if (dir) return 'd:' + dir;
+    }
+    const base = fp.replace(/^.*\\/, '');
+    if (base) return 'b:' + base;
+    const gn = norm(d.gameName || d.game_name);
+    if (gn) return 'g:' + gn;
+    const u = norm(d.url);
+    if (u) return 'u:' + u;
+    return 'n:' + norm(d.name || d.file_name) + '|' + id;
+}
+
+// 统计「下载完成过的项目数」。extra 是后端 get_downloads_status 的条目（可省略）。
+function computeDownloadedStat(extra) {
+    const items = new Map(); // key -> 'completed' | 'deleted'
+    const add = (d) => {
+        if (!d) return;
+        const st = String(d.state || '');
+        if (st !== 'completed' && st !== 'deleted') return;
+        const id = String(d.id || d.task_id || '');
+        if (id.indexOf('selftest') >= 0) return; // 自测假任务不算
+        const key = dlStatKey(d);
+        if (!key) return;
+        // 同一条目以「已完成」优先（文件还在比已删除更有说服力）
+        if (!items.has(key) || st === 'completed') items.set(key, st);
+    };
+    // 1) 内存 (最新: 下载完成/删除/移除都先改这里)
+    try {
+        if (typeof state !== 'undefined' && state && state.downloads instanceof Map) {
+            for (const [id, dl] of state.downloads) add(Object.assign({ id: id }, dl));
+        }
+    } catch (_) {}
+    // 2) 持久化历史 (内存里已被移除的旧记录)
+    try {
+        const raw = localStorage.getItem(DL_STORAGE_KEY);
+        const saved = raw ? JSON.parse(raw) : [];
+        if (Array.isArray(saved)) for (const d of saved) add(d);
+    } catch (_) {}
+    // 3) 后端活动任务
+    if (Array.isArray(extra)) for (const d of extra) add(d);
+    return items.size;
+}
+
+// 立即重算首页「已下载」并写进 DOM（下载完成 / 删除 / 移除记录后调用）
+async function refreshHomeDownloadedCount() {
+    const el = document.getElementById('home-downloaded-count');
+    if (!el) return;
+    let extra = [];
+    try {
+        const invokeFn = getInvoke();
+        if (invokeFn) {
+            const r = await invokeFn('get_downloads_status');
+            if (Array.isArray(r)) extra = r;
+        }
+    } catch (_) { /* 后端未就绪时只用本地记录 */ }
+    try { el.textContent = computeDownloadedStat(extra).toLocaleString(); } catch (_) {}
+}
+window.refreshHomeDownloadedCount = refreshHomeDownloadedCount;
+
 // 加载首页统计数据
 async function loadHomeStats() {
     const gamesEl = document.getElementById('stat-games-count');
@@ -713,55 +867,27 @@ async function loadHomeStats() {
             // 使用最大值: 内存缓存 or 快照数据, 确保显示真实的资源数量
             const byTotal = Math.max(byCount, byMem);
             const koTotal = Math.max(koCount, koMem);
-            const displayCount = byTotal + koTotal + gxCount;
+            // ★ 2026-10-19: 首页「游戏资源」把 Switch 也计入（GX 本来就在 gxCount 里）
+            let swTotal = 0;
+            try {
+                const swStats = await invokeFn('switch_catalog_stats');
+                swTotal = (swStats && swStats.total) || 0;
+            } catch (_) {}
+            const displayCount = byTotal + koTotal + gxCount + swTotal;
             // ★ 体验 (2026-10-03): 启动瞬间缓存还没灌好, 这里会算出 0。
             //   显示 "0 游戏资源" 会让用户以为资源丢了 (实际只是在后台预热中),
             //   所以 0 时显示 "—" 占位, 等预热完成后由 snapshot-refreshed 刷新成真实数字。
             gamesEl.textContent = displayCount > 0 ? displayCount.toLocaleString() : '—';
         }
 
-        // 获取已下载数量
-        //
-        // ★ 修复 (2026-10-02): 原来只统计 `get_downloads_status` 里 state==='completed'
-        //   的**活动任务**。但后端该接口只返回内存中的在跑任务, 下载完成后任务就被
-        //   清理掉了 → 主页"已下载"永远是 0, 而用户明明已经下过很多。
-        //   现在改为统计**持久化的下载记录** (localStorage 的 vortex_downloads_v2),
-        //   它包含历史条目; 同时把仍在活动的已完成任务并入去重。
+        // 获取已下载数量 (2026-10-18 重做, 见 refreshHomeDownloadedCount)
         if (downloadedEl) {
-            let completedCount = 0;
-            const seen = new Set();
-            // 1) 持久化历史 (主要来源)
-            try {
-                const raw = localStorage.getItem(DL_STORAGE_KEY);
-                const saved = raw ? JSON.parse(raw) : [];
-                if (Array.isArray(saved)) {
-                    for (const d of saved) {
-                        if (!d) continue;
-                        const st = String(d.state || '');
-                        if (st !== 'completed') continue;
-                        const key = String(d.id || d.task_id || d.file_path || d.url || '');
-                        if (key && seen.has(key)) continue;
-                        if (key) seen.add(key);
-                        completedCount++;
-                    }
-                }
-            } catch (_) { /* 存储不可用时忽略 */ }
-            // 2) 内存中的活动任务 (可能还没落盘)
+            let backendTasks = [];
             try {
                 const downloads = await invokeFn('get_downloads_status');
-                if (downloads && Array.isArray(downloads)) {
-                    for (const d of downloads) {
-                        if (!d) continue;
-                        const st = String(d.state || '');
-                        if (st !== 'completed') continue;
-                        const key = String(d.task_id || d.id || '');
-                        if (key && seen.has(key)) continue;
-                        if (key) seen.add(key);
-                        completedCount++;
-                    }
-                }
+                if (downloads && Array.isArray(downloads)) backendTasks = downloads;
             } catch (_) { /* 后端未就绪时忽略 */ }
-            downloadedEl.textContent = completedCount.toLocaleString();
+            downloadedEl.textContent = computeDownloadedStat(backendTasks).toLocaleString();
         }
 
         // 立即更新运行时长
@@ -1462,184 +1588,109 @@ const NAV_RESOURCES = [
     {
         section: '游戏资源',
         items: [
-            { name: 'Galgamex (GX)', icon: '🎮', url: 'https://www.galgamex.net' },
-            { name: 'Byrut', icon: '🎮', url: 'https://byrutgame.org' },
-            { name: 'Koyso (Playzip)', icon: '🎮', url: 'https://playzip.com' },
+            { name: 'Galgamex 美少女游戏库', icon: '🎮', url: 'https://www.galgamex.net' },
+            { name: 'Byrut 俄站游戏库', icon: '🎮', url: 'https://byrutgame.org' },
+            { name: 'Koyso 游戏库', icon: '🎮', url: 'https://playzip.com' },
         ],
     },
     {
-        section: '官方',
+        section: 'Switch 资源',
+        items: [
+            { name: 'NS711 游戏库', icon: '🕹️', url: 'https://www.ns711.com' },
+            { name: 'NS711 模拟器', icon: '🕹️', url: 'https://www.ns711.com/?ns711_tag=%e6%a8%a1%e6%8b%9f%e5%99%a8#games' },
+            { name: 'NS711 金手指', icon: '🔧', url: 'https://www.ns711.com/?ns711_tag=%e9%87%91%e6%89%8b%e6%8c%87#games' },
+        ],
+    },
+    {
+        section: '动漫资源',
+        items: [
+            { name: 'Girigiri 动漫', icon: '🎬', url: 'https://ani.girigirilove.com' },
+            { name: '动漫大全', icon: '🎬', url: 'https://www.dongmandaquan.vip' },
+            { name: '嘀哩嘀哩 番剧站', icon: '🎬', url: 'https://dilidili.io' },
+            { name: 'Nyaa 动漫种子站', icon: '🎬', url: 'https://nyaa.land' },
+            { name: 'Bangumi 番组计划', icon: '📊', url: 'https://bgm.tv' },
+            { name: 'Animeko 动漫 API', icon: '🌸', url: 'https://api.animeko.org' },
+        ],
+    },
+    {
+        section: '书库',
+        items: [
+            { name: '无忧书城', icon: '📖', url: 'https://www.wyshu.com' },
+            { name: '书格', icon: '📖', url: 'https://www.shuge.org' },
+            { name: '古腾堡计划（英文书）', icon: '📖', url: 'https://www.gutenberg.org' },
+            { name: '标准电子书（英文精校）', icon: '📖', url: 'https://standardebooks.org' },
+            { name: '熊猫读书', icon: '📖', url: 'https://www.kgbook.com' },
+            { name: '五千言', icon: '📖', url: 'https://www.5000yan.com' },
+        ],
+    },
+    {
+        section: '修改器',
+        items: [
+            { name: 'FLiNG 修改器', icon: '🔧', url: 'https://flingtrainer.com' },
+            { name: 'Fearless 修改器社区', icon: '💬', url: 'https://fearlessrevolution.com' },
+        ],
+    },
+    {
+        section: '网盘',
+        items: [
+            { name: '夸克网盘', icon: '☁️', url: 'https://pan.quark.cn' },
+            { name: 'UC 网盘', icon: '☁️', url: 'https://drive.uc.cn' },
+            { name: '百度网盘', icon: '☁️', url: 'https://pan.baidu.com' },
+            { name: '123 云盘', icon: '☁️', url: 'https://www.123pan.com' },
+            { name: '阿里云盘', icon: '☁️', url: 'https://www.alipan.com' },
+            { name: '迅雷云盘', icon: '☁️', url: 'https://pan.xunlei.com' },
+            { name: '天翼云盘', icon: '☁️', url: 'https://cloud.189.cn' },
+            { name: '移动云盘', icon: '☁️', url: 'https://yun.139.com' },
+            { name: '光鸭云盘', icon: '☁️', url: 'https://www.guangyapan.com' },
+        ],
+    },
+    {
+        section: '官方商店',
         items: [
             { name: 'Steam 商店', icon: '🎮', url: 'https://store.steampowered.com' },
-            { name: 'Steam 社区', icon: '🎮', url: 'https://steamcommunity.com' },
+            { name: 'Steam 社区', icon: '💬', url: 'https://steamcommunity.com' },
+            { name: 'Epic 商店', icon: '🛒', url: 'https://www.epicgames.com' },
+            { name: 'GOG 商店', icon: '🛒', url: 'https://www.gog.com' },
+            { name: 'Xbox 商店', icon: '🛒', url: 'https://www.xbox.com' },
+            { name: 'Humble 捆绑包', icon: '🛒', url: 'https://www.humblebundle.com' },
+            { name: '杉果', icon: '🛒', url: 'https://www.sonkwo.cn' },
+            { name: 'WeGame', icon: '🛒', url: 'https://www.wegame.com.cn' },
+            { name: '小黑盒', icon: '📊', url: 'https://www.xiaoheihe.cn' },
         ],
     },
     {
         section: '数据库',
         items: [
-            { name: 'SteamDB', icon: '📊', url: 'https://steamdb.info' },
+            { name: 'SteamDB 数据站', icon: '📊', url: 'https://steamdb.info' },
+            { name: 'PC 游戏百科', icon: '📊', url: 'https://www.pcgamingwiki.com' },
         ],
     },
     {
-        section: '菜玩社区',
+        section: '论坛 / 联机',
         items: [
             { name: '菜玩社区', icon: '🌐', url: 'https://caigamer.cn' },
+            { name: 'CS.RIN.RU 论坛', icon: '💬', url: 'https://cs.rin.ru/forum/' },
+            { name: '70XPLAY 论坛', icon: '💬', url: 'https://70xplay.com' },
+            { name: '3DM 论坛', icon: '💬', url: 'https://bbs.3dmgame.com' },
+            { name: '联机破解补丁站', icon: '🌐', url: 'https://online-fix.me' },
+            { name: 'freetp 联机补丁', icon: '🌐', url: 'https://freetp.org' },
+            { name: 'REXAGAMES 联机资源', icon: '🌐', url: 'https://rexagames.com/tags/online/' },
         ],
     },
     {
-        section: '论坛',
+        section: 'MOD / 工具',
         items: [
-            { name: 'CS.RIN.RU', icon: '💬', url: 'https://cs.rin.ru/forum/' },
-            { name: '70XPLAY论坛', icon: '💬', url: 'https://70xplay.com' },
-            { name: '3DM论坛', icon: '💬', url: 'https://bbs.3dmgame.com' },
-            { name: '修改论坛', icon: '💬', url: 'https://fearlessrevolution.com/' },
-        ],
-    },
-    {
-        section: '联机',
-        items: [
-            { name: 'online-fix补丁', icon: '🌐', url: 'https://online-fix.me' },
-            { name: 'freetp.org补丁', icon: '🌐', url: 'https://freetp.org' },
-            { name: 'REXAGAMES', icon: '🌐', url: 'https://rexagames.com/tags/online/' },
-        ],
-    },
-    {
-        section: 'MOD',
-        items: [
-            { name: '3DM MOD站', icon: '🔧', url: 'https://mod.3dmgame.com' },
-        ],
-    },
-    {
-        section: '画质增强',
-        items: [
+            { name: '3DM 模组站', icon: '🔧', url: 'https://mod.3dmgame.com' },
             { name: 'DLSS5 Swapper', icon: '✨', url: 'https://github.com/rakanki911/DLSS5-Swapper' },
-            { name: 'Veyra', icon: '🎬', url: 'https://github.com/Likely7/Veyra-NRVideo' },
-            { name: '大力喜鹊 Magpie', icon: '🐦', url: 'https://github.com/Blinue/Magpie' },
-        ]
-    },
-    {
-        section: '平台',
-        items: [
-            { name: 'Epic Games', icon: '🖥️', url: 'https://www.epicgames.com/store/' },
-            { name: 'GOG 平台', icon: '🖥️', url: 'https://www.gog.com/' },
-            { name: 'Ubisoft', icon: '🖥️', url: 'https://store.ubi.com/' },
-            { name: 'EA App', icon: '🖥️', url: 'https://www.ea.com/ea-app' },
-            { name: 'Xbox PC', icon: '🖥️', url: 'https://www.xbox.com/zh-CN/xbox-game-pass/pc-games' },
+            { name: 'Veyra 超分工具', icon: '🎬', url: 'https://github.com/Likely7/Veyra-NRVideo' },
+            { name: 'Magpie 窗口放大', icon: '🐦', url: 'https://github.com/Blinue/Magpie' },
         ],
     },
     {
-        section: '追番',
+        section: '本软件 / 内核',
         items: [
-            { name: 'Animeko', icon: '🌸', url: 'https://github.com/open-ani/animeko' },
-        ],
-    },
-    {
-        section: '免费',
-        items: [
-            { name: 'Epic 免费', icon: '🆓', url: 'https://www.epicgames.com/store/free-games' },
-        ],
-    },
-    {
-        section: 'NS模拟器',
-        items: [
-            { name: '龙神 Ryujinx', icon: '🕹️', url: 'https://git.ryujinx.app/ryubing/ryujinx' },
-            { name: 'Citron', icon: '🕹️', url: 'https://git.citron-emu.org/Citron' },
-            { name: 'Eden', icon: '🕹️', url: 'https://github.com/eden-emulator/Releases' },
-            { name: '模拟器固件', icon: '🕹️', url: 'https://github.com/THZoria/NX_Firmware/releases' },
-            { name: '模拟器密钥', icon: '🕹️', url: 'https://caigamer.cn/archives/1793.htm' },
-        ],
-    },
-    {
-        section: 'PS模拟器',
-        items: [
-            { name: 'shadPS4', icon: '🎮', url: 'https://shadps4.net' },
-            { name: 'KytyPS5', icon: '🎮', url: 'https://github.com/Nmzik/KytyPS5' },
-            { name: 'sharpemu', icon: '🎮', url: 'https://github.com/sharpemu/sharpemu' },
-        ],
-    },
-    {
-        section: 'BIAO网盘资源集合',
-        items: [
-            { name: 'BIAO网盘资源', icon: '☁️', url: 'https://pan.quark.cn/s/77b60755f7b1' },
-        ],
-    },
-    {
-        section: 'GOG白嫖',
-        items: [
-            { name: 'GOG白嫖', icon: '🎮', url: 'https://gog-games.to' },
-        ],
-    },
-    {
-        section: '游戏',
-        items: [
-            { name: '114离线资源文档', icon: '🎮', url: 'https://www.114game.net' },
-            { name: '52tt', icon: '🎮', url: 'https://www.52tt.com' },
-            { name: 'Gamer520', icon: '🎮', url: 'https://www.gamer520.com' },
-            { name: '2468游戏', icon: '🎮', url: 'https://2468c.com' },
-            { name: 'KOYSO备份', icon: '🎮', url: 'https://koysobackup.com' },
-        ],
-    },
-    {
-        section: '购买',
-        items: [
-            { name: 'SteamPY', icon: '🛒', url: 'https://steampy.com' },
-            { name: '杉果', icon: '🛒', url: 'https://www.sonkwo.cn' },
-            { name: 'Humble', icon: '🛒', url: 'https://zh.humblebundle.com' },
-            { name: '凤凰游戏', icon: '🛒', url: 'https://www.fhyx.com' },
-            { name: '小黑盒', icon: '🛒', url: 'https://www.xiaoheihe.cn/app/topic/game/pc/' },
-        ],
-    },
-    {
-        section: 'D加密',
-        items: [
-            { name: 'D加密列表', icon: '🔐', url: 'https://www.pcgamingwiki.com/wiki/Denuvo#List_of_games_using_Denuvo_Anti-Tamper' },
-            { name: 'Denuvo购买', icon: '🔐', url: 'https://aws.amazon.com/marketplace/pp/prodview-x443idlstvufi' },
-        ],
-    },
-    {
-        section: '游戏绕过补丁',
-        items: [
-            { name: '育碧补丁', icon: '🛠️', url: 'https://pan.quark.cn/s/8c9cd98372f5' },
-            { name: 'EA补丁', icon: '🛠️', url: 'https://pan.quark.cn/s/a5df5ebc9f1d' },
-            { name: '虚拟机补丁集合', icon: '🛠️', url: 'https://pan.quark.cn/s/81ac5631e78a' },
-            { name: '免R星补丁', icon: '🛠️', url: 'https://pan.quark.cn/s/d67e24408473' },
-        ],
-    },
-    {
-        section: '聊天',
-        items: [
-            { name: 'X (Twitter)', icon: '💬', url: 'https://x.com/home' },
-            { name: 'Discord', icon: '💬', url: 'https://discord.gg/gaming' },
-            { name: 'Telegram', icon: '💬', url: 'https://t.me/steam_games' },
-            { name: 'QQ群1', icon: '💬', url: 'https://qm.qq.com/q/1FLxfvkWx2' },
-            { name: 'QQ群2', icon: '💬', url: 'https://qm.qq.com/q/IgSFee6ZgW' },
-            { name: 'QQ群3', icon: '💬', url: 'https://qm.qq.com/q/IukVxW6H4e' },
-        ],
-    },
-    {
-        section: '老外清单库',
-        items: [
-            { name: 'hubcapmanifest', icon: '📋', url: 'https://hubcapmanifest.com/' },
-            { name: 'KernelOS Games', icon: '📋', url: 'https://kernelos.org/games/' },
-            { name: 'Luatools', icon: '📋', url: 'https://lua.tools/' },
-            { name: 'Ryuu Generator', icon: '📋', url: 'https://generator.ryuu.lol/' },
-            { name: 'DepotBox', icon: '📋', url: 'https://depotbox.org/' },
-            { name: 'gamegen', icon: '📋', url: 'https://gamegen.lol/' },
-        ],
-    },
-    {
-        section: 'Manifest',
-        items: [
-            { name: 'ManifestHub', icon: '📦', url: 'https://manifesthub2.filegear-sg.me/' },
-            { name: 'DepotCN', icon: '📦', url: 'https://depotcn.caigamer.cn/manifest' },
-            { name: '20770407', icon: '📦', url: 'https://20770407.xyz/manifest' },
-        ],
-    },
-    {
-        section: 'SteamToolbox',
-        items: [
-            { name: 'GitHub仓库', icon: '📦', url: 'https://github.com/BIAO-001/SteamToolbox' },
-                { name: '腾讯文档', icon: '📦', url: 'https://docs.qq.com/doc/DRkN1b1VueXVJUGdT' },
+            { name: 'VortexDL 仓库', icon: '📦', url: 'https://github.com/JFbj-create/VortexDL' },
+            { name: 'VortexDL 更新', icon: '📦', url: 'https://github.com/JFbj-create/VortexDL/releases' },
         ],
     },
 ];
@@ -3693,6 +3744,16 @@ window.onDownloadClick = function(downloadIdx) {
         return;
     }
 
+    // Switch 游戏：不走网盘/浏览器弹窗，直接交给 Switch 模块解析直链再进下载引擎
+    if (dl && dl.type === 'switch') {
+        if (window.__vxSw && typeof window.__vxSw.startDownload === 'function') {
+            window.__vxSw.startDownload();
+        } else {
+            showToast('Switch 模块还没准备好，请回到列表重进');
+        }
+        return;
+    }
+
     // 如果该游戏有多个下载链接, 先让用户选择
     if (downloads.length > 1) {
         showDownloadLinks(downloads);
@@ -4560,6 +4621,8 @@ document.getElementById('modal-start-download')?.addEventListener('click', async
     document.querySelector('[data-page="downloads"]').classList.add('active');
     document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
     document.getElementById('page-downloads').classList.add('active');
+    // ★ 2026-10-18: 切页之后把列表滚到这条新任务并高亮
+    focusDownloadTask(taskId);
 
     // GX 资源: 复制链接到剪贴板, 提示用户去网站下载
     // ★ 例外: 站外抓取拿到的**签名直链**(dl.signed) 是能直接下的,
@@ -4577,11 +4640,16 @@ document.getElementById('modal-start-download')?.addEventListener('click', async
 
     // BY/KO 走内置下载器
     let headers = [];
-    // ★ 站外抓取的签名直链 (2026-10-07 实测): 引擎默认头里的
-    //   `Referer: about:blank` 会被这个 CDN 直接 **403**。
-    //   实测三种 Referer: about:blank → 403, 空 → 206, https://www.galgamex.net/ → 206。
-    //   所以这里必须显式覆盖成站点自身的 Referer。
-    if (dl.signed) {
+    // ★ 网盘直链 (2026-10-13): 夸克 `dl-guest-*` 的直链**必须带 `Cookie: __pugs=...`**
+    //   （缺了它 CDN 直接 412），还要求夸克自家 UA + `Referer: https://pan.quark.cn/`。
+    //   这些头是 `pan_resolve` 解析出来跟着条目一起返回的，所以有就优先用它们。
+    if (Array.isArray(dl.headers) && dl.headers.length) {
+        headers = dl.headers;
+    } else if (dl.signed) {
+        // ★ 站外抓取的签名直链 (2026-10-07 实测): 引擎默认头里的
+        //   `Referer: about:blank` 会被这个 CDN 直接 **403**。
+        //   实测三种 Referer: about:blank → 403, 空 → 206, https://www.galgamex.net/ → 206。
+        //   所以这里必须显式覆盖成站点自身的 Referer。
         headers = [
             ['Referer', 'https://www.galgamex.net/'],
             ['User-Agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/154.0.0.0 Safari/537.36'],
@@ -4638,10 +4706,27 @@ document.getElementById('modal-start-download')?.addEventListener('click', async
             }
             state.downloads.delete(taskId);
             renderDownloadList();
+            // BT 任务 key 变成 bt-xxx 了，重新定位到新 key
+            focusDownloadTask(realTaskId);
         } else {
             // 非 BT: 更新 engine 标记
             const entry = state.downloads.get(taskId);
             if (entry) { entry.state = 'running'; renderDownloadList(); }
+        }
+
+        // ★ 网盘分享多选队列 (2026-10-13): 分享里有多个文件时，用户确认完第一个之后
+        //   剩下的自动接着弹同一个「下载设置」窗 —— 用户只需要配一次目录/解压选项。
+        //   ★ 用 `pendingDownloadLink === _panQueueOwner` 认领：如果这次弹窗不是队列里那个
+        //     （用户取消了分享队列，又去详情页下了个游戏），队列直接作废，
+        //     不会在游戏下完之后莫名其妙弹出网盘文件。
+        if (Array.isArray(state.downloadQueue) && state.downloadQueue.length
+            && state.pendingDownloadLink === state._panQueueOwner) {
+            const nextDl = state.downloadQueue.shift();
+            state._panQueueOwner = nextDl;
+            setTimeout(() => { try { showDownloadModal(nextDl); } catch (e) {} }, 300);
+        } else {
+            state.downloadQueue = [];
+            state._panQueueOwner = null;
         }
     } catch (e) {
         // 启动失败: 占位任务标记失败 (不再创建新条目)
@@ -4667,6 +4752,165 @@ document.getElementById('modal-start-download')?.addEventListener('click', async
 // ============================================================
 // 下载管理
 // ============================================================
+/// ★ 2026-10-18：新建/重试任务后把下载页滚动到那一条并高亮一下。
+///   以前只切到下载页，任务多的时候新任务在列表最下面，用户看到的是
+///   "跳到下载界面了但没跳到我下的那个"。
+function focusDownloadTask(taskId) {
+    if (!taskId) return;
+    const run = () => {
+        const qid = (window.CSS && CSS.escape) ? CSS.escape(String(taskId)) : String(taskId);
+        let el = document.querySelector('.download-item[data-task-id="' + qid + '"]');
+        // 后端可能把 dl_xxx 换成 bt-xxx，做一次前缀兜底
+        if (!el) {
+            const items = document.querySelectorAll('.download-item');
+            for (const it of items) {
+                const id = it.dataset && it.dataset.taskId ? it.dataset.taskId : '';
+                if (id && (id.endsWith(String(taskId).replace(/^bt-/, '')) || String(taskId).endsWith(id.replace(/^bt-/, '')))) {
+                    el = it; break;
+                }
+            }
+        }
+        if (!el) return;
+        try { el.scrollIntoView({ behavior: 'smooth', block: 'center' }); } catch (_) { el.scrollIntoView(); }
+        el.classList.remove('dl-item-new');
+        // 强制重排以便重复触发动画
+        void el.offsetWidth;
+        el.classList.add('dl-item-new');
+        clearTimeout(el._newTimer);
+        el._newTimer = setTimeout(() => { try { el.classList.remove('dl-item-new'); } catch (_) {} }, 3200);
+    };
+    requestAnimationFrame(() => requestAnimationFrame(run));
+    // 任务可能在 300ms 后才渲染出来，补一次
+    setTimeout(run, 400);
+}
+
+// ============================================================
+// 下载列表多选 (2026-10-18)
+// ------------------------------------------------------------
+// 用户要求：点任意一条的**进度条**就选中它，可以多选，然后批量操作。
+// 选中状态只存在内存里（重启不保留），并且每次渲染后同步 class。
+// ============================================================
+function _dlSel() {
+    if (!(state.selectedDownloads instanceof Set)) state.selectedDownloads = new Set();
+    return state.selectedDownloads;
+}
+
+function toggleDownloadSelection(id) {
+    if (!id) return;
+    const sel = _dlSel();
+    const key = String(id);
+    if (sel.has(key)) sel.delete(key); else sel.add(key);
+    syncDownloadSelectionUI();
+}
+
+function clearDownloadSelection() {
+    _dlSel().clear();
+    syncDownloadSelectionUI();
+}
+
+function syncDownloadSelectionUI() {
+    const sel = _dlSel();
+    for (const id of Array.from(sel)) {
+        if (!state.downloads.has(id)) sel.delete(id);
+    }
+    const items = document.querySelectorAll('.download-item');
+    for (let i = 0; i < items.length; i++) {
+        const el = items[i];
+        const id = el.dataset ? el.dataset.taskId : '';
+        el.classList.toggle('is-selected', !!id && sel.has(String(id)));
+    }
+    const bar = document.getElementById('dl-batch-bar');
+    const n = document.getElementById('dl-batch-n');
+    // ★ 2026-10-18: 页面容器带 transform（切页动画），会变成 fixed 的包含块，
+    //   导致浮动条跑到文档坐标 y=6806 去。把它挂到 body 上才能真正贴住视口。
+    if (bar && bar.parentElement !== document.body) {
+        try { document.body.appendChild(bar); } catch (_) {}
+    }
+    const dlPage = document.getElementById('page-downloads');
+    const dlActive = !!(dlPage && dlPage.classList.contains('active'));
+    if (bar) bar.hidden = sel.size === 0 || !dlActive;
+    // 底部停靠条会盖住最后一条 → 给页面补 padding，保证能滚到它上面
+    try { document.body.classList.toggle('has-dl-selection', sel.size > 0 && dlActive); } catch (_) {}
+    if (n) n.textContent = String(sel.size);
+}
+
+async function runBatchAction(action) {
+    const sel = _dlSel();
+    const ids = Array.from(sel).filter(id => state.downloads.has(id));
+    if (action === 'clear') { clearDownloadSelection(); return; }
+    if (action === 'select-all') {
+        for (const id of state.downloads.keys()) sel.add(String(id));
+        syncDownloadSelectionUI();
+        return;
+    }
+    if (!ids.length) return;
+    const canonOf = (id) => normalizeDlState((state.downloads.get(id) || {}).state);
+    const pick = (fn) => ids.filter(id => fn(canonOf(id)));
+
+    if (action === 'pause') {
+        const list = pick(c => c === 'running' || c === 'starting');
+        for (const id of list) { try { await window.pauseDownload(id); } catch (_) {} }
+        if (list.length) showToast(`已暂停 ${list.length} 个任务`);
+    } else if (action === 'resume') {
+        const list = pick(c => c === 'paused');
+        for (const id of list) { try { await window.resumeDownload(id); } catch (_) {} }
+        if (list.length) showToast(`已继续 ${list.length} 个任务`);
+    } else if (action === 'retry') {
+        const list = pick(c => c === 'failed' || c === 'canceled' || c === 'deleted');
+        for (const id of list) { try { await window.retryDownload(id); } catch (_) {} }
+        if (list.length) showToast(`已重试 ${list.length} 个任务`);
+    } else if (action === 'remove') {
+        // ★ 2026-10-18 用户要求：勾选后的删除 = 删除**列表记录**，不碰磁盘文件。
+        //   正在下载的条目不能直接清记录（引擎还在往那个路径写），跳过并提示。
+        const active = ids.filter(id => { const c = canonOf(id); return c === 'running' || c === 'starting'; });
+        const list = ids.filter(id => active.indexOf(id) < 0);
+        if (!list.length) { showToast('选中的都是正在下载的任务，请先暂停或取消', 'warn', 3000); return; }
+        if (!(await vxConfirm(`从下载列表删除 ${list.length} 条记录？\n\n只清列表记录，不会删除磁盘上的文件。`))) return;
+        for (const id of list) {
+            try { await invoke('clear_download', { taskId: id }); } catch (_) {}
+            state.downloads.delete(id);
+        }
+        clearDownloadSelection();
+        renderDownloadList(true);
+        schedulePersistDownloads();
+        if (active.length) showToast(`已删除 ${list.length} 条记录，${active.length} 个正在下载的任务已跳过`, 'warn', 3500);
+        else showToast(`已删除 ${list.length} 条记录`, 'ok', 2500);
+    }
+    syncDownloadSelectionUI();
+}
+window.runBatchAction = runBatchAction;
+window.clearDownloadSelection = clearDownloadSelection;
+
+// 点整条 = 选中/取消（2026-10-18 用户要求：整行都能点，不只是进度条）
+// 按钮/链接/输入框有自己的动作，不能抢；拖选文字时也不触发。
+document.addEventListener('click', function (e) {
+    const item = e.target && e.target.closest ? e.target.closest('.download-item') : null;
+    if (!item || !item.dataset || !item.dataset.taskId) return;
+    if (e.target.closest('button, a, input, select, textarea, label, [data-dl-batch]')) return;
+    try {
+        const sel = window.getSelection && window.getSelection();
+        if (sel && String(sel).length > 0) return;
+    } catch (_) {}
+    e.preventDefault();
+    toggleDownloadSelection(item.dataset.taskId);
+}, false);
+
+// 批量操作栏按钮
+document.addEventListener('click', function (e) {
+    const b = e.target && e.target.closest ? e.target.closest('[data-dl-batch]') : null;
+    if (!b) return;
+    e.preventDefault();
+    e.stopPropagation();
+    runBatchAction(b.dataset.dlBatch);
+}, false);
+
+// 切页时同步浮动条的显隐（离开下载页就收起，回来还在）
+document.addEventListener('click', function (e) {
+    const nav = e.target && e.target.closest ? e.target.closest('.nav-btn') : null;
+    if (!nav) return;
+    setTimeout(function () { try { syncDownloadSelectionUI(); } catch (_) {} }, 60);
+}, false);
+
 function renderDownloadList() {
     const list = document.getElementById('download-list');
     // ★ A0: DOM null 检测 → 若 UI 未完成初始化但 adopt 先触发, 给出可见诊断 Toast (只打 1 次)
@@ -4745,6 +4989,9 @@ function renderDownloadList() {
             case 'canceled':
                 stateText = '已取消';
                 break;
+            case 'deleted':
+                stateText = '已删除';
+                break;
         }
 
         // 下载进度条: 结构属性
@@ -4781,10 +5028,13 @@ function renderDownloadList() {
             starting: new Set(['pause','cancel']),
             running:  new Set(['pause','cancel']),
             paused:   new Set(['resume','cancel']),
-            completed:new Set(_canExtract0 ? ['open','extract'] : ['open']),
+            completed:new Set(_canExtract0 ? ['open','extract','delete'] : ['open','delete']),
             extracting:new Set(['open']),
             failed:   new Set(['retry','delete']),
             canceled: new Set(['retry','delete']),
+            // ★ 已删除 (2026-10-18): 文件已经删掉了，但条目保留 —— 用户仍能看到
+            //   "下载过什么"，并且能一键重新下载 / 移除这条记录。
+            deleted:  new Set(['redownload','remove']),
         };
         const vs = visibleMap[canon] || visibleMap.running;
         const mk = (role, sym, title) => {
@@ -4800,7 +5050,9 @@ function renderDownloadList() {
             + mk('open',   '📂 打开', '打开文件')
             + mk('extract','📦 解压', '解压这个压缩包 (下载时没勾自动解压时用)')
             + mk('retry',  '↻ 重试',  '重试')
-            + mk('delete', '🗑 删除', '删除已下载的文件 (含失败的压缩包)');
+            + mk('redownload', '↻ 重新下载', '重新下载这个文件')
+            + mk('delete', '🗑 删除', '删除已下载的文件 (含失败的压缩包)')
+            + mk('remove', '✖ 移除记录', '从列表里移除这条记录（不再显示）');
 
         // ★★★ 100% 稳定壳: name/url/engine-title 全部空字符串壳 (不影响 _lastHtml 比较!)
         //   patchDownloadItemIncrementally 会在首次/结构变化时用 textContent 填真实内容
@@ -4897,6 +5149,8 @@ function renderDownloadList() {
     }
     // 首次 render 壳是空的, 立刻 patch 一遍动态内容 (否则用户看到全 0% 空壳闪一下)
     try { patchAllDownloadsIncrementally(); } catch (e) {}
+    // ★ 重建后把多选状态同步回新 DOM（选中项不能因为刷新丢失）
+    try { syncDownloadSelectionUI(); } catch (e) {}
     schedulePersistDownloads();
 }
 
@@ -4911,7 +5165,7 @@ function normalizeDlState(s) {
         case 'probe':
             return 'starting';
         default:
-            return ['starting','running','paused','completed','extracting','failed','canceled'].includes(s) ? s : 'running';
+            return ['starting','running','paused','completed','extracting','failed','canceled','deleted'].includes(s) ? s : 'running';
     }
 }
 
@@ -4970,12 +5224,13 @@ function patchDownloadItemIncrementally(dl, id) {
                 starting: { pause: true, cancel: true },
                 running:  { pause: true, cancel: true },
                 paused:   { resume: true, cancel: true },
-                completed:{ open: true, extract: _canExtract },
+                completed:{ open: true, extract: _canExtract, delete: true },
                 extracting:{ open: true },
-                failed:   { retry: true },
-                canceled: { retry: true },
+                failed:   { retry: true, delete: true },
+                canceled: { retry: true, delete: true },
+                deleted:  { redownload: true, remove: true },
             };
-            const roles = ['pause','resume','cancel','open','extract','retry'];
+            const roles = ['pause','resume','cancel','open','extract','retry','redownload','delete','remove'];
             const showMap = visibleMap[canon] || visibleMap.running;
             for (let i = 0; i < roles.length; i++) {
                 const r = roles[i];
@@ -5018,7 +5273,7 @@ function patchDownloadItemIncrementally(dl, id) {
                 return;
             }
             // 新壳: 若 data-task-id 还没补 (快速切换时)
-            const roles = ['pause','resume','cancel','open','extract','retry'];
+            const roles = ['pause','resume','cancel','open','extract','retry','redownload','delete','remove'];
             for (let i = 0; i < roles.length; i++) {
                 const r = roles[i];
                 const b = actionsWrap.querySelector('.dl-action-btn[data-role="' + r + '"]');
@@ -5056,7 +5311,7 @@ function patchDownloadItemIncrementally(dl, id) {
         if (btTagEl) {
             if (isReallyBT) {
                 btTagEl.style.display = 'inline-block';
-                if (!btTagEl.textContent) btTagEl.textContent = 'BT';
+                if (!btTagEl.textContent) btTagEl.textContent = 'BT 种子';
             } else {
                 btTagEl.style.display = 'none';
             }
@@ -5093,7 +5348,9 @@ function patchDownloadItemIncrementally(dl, id) {
     // ------------------------------------------------------------------
     const unknownSize = canon === 'running' && (!dl.total || dl.total === 0);
     let dlPct = (dl.progress || 0);
-    if (canon === 'completed' || canon === 'extracting' || canon === 'failed' || canon === 'canceled') {
+    // ★ 2026-10-18: 'deleted' 也按 100% 画 —— 用户要求「已删除的记录进度条是正常的，
+    //   右边提示已删除就行」。以前删除时把 progress 清 0，整条进度条变空，看起来像没下过。
+    if (canon === 'completed' || canon === 'extracting' || canon === 'failed' || canon === 'canceled' || canon === 'deleted') {
         dlPct = 100; // 这些状态下载部分都算走完
     }
     const dlPctText = unknownSize ? formatBytes(dl.downloaded) : (dlPct.toFixed(1) + '%');
@@ -5236,7 +5493,7 @@ function patchDownloadItemIncrementally(dl, id) {
         if (btInfoEl) {
             const speedBPS = Number(dl.speed_bps ?? 0);
             const speedStr = speedBPS > 0 ? formatSpeedBps(speedBPS) : '';
-            const ps = `Peers:${peers} / Seeders:${seeders}`;
+            const ps = `连接数:${peers} / 做种:${seeders}`;
             const sizePart = btTotal > 0
                 ? `${formatBytes(btDownloaded)} / ${formatBytes(btTotal)} (${btPct.toFixed(1)}%)`
                 : (btDownloaded > 0 ? `${formatBytes(btDownloaded)}` : '');
@@ -5331,11 +5588,13 @@ function patchDownloadItemIncrementally(dl, id) {
         speedLine = '下载失败';
     } else if (canon === 'canceled') {
         speedLine = '已取消';
+    } else if (canon === 'deleted') {
+        speedLine = '已删除';
     }
     const speedSpan = item.querySelector('.dl-speed');
     if (speedSpan) speedSpan.textContent = speedLine;
 
-    // info 行左: downloaded / total
+    // info 行左: downloaded / total（已删除条目也照常显示大小，进度条是满的）
     if (sizeSpan) {
         sizeSpan.textContent = unknownSize
             ? `${formatBytes(dl.downloaded)}`
@@ -5580,22 +5839,103 @@ window.openDownloadedFile = async function(taskId) {
 //   解压失败时源压缩包不会自动删除 (delete_archive 只在成功时生效), 软件里原本
 //   也没有删除入口 —— 用户只能去资源管理器删。这里补上, 后端 delete_path 带重试
 //   (引擎/解压子进程刚退出时句柄可能还没释放)。
-window.deleteDownloadFile = async function(taskId) {
+window.deleteDownloadFile = async function(taskId, opts) {
+    const skipConfirm = !!(opts && opts.skipConfirm);
     const dl = state.downloads.get(taskId);
     if (!dl) return;
-    const p = dl.filePath || '';
-    if (!p) { vxAlert('找不到该任务的文件路径'); return; }
-    if (!(await vxConfirm('确定删除这个文件吗？\n\n' + p + '\n\n删除后无法恢复。'))) return;
-    try {
-        await invoke('delete_path', { path: p });
-        frontLog('DL_DELETE', 'task=' + taskId + ' file=' + p.slice(0, 120));
-        // 一并清掉断点续传记录, 否则下次下载会拿它把新文件标成"已完成"
-        try { await invoke('delete_path', { path: p + '.swiftfetch-resume' }); } catch (_) {}
-        state.downloads.delete(taskId);
-        if (typeof renderDownloadList === 'function') renderDownloadList(true);
-    } catch (e) {
-        vxAlert('删除失败: ' + (e && e.message ? e.message : String(e)));
+    // ★ 2026-10-18 重写：以前只删 dl.filePath 一个路径，而且删完直接把条目从 Map 里
+    //   摘掉 —— 用户看到的就是「删了以后列表里什么都没有，打开/解压都没得点」。
+    //   现在：
+    //     ① 把这条任务相关的**所有**落盘物都删掉（压缩包、解压目录、分卷、断点续传记录）；
+    //     ② 条目保留为 `deleted` 状态，列表里仍能看到它，可以「重新下载 / 移除记录」；
+    //     ③ 删完逐个校验，没删掉就如实报错（不再"看起来删了其实还在"）。
+    const paths = [];
+    const rootNorm = String(dl.downloadRoot || '').replace(/\//g, '\\').replace(/\\+$/, '').toLowerCase();
+    const addPath = (p) => {
+        if (!p) return;
+        const norm = String(p).replace(/\//g, '\\').replace(/\\+$/, '').trim();
+        if (norm.length < 3) return;
+        // ★ 安全闸 (2026-10-18): 平铺解压时 extractedPath 有可能是**共享下载根目录**
+        //   （例如 D:\game），真删会把整个库连别的游戏一起删掉。盘根 / 下载根一律跳过。
+        if (/^[A-Za-z]:$/.test(norm)) return;
+        if (rootNorm && norm.toLowerCase() === rootNorm) {
+            frontLog('DL_DELETE_SKIP_ROOT', 'path=' + norm);
+            return;
+        }
+        if (!paths.some(x => x.toLowerCase() === norm.toLowerCase())) paths.push(norm);
+    };
+    addPath(dl.filePath);
+    addPath(dl.extractedPath);
+    // BT 任务的 filePath 就是目录；HTTP 任务可能是 .part 之类的中间文件
+    if (dl.filePath) {
+        const fp = String(dl.filePath).replace(/\//g, '\\');
+        addPath(fp + '.swiftfetch-resume');
+        addPath(fp + '.part');
+        addPath(fp + '.tmp');
+        addPath(fp + '.swiftfetch-resume.part');
     }
+    if (!paths.length) { if (!skipConfirm) vxAlert('找不到该任务的文件路径'); return; }
+    if (!skipConfirm && !(await vxConfirm('确定删除这个文件吗？\n\n' + paths.join('\n') + '\n\n删除后无法恢复（列表里会保留一条「已删除」记录，可随时重新下载）。'))) return;
+
+    const failed = [];
+    for (const p of paths) {
+        try { await invoke('delete_path', { path: p }); }
+        catch (e) { failed.push(p + ' → ' + (e && e.message ? e.message : e)); }
+    }
+    // ★ 真删校验：delete_path 对"本来就不存在"返回 Ok，所以这里只校验失败项，
+    //   再额外确认主路径确实不在了（防止句柄未释放时后端静默成功）。
+    let stillThere = false;
+    try {
+        const chk = await invoke('check_bt_disk_progress', { dir: paths[0] });
+        if (chk && chk.exists) stillThere = true;
+    } catch (_) {}
+
+    frontLog('DL_DELETE', 'task=' + taskId + ' paths=' + paths.join(';').slice(0, 300) + ' failed=' + failed.length + ' stillThere=' + stillThere);
+
+    if (failed.length || stillThere) {
+        // 删除没完成 → 不改状态，让用户重试（常见原因：文件正被游戏/解压进程占用）
+        vxAlert('删除未完成：\n' + (failed.length ? failed.join('\n') : paths[0] + ' 仍存在（可能被占用）') +
+            '\n\n请关闭占用该文件的程序后重试。');
+        return;
+    }
+    // 条目保留，进入「已删除」状态
+    dl.state = 'deleted';
+    dl.deletedAt = Date.now();
+    dl.deletedPaths = paths;
+    // ★ 2026-10-18: 不清 progress —— 已删除的条目进度条照常是满的，
+    //   只在右侧状态文字上提示「已删除」（用户要求）
+    dl.progress = 100;
+    if (!dl.total && dl.downloaded) dl.total = dl.downloaded;
+    dl.speed = '';
+    dl._finished = true;
+    if (typeof renderDownloadList === 'function') renderDownloadList(true);
+    schedulePersistDownloads();
+    if (!skipConfirm) { try { showToast('已删除文件（记录保留在列表里）', 'ok', 2500); } catch (_) {} }
+};
+
+// ★ 已删除条目的「重新下载」：用**同一个 taskId** 重新发起，不新建申请。
+window.redownloadDeleted = async function(taskId) {
+    const dl = state.downloads.get(taskId);
+    if (!dl) return;
+    dl.state = 'starting';
+    dl.progress = 0;
+    dl.downloaded = 0;
+    dl.total = 0;
+    dl.error = '';
+    dl.deletedAt = 0;
+    renderDownloadList();
+    await window.retryDownload(taskId);
+};
+
+// ★ 已删除条目的「移除记录」：只删列表条目，不动磁盘。
+window.removeDownloadRecord = async function(taskId) {
+    const dl = state.downloads.get(taskId);
+    if (!dl) return;
+    if (!(await vxConfirm('从下载列表里移除这条记录？\n\n（文件已经删过了，这一步只清列表）'))) return;
+    try { await invoke('clear_download', { taskId: taskId }); } catch (_) {}
+    state.downloads.delete(taskId);
+    renderDownloadList(true);
+    schedulePersistDownloads();
 };
 
 // ★ 手动解压已下载的压缩包 (2026-10-12)
@@ -5654,8 +5994,34 @@ window.retryDownload = async function(taskId) {
         }
         return;
     }
-    // 重新生成 task_id
-    const newTaskId = `dl_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+    // ================================================================
+    // ★★ 2026-10-18 重写：重试**不再新建下载申请**。
+    //
+    //   旧逻辑每次都 `start_download` 并生成新的 task_id —— 对签名直链/网盘
+    //   来说等于重新向源站申请一次链接，点几次就撞 403（用户报的正是这个）。
+    //   现在的顺序：
+    //     ① 后端 `retry_download`：同一个任务、同一条 URL 原地重跑（不碰源站）；
+    //     ② 后端没有这个任务（重启过/记录被清）才用**同一个 taskId** 重新 start，
+    //        绝不换 id —— 列表里还是那一条，进度也接着原文件续传。
+    // ================================================================
+    try {
+        await invoke('retry_download', { taskId: taskId });
+        dl.state = 'running';
+        dl.error = '';
+        dl._finished = false;
+        dl.speed = '';
+        if (dl.progress >= 100) dl.progress = 0;
+        frontLog('RETRY_INPLACE', 'task=' + taskId);
+        renderDownloadList();
+        focusDownloadTask(taskId);
+        try { showToast('已重试该下载（沿用原链接，不会重新申请）'); } catch (_) {}
+        return;
+    } catch (e) {
+        // 后端任务表里没有（例如重启后从 localStorage 恢复的条目）→ 落到下面用同一个 id 重开
+        frontLog('RETRY_INPLACE_FAIL', 'task=' + taskId + ' err=' + String(e && e.message ? e.message : e).slice(0, 120));
+    }
+
+    if (!dl.url) { vxAlert('这条记录没有下载链接，无法重试'); return; }
     // BY/KO 走内置下载器
     let headers = [];
     if (dl.url.includes('byrutgame.org')) {
@@ -5666,23 +6032,20 @@ window.retryDownload = async function(taskId) {
         headers = [['Referer', 'https://galgamex.net/']];
     }
     try {
+        // ★ 用原 taskId（BT 任务的 bt- 前缀由后端统一处理），不生成新 id
         const realTaskId = await invoke('start_download', {
-            taskId: newTaskId,
+            taskId: taskId,
             url: dl.url,
             filePath: dl.filePath,
             headers: headers,
         });
-        // ★ BT 任务真实 key 是 bt-xxx: 用 realTaskId 作为 Map key 才能收到进度/操作按钮
-        const mapKey = realTaskId || newTaskId;
-        state.downloads.delete(taskId);
+        const mapKey = realTaskId || taskId;
         // ★ 这条任务如果本身是"补出来的"(extractDir 空 + autoExtract false), 说明用户的
         //   下载设置早丢了 —— 重试前再从持久化历史捞一次, 否则重试下完还是不解压。
         const _rec = recoverDownloadSettings(dl.url, dl.name);
         const _useRec = (!dl.extractDir && !dl.autoExtract);
-        state.downloads.set(mapKey, {
-            name: dl.name,
-            url: dl.url,
-            filePath: dl.filePath,
+        const merged = {
+            ...dl,
             progress: 0,
             speed: '',
             state: 'running',
@@ -5695,7 +6058,6 @@ window.retryDownload = async function(taskId) {
             deleteArchive: _useRec ? _rec.deleteArchive : dl.deleteArchive,
             createFolder: _useRec ? _rec.createFolder : dl.createFolder,
             createShortcut: dl.createShortcut,
-            // ★ 重试后仍要保留来源信息，否则下次重试又换不了链、快捷方式也不弹窗了
             source: dl.source || '',
             gxResourceId: dl.gxResourceId || null,
             gxIndex: (dl.gxIndex == null ? null : dl.gxIndex),
@@ -5703,9 +6065,17 @@ window.retryDownload = async function(taskId) {
             downloadRoot: dl.downloadRoot || '',
             cover: dl.cover || '',
             taskId: mapKey,
-        });
+            error: '',
+            deletedAt: 0,
+        };
+        if (mapKey !== taskId) state.downloads.delete(taskId);
+        state.downloads.set(mapKey, merged);
         renderDownloadList();
+        focusDownloadTask(mapKey);
     } catch (e) {
+        dl.state = 'failed';
+        dl.error = String(e && e.message ? e.message : e);
+        renderDownloadList();
         vxAlert(`重试失败: ${e}`);
     }
 };
@@ -5883,6 +6253,12 @@ async function onDownloadFinished(event) {
         dl.progress = 100;
         dl.state = 'completed';
         frontLog('DL_FIN_OK', `task=${p.task_id} name=${(dl.name||'').slice(0,40)} filePath=${dl.filePath||''}`);
+        // ★ 2026-10-18: 首页「已下载」要立刻 +1，不能等重启/下一次轮询
+        try { refreshHomeDownloadedCount(); } catch (_) {}
+        // ★ 2026-10-19: Switch 资源下载完 → 自动解压到模拟器目录（压缩包留在 switch-downloads）
+        if (dl.source === 'switch' && typeof window.__vxSwInstall === 'function') {
+            setTimeout(function () { try { window.__vxSwInstall(p.task_id); } catch (_) {} }, 800);
+        }
         renderDownloadList();
 
         // ★ BT 任务不依赖那个"下载后自动解压"勾选框 —— 种子下下来的是不是压缩包,
@@ -6246,7 +6622,7 @@ function persistDownloadsToStorage() {
         const history = [];
         for (const [id, dl] of state.downloads) {
             const st = dl.state;
-            const done = (st === 'completed' || st === 'failed' || st === 'canceled' || st === 'extracting');
+            const done = (st === 'completed' || st === 'failed' || st === 'canceled' || st === 'extracting' || st === 'deleted');
             const active = (st === 'running' || st === 'starting' || st === 'paused' || st === 'downloading' || st === 'pending');
             if (!done && !active) continue;
             history.push({
@@ -6274,6 +6650,10 @@ function persistDownloadsToStorage() {
                     cover: dl.cover || '',
                     engine: dl.engine || '',
                     error: dl.error || '',
+                    // ★ 2026-10-18: 已删除状态要跨重启保留（否则重启后又变回"已完成"，
+                    //   点打开会去找一个已经被删掉的文件）
+                    deletedAt: dl.deletedAt || 0,
+                    deletedPaths: Array.isArray(dl.deletedPaths) ? dl.deletedPaths : [],
                     // ★ 来源要一起存：重启后 GX 任务仍要弹"选程序 + 确认名字"的窗
                     source: dl.source || '',
                     savedAt: Date.now(),
@@ -6282,14 +6662,20 @@ function persistDownloadsToStorage() {
                     _browserSource: dl._browserSource || '',
                 });
         }
-        // 限制历史数量 (最多 50 条)；**未完成的优先保留**，别被一堆完成记录挤掉
+        // 限制历史数量 (最多 300 条)；**未完成的优先保留**，别被一堆完成记录挤掉
+        // ★ 2026-10-18: 50 → 300。首页「已下载」是按历史记录累计的，50 条一满就会把
+        //   最早的完成记录挤掉 → 数字会莫名其妙往回掉。300 条 ≈ 180KB，localStorage 完全放得下。
+        const MAX_HISTORY = 300;
         let trimmed = history;
-        if (history.length > 50) {
+        if (history.length > MAX_HISTORY) {
             const active = history.filter(function (h) { return h.state === 'paused'; });
             const rest = history.filter(function (h) { return h.state !== 'paused'; });
-            trimmed = rest.slice(-(Math.max(0, 50 - active.length))).concat(active);
+            trimmed = rest.slice(-(Math.max(0, MAX_HISTORY - active.length))).concat(active);
         }
         localStorage.setItem(DL_STORAGE_KEY, JSON.stringify(trimmed));
+        // ★ 2026-10-18: 下载完成/删除/移除记录都会走到这里 → 顺手刷新首页「已下载」
+        //   （debounce 300ms，不会因为轮询而狂刷）
+        try { refreshHomeDownloadedCount(); } catch (_) {}
     } catch (e) {
         console.warn('保存下载历史失败:', e);
     }
@@ -6335,6 +6721,9 @@ function restoreDownloadsFromStorage() {
                 _resumable: item.state === 'paused' && !!item.url,
                 _finished: item.state !== 'running' && item.state !== 'started' && item.state !== 'paused',
                 error: item.error || '',
+                // ★ 2026-10-18: 已删除状态跨重启恢复
+                deletedAt: item.deletedAt || 0,
+                deletedPaths: Array.isArray(item.deletedPaths) ? item.deletedPaths : [],
                 // ★ HR1: 从持久化读回浏览器来源标记
                 _fromBrowser: !!item._fromBrowser,
                 _browserSource: item._browserSource || '',
@@ -6412,6 +6801,83 @@ async function restoreDownloadsFromSwiftFetch() {
         console.log('恢复 SwiftFetch 下载状态失败:', e);
     }
 }
+
+// ============================================================
+// ★ 启动扫描：记录还在、文件已被删掉的下载 → 标成「已删除」(2026-10-18)
+// ------------------------------------------------------------
+// 场景：用户在资源管理器里把下载好的压缩包/游戏目录删了，但软件里的下载记录
+// 还在。以前重启后这条记录仍然显示「已完成」，点打开/解压全都失败。
+// 现在启动时批量问一次后端「这些路径还在不在」，全都不在就把整条标成已删除，
+// 进度条直接显示「已删除」，并保留「重新下载 / 移除记录」。
+// 只处理已完成/失败/已取消的条目，正在下载/暂停的绝不动。
+// ============================================================
+async function scanMissingDownloads() {
+    if (!state || !(state.downloads instanceof Map) || state.downloads.size === 0) return 0;
+    const targets = [];
+    for (const [id, dl] of state.downloads) {
+        if (!dl) continue;
+        const canon = normalizeDlState(dl.state);
+        // ★ 只扫「已完成」：失败/已取消的任务本来就没有文件，
+        //   把它们标成已删除会让「重试」按钮消失（用户真正需要的是重试）。
+        if (canon !== 'completed') continue;
+        const paths = [];
+        for (const p of [dl.extractedPath, dl.filePath]) {
+            if (!p) continue;
+            const norm = String(p).replace(/\//g, '\\').trim();
+            if (norm.length < 3) continue;
+            if (!paths.some(x => x.toLowerCase() === norm.toLowerCase())) paths.push(norm);
+        }
+        if (!paths.length) continue;
+        targets.push({ id, paths });
+    }
+    if (!targets.length) return 0;
+
+    const allPaths = [];
+    for (const t of targets) for (const p of t.paths) allPaths.push(p);
+
+    let exists = [];
+    try {
+        exists = await invoke('paths_exist', { paths: allPaths });
+    } catch (e) {
+        // 旧后端没有这个命令时退化成逐个检查（慢一点但不会误判）
+        frontLog('DL_SCAN_FALLBACK', String(e && e.message ? e.message : e).slice(0, 120));
+        for (const p of allPaths) {
+            try {
+                const r = await invoke('check_bt_disk_progress', { dir: p });
+                exists.push(!!(r && r.exists));
+            } catch (_) { exists.push(true); } // 查不了就当它还在，绝不误标
+        }
+    }
+    if (!Array.isArray(exists) || exists.length !== allPaths.length) return 0;
+
+    let k = 0, marked = 0;
+    for (const t of targets) {
+        let anyExists = false;
+        for (let i = 0; i < t.paths.length; i++) {
+            if (exists[k++]) anyExists = true;
+        }
+        if (anyExists) continue;
+        const dl = state.downloads.get(t.id);
+        if (!dl) continue;
+        dl.state = 'deleted';
+        dl.deletedAt = Date.now();
+        dl.deletedPaths = t.paths;
+        // ★ 2026-10-18: 同 deleteDownloadFile —— 进度条保持满格，只靠状态文字提示已删除
+        dl.progress = 100;
+        if (!dl.total && dl.downloaded) dl.total = dl.downloaded;
+        dl.speed = '';
+        dl._finished = true;
+        marked++;
+        frontLog('DL_SCAN_MISSING', 'task=' + t.id + ' paths=' + t.paths.join(';').slice(0, 200));
+    }
+    if (marked > 0) {
+        renderDownloadList(true);
+        schedulePersistDownloads();
+        try { showToast(`检测到 ${marked} 个下载文件已被删除（已标为「已删除」）`, 'warn', 4000); } catch (_) {}
+    }
+    return marked;
+}
+window.scanMissingDownloads = scanMissingDownloads;
 
 // ============================================================
 // 下载进度轮询 (主进度来源, 不依赖事件)
@@ -7627,6 +8093,9 @@ async function checkAppVersion() {
         //   后端版本号仍是合法 semver 1.0.0。
         const v = String(info.version || '').replace(/\.0$/, '');
         versionEl.textContent = `v${v}`;
+        // 设置页「软件更新」里的版本号也跟着更新（它比这里先渲染，之前会一直显示写死的 v1.2）
+        const su = document.getElementById('app-update-version');
+        if (su) su.textContent = versionEl.textContent;
     }
     // 版本更新时弹出更新日志
     if (info.has_update) {
@@ -7654,15 +8123,30 @@ let appUpdateBusy = false;
 let appUpdateUnlisten = null;
 let appUpdateUnlisten2 = null;
 
-async function checkAppUpdateFromRepo() {
+async function checkAppUpdateFromRepo(manual) {
+    const statusEl = document.getElementById('app-update-status');
+    const setStatus = (t) => { if (statusEl) statusEl.textContent = t; };
+    if (manual) setStatus('正在检查更新…');
     let r;
     try { r = await invoke('check_app_update'); }
-    catch (e) { console.warn('[更新] 检查失败:', e); return; }
-    if (!r || !r.has_update) {
-        // 网络不通/没有 Release 都走这里，静默跳过，不要打扰用户
-        if (r && r.error) console.warn('[更新]', r.error);
+    catch (e) {
+        console.warn('[更新] 检查失败:', e);
+        if (manual) { setStatus('检查失败: ' + e); try { showToast('检查更新失败: ' + e, 'error', 6000); } catch (_) {} }
         return;
     }
+    if (!r || !r.has_update) {
+        // 网络不通/没有 Release 都走这里：自动检查静默跳过；手动检查要给出结果
+        if (r && r.error) {
+            console.warn('[更新]', r.error);
+            if (manual) { setStatus('检查失败: ' + r.error); try { showToast('检查更新失败: ' + r.error, 'warn', 7000); } catch (_) {} }
+        } else if (manual) {
+            const cur = (r && r.current_version) || '';
+            setStatus('已是最新版本' + (cur ? ' v' + cur : ''));
+            try { showToast('已是最新版本' + (cur ? ' v' + cur : ''), 'success', 3000); } catch (_) {}
+        }
+        return;
+    }
+    setStatus('发现新版本 v' + r.latest_version);
     appUpdateInfo = r;
     showUpdateModal(r);
 }
@@ -7934,6 +8418,11 @@ async function init() {
         try { restoreDownloadsFromStorage(); } catch (e) { frontLog('INIT_ERR', 'restoreFromStorage failed: ' + (e.stack || e.message || e)); }
         frontLog('INIT_STEP', 'STEP10 CRITICAL: restoreDownloadsFromSwiftFetch');
         try { restoreDownloadsFromSwiftFetch(); } catch (e) { frontLog('INIT_ERR', 'restoreFromSwiftFetch failed: ' + (e.stack || e.message || e)); }
+        // ★ STEP10b (2026-10-18): 启动后扫一遍磁盘 —— 文件被用户在资源管理器删掉的
+        //   下载记录标成「已删除」。延迟 1.2s 等两路恢复都完成，避免扫描时列表还没建好。
+        setTimeout(() => {
+            try { scanMissingDownloads().catch(e => frontLog('INIT_ERR', 'scanMissing failed: ' + (e && e.message ? e.message : e))); } catch (_) {}
+        }, 1200);
 
         frontLog('INIT_STEP', 'STEP3 setupInfiniteScroll');
         try { setupInfiniteScroll(); } catch (e) { frontLog('INIT_ERR', 'setupInfiniteScroll: ' + (e.stack || e.message || e)); }
@@ -9361,31 +9850,42 @@ window.__vxTr = (function () {
         const f = pending.files[sel ? parseInt(sel.value, 10) : 0];
         if (!f) return;
         busy = true;
+        // ★ 2026-10-18: 先把弹窗关掉、切到「下载」页 —— 以前这里一直 await 整个下载，
+        //   弹窗杵在那里不动，用户以为"点了没反应、也不返回去"。
+        //   现在点确认就立刻返回下载页，实时进度直接看得到；完成后 toast 提示进了「我的库」。
+        const pend = pending;
         const btn = $('tr-dl-go');
         if (btn) { btn.disabled = true; btn.textContent = '下载中…'; }
-        // 下载走主下载引擎 → 「下载」页有实时速度/进度
-        setStatus('tr-dl-status', '正在下载 ' + f.name + ' …（可在左侧「下载」页看实时进度）');
+        closeModal();
+        try { _switchToDownloadsTab(); } catch (_) {}
+        try { showToast('已开始下载《' + pend.game + '》，进度见下载列表', 'ok', 3200); } catch (_) {}
+        // 引擎任务 id 是 tr-<毫秒>：稍等它建好，再滚到那一条
+        setTimeout(function () {
+            try {
+                const ids = Array.from(state.downloads.keys()).filter(function (k) { return String(k).indexOf('tr-') === 0; });
+                if (ids.length) focusDownloadTask(ids[ids.length - 1]);
+            } catch (_) {}
+        }, 900);
         try {
             // pageUrl 用来事后查中文名 (下载令牌地址反推不出游戏 slug)
             const item = await invoke('tr_download', {
                 url: f.url,
-                game: pending.game,
-                pageUrl: pending.url,
+                game: pend.game,
+                pageUrl: pend.url,
             });
-            setStatus('tr-dl-status', '已下载到「我的库」: ' + item.filename + '（' + fmtSize(item.size) + '）', 'ok');
-            if (btn) btn.textContent = '已下载';
-            setStatus('tr-status', '《' + pending.game + '》已下载到我的库', 'ok');
+            setStatus('tr-status', '《' + pend.game + '》已下载到我的库（' + fmtSize(item.size) + '）', 'ok');
+            try { showToast('《' + pend.game + '》已加入「我的库」', 'ok', 3200); } catch (_) {}
             await loadLibrary();
             // ★ 下载完自动把修改器目录加进 Defender 排除项 (修改器改内存常被误杀)。
             //   后端只加一次, 加过就直接返回, 不会每次下载都弹 UAC。
             invoke('tr_defender_exclude').then(function (r) {
                 if (r && r !== '已经加过了') {
-                    setStatus('tr-dl-status', '已自动加入 Defender 白名单（首次会弹一次 UAC）', 'ok');
+                    setStatus('tr-lib-status', '已自动加入 Defender 白名单（首次会弹一次 UAC）', 'ok');
                 }
             }).catch(function () { /* 用户拒绝提权就算了, 不打断下载流程 */ });
         } catch (e) {
-            setStatus('tr-dl-status', '下载失败: ' + e, 'err');
-            if (btn) { btn.disabled = false; btn.textContent = '重试'; }
+            setStatus('tr-status', '下载失败: ' + e, 'err');
+            try { showToast('修改器下载失败：' + e, 'error', 5000); } catch (_) {}
         }
         busy = false;
     }
@@ -12006,3 +12506,706 @@ var ThemeFx = (function () {
 document.addEventListener('DOMContentLoaded', function () {
   try { ThemeFx.init(); } catch (e) { console.warn('[主题动效] 初始化失败:', e); }
 });
+
+// ============================================================
+// 下载页「粘贴链接直接下」（网盘分享 + 普通直链）—— 2026-10-13
+//
+// 用户要求：网盘能力**不要做成独立页面**，要在别的地方用起来。
+// 所以入口就放在「下载列表」页顶部的一个输入框：
+//   · 粘网盘分享链接（夸克 / 百度 / 迅雷）→ pan_recognize → pan_list → pan_resolve
+//     → 拿到带签名的直链 + 必须的请求头 → 走**原来那套**「下载设置」弹窗（目录/解压/快捷方式全复用）
+//   · 粘普通 http(s) 直链 → 也走同一个弹窗
+//
+// 为什么必须复用 showDownloadModal：目录、自动解压、创建快捷方式、任务落盘、
+// 事件订阅……全在那一条链上。另起一套"简化下载"必然与它漂移（历史上 GX 那次就是）。
+//
+// 后端：src-tauri/src/netdisk/。错误一律翻成人话（后端 friendly_err 做了一层）。
+// ============================================================
+(function () {
+    const $ = (id) => document.getElementById(id);
+    const inv = (cmd, args) => window.__TAURI__.core.invoke(cmd, args);
+
+    const DRIVE_CN = { quark: '夸克网盘', baidu: '百度网盘', xunlei: '迅雷云盘', pan123: '123 云盘', aliyun: '阿里云盘' };
+
+    // 分享里有多个文件时的暂存（选择弹窗要用）
+    let pickState = null;
+
+    // 各网盘能力表（真相在 Rust 的 Drive::needs_login()，这里只做缓存，不自己维护一份）
+    let drives = null;
+    async function loadDrives() {
+        if (drives) return drives;
+        try { drives = await inv('pan_drives'); } catch (e) { drives = []; }
+        return drives;
+    }
+    async function driveInfo(id) {
+        const list = await loadDrives();
+        return (list || []).find(d => d.id === id) || null;
+    }
+
+    function msgOf(e) {
+        return String(e && e.message ? e.message : e);
+    }
+
+    function fileNameFromUrl(u) {
+        try {
+            const s = String(u).split('#')[0].split('?')[0];
+            const last = s.split('/').filter(Boolean).pop() || '';
+            const n = decodeURIComponent(last);
+            return n || 'download';
+        } catch (e) { return 'download'; }
+    }
+
+    // ---------- 入口 ----------
+    async function addFromText(text) {
+        const raw = String(text || '').trim();
+        if (!raw) { showToast('先粘贴一个链接'); return; }
+
+        let link = null;
+        try { link = await inv('pan_recognize', { url: raw }); } catch (e) { link = null; }
+
+        if (!link) {
+            if (!/^https?:\/\//i.test(raw)) {
+                showToast('这看起来不是链接（要 http:// 或 https:// 开头）');
+                return;
+            }
+            // 普通直链：文件名从 URL 末段推（推不出来就叫 download，用户可以改）
+            await showDownloadModal({ url: raw, filename: fileNameFromUrl(raw), label: '直链下载', source: 'direct' });
+            return;
+        }
+        await listThenPick(link, raw, '');
+    }
+
+    async function listThenPick(link, raw, passcode) {
+        const driveCn = DRIVE_CN[link.drive] || link.drive;
+        let files = null;
+        try {
+            files = await inv('pan_list', { url: raw, passcode: passcode || null });
+        } catch (e) {
+            const m = msgOf(e);
+            // ★ 提取码缺失/不对：问一次再试。别的错误直接原样显示（别吞）
+            if (!passcode && /提取码|密码|passcode|pass_code/i.test(m)) {
+                const code = await vxPrompt(`${driveCn}的这个分享需要提取码：`, '');
+                if (code && String(code).trim()) { await listThenPick(link, raw, String(code).trim()); return; }
+                return;
+            }
+            vxAlert(`列出${driveCn}分享的文件失败\n\n${m}`);
+            return;
+        }
+
+        if (!files || !files.length) { showToast('这个分享里没有文件'); return; }
+        const real = files.filter(f => !f.is_dir);
+        if (!real.length) {
+            vxAlert('这个分享里只有文件夹。请进入文件夹后再复制分享链接，或直接选到具体文件。');
+            return;
+        }
+        if (real.length === 1) { await resolveThenStart(link, raw, passcode, [real[0]]); return; }
+        openPick(link, raw, passcode, real);
+    }
+
+    function openPick(link, raw, passcode, files) {
+        pickState = { link, raw, passcode, files };
+        $('pan-pick-title').textContent = `选择要下载的文件（共 ${files.length} 个）`;
+        $('pan-pick-body').innerHTML =
+            '<div class="pan-pick-hint">勾选要下的文件；确认后每个文件都会走一次「下载设置」，'
+            + '目录/解压选项按你第一次设的来。</div>'
+            + files.map((f, i) => `
+                <label class="pan-pick-row">
+                    <input type="checkbox" data-pan-idx="${i}"${i === 0 ? ' checked' : ''}>
+                    <span class="pan-pick-name">${escapeHtml(f.name)}</span>
+                    <span class="pan-pick-size">${f.size ? escapeHtml(formatBytes(f.size)) : ''}</span>
+                </label>`).join('')
+            + `<div style="margin-top:14px;display:flex;gap:10px;justify-content:flex-end;">
+                   <button class="btn btn-secondary" onclick="closePanPick()">取消</button>
+                   <button class="btn btn-primary" id="pan-pick-go">下载选中</button>
+               </div>`;
+        $('pan-pick-modal').style.display = 'flex';
+        $('pan-pick-go').addEventListener('click', async () => {
+            const idx = Array.from(document.querySelectorAll('#pan-pick-body input[data-pan-idx]:checked'))
+                .map(c => Number(c.dataset.panIdx));
+            if (!idx.length) { showToast('至少选一个文件'); return; }
+            const chosen = idx.map(i => pickState.files[i]);
+            const st = pickState;
+            closePanPick();
+            await resolveThenStart(st.link, st.raw, st.passcode, chosen);
+        });
+    }
+
+    // 解析出直链 → 交给「下载设置」弹窗（多个则排队，见 confirmDownload 里的 downloadQueue）
+    async function resolveThenStart(link, raw, passcode, entries) {
+        // ★ 这个网盘取直链要不要登录，先问后端（不猜）。要登录而用户又没填凭据时，
+        //   直接给出"去哪填"，而不是让他等一次注定失败的解析。
+        const info = await driveInfo(link.drive);
+        if (info && info.needs_login) {
+            let has = false;
+            try {
+                const st = await inv('pan_cookie_status');
+                const me = (st || []).find(s => s.drive === link.drive);
+                has = !!(me && (me.has_cookie || me.has_refresh_token));
+            } catch (e) {}
+            if (!has) {
+                const ok = await vxConfirm(
+                    `${info.name} 的下载直链必须登录才能取到（分享链接本身能列文件，但直链是按账号签名的）。
+
+` +
+                    `要去「设置 → 网盘」填一下自己的凭据吗？填完再回来粘这个链接就行。`);
+                if (ok) { try { navigateToPage('settings'); } catch (e) {} }
+                return;
+            }
+        }
+        let resolved = null;
+        try {
+            resolved = await inv('pan_resolve', { url: raw, passcode: passcode || null, entries });
+        } catch (e) {
+            vxAlert(`解析下载地址失败\n\n${msgOf(e)}`);
+            return;
+        }
+        const list = (resolved || []).filter(r => r && r.url);
+        if (!list.length) { vxAlert('没有拿到可用的下载地址'); return; }
+
+        const dls = list.map(r => ({
+            url: r.url,
+            filename: r.name || 'download',
+            size: r.size || 0,
+            label: '网盘下载',
+            source: 'pan',
+            // ★ 夸克直链必须带 Cookie: __pugs=... （缺了 412）+ 夸克 UA + Referer
+            headers: r.headers || null,
+        }));
+        state.downloadQueue = dls.slice(1);   // 第 2 个起排队
+        state._panQueueOwner = dls[0];        // 认领标记（见 confirmDownload 里的队列续接）
+        await showDownloadModal(dls[0]);
+    }
+
+    window.closePanPick = function () {
+        const m = $('pan-pick-modal');
+        if (m) m.style.display = 'none';
+        pickState = null;
+    };
+
+    // ---------- 绑定 ----------
+    function init() {
+        const input = $('dl-add-input');
+        const btn = $('dl-add-btn');
+        if (!input || !btn) return;
+        const go = async () => {
+            const v = input.value.trim();
+            if (!v) return;
+            btn.disabled = true;
+            const old = btn.textContent;
+            btn.textContent = '解析中…';
+            try { await addFromText(v); input.value = ''; }
+            catch (e) { vxAlert('添加下载失败\n\n' + msgOf(e)); }
+            finally { btn.disabled = false; btn.textContent = old; }
+        };
+        btn.addEventListener('click', go);
+        input.addEventListener('keydown', (e) => { if (e.key === 'Enter') go(); });
+    }
+
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', init);
+    } else {
+        init();
+    }
+// ============================================================
+// Switch 游戏库 (2026-10-18)
+// ------------------------------------------------------------
+// 数据来自后端 switch_games.rs（本地库 + NS711 合并目录）。
+// 下载走已有的网盘解析（NS711 的夸克分享）或本地分卷直链，最终都交给
+// start_download（多线程/续传/解压全部复用）；启动走 emu_launch。
+// ============================================================
+window.__vxSw = (function () {
+    const SW_DIR = 'D:\\game\\switch';
+    const SW_DL_DIR = 'D:\\game\\switch-downloads';
+    let inited = false;
+    let cat = '全部';
+    let query = '';
+    let offset = 0;
+    let total = 0;
+    let loading = false;
+    let items = [];
+    let stats = null;
+    let cur = null;          // 当前详情页对应的游戏对象
+
+    const $ = (id) => document.getElementById(id);
+    const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+    const safeName = (s) => String(s || 'game').replace(/[\\/:*?"<>|]/g, '_').slice(0, 80);
+
+    function setStatus(t, cls) {
+        const el = $('sw-status');
+        if (!el) return;
+        el.textContent = t || '';
+        el.className = cls || '';
+    }
+
+    // 封面一律交原始 URL 进来，由全局图片缓存代理（vxImgUrl + MutationObserver）统一处理。
+    // ★ 2026-10-20: 这里以前自己先调 vxImgUrl 包一层，观察器又把它当 http 再包一层 →
+    //   双层代理必然失败 → onerror 把图隐藏了（用户看到封面/图标全空白）。
+    function coverHtml(g) {
+        if (!g || !g.cover) return '<div class="sw-cover-empty">NS</div>';
+        return '<img src="' + esc(g.cover) + '" loading="lazy" onerror="this.style.display=\'none\'">';
+    }
+
+    // 卡片结构与普通游戏/成人游戏完全一致：.game-card > .game-card-image + .game-card-info
+    function cardHtml(g) {
+        const tags = (g.cats || []).slice(0, 3).map((t) => '<span class="game-tag">' + esc(t) + '</span>').join('');
+        return '<div class="game-card sw-card" data-sw-id="' + esc(g.id) + '">'
+            + '<div class="game-card-image">' + coverHtml(g)
+            + '<button class="sw-play" data-sw-play="' + esc(g.id) + '" title="一键启动">▶</button></div>'
+            + '<div class="game-card-info">'
+            + '<div class="game-card-name" title="' + esc(g.title) + '">' + esc(g.title) + '</div>'
+            + (tags ? '<div class="game-card-tags">' + tags + '</div>' : '')
+            + (g.size ? '<div class="sw-size">' + esc(g.size) + '</div>' : '')
+            + '</div></div>';
+    }
+
+    // 只保留下拉选择栏（用户要求删掉那排重复的文字标签）
+    function renderCats(cats) {
+        const sel = $('sw-category-filter');
+        if (!sel) return;
+        const all = ['全部'].concat((cats || []).map((x) => (Array.isArray(x) ? x[0] : x)));
+        sel.innerHTML = all.map((c) => '<option value="' + esc(c) + '"' + (c === cat ? ' selected' : '') + '>' + esc(c) + '</option>').join('');
+    }
+
+    async function load(reset) {
+        if (loading) return;
+        loading = true;
+        if (reset) { offset = 0; items = []; }
+        try {
+            const r = await invoke('switch_list', { cat: cat, query: query, offset: offset, limit: 60 });
+            const list = (r && r.items) || [];
+            total = (r && r.total) || 0;
+            items = items.concat(list);
+            offset += list.length;
+            const grid = $('sw-grid');
+            if (grid) {
+                if (!items.length) {
+                    grid.innerHTML = '<div class="empty-state">还没有 Switch 游戏 —— 稍等自动同步，或点右上角「同步」从资源站抓取目录</div>';
+                } else {
+                    grid.innerHTML = items.map(cardHtml).join('');
+                }
+            }
+            const loader = $('sw-scroll-loader');
+            if (loader) loader.style.display = items.length < total ? '' : 'none';
+        } catch (e) {
+            setStatus('加载失败: ' + e, 'err');
+        } finally {
+            loading = false;
+        }
+    }
+
+    async function onShow() {
+        if (!inited) {
+            inited = true;
+            bind();
+            await refreshStats();
+        }
+        if (!stats || !stats.total) await refreshStats();
+        if (stats && stats.total) await load(true);
+        // 目录为空或超过 24 小时 → 后台自动抓取并缓存
+        const stale = !stats || !stats.total || (Date.now() - (stats.updated_at || 0) > 24 * 3600 * 1000);
+        if (stale && !window.__swAutoSyncing) {
+            window.__swAutoSyncing = true;
+            doSync().finally(function () { window.__swAutoSyncing = false; });
+        }
+    }
+
+    async function refreshStats() {
+        try {
+            stats = await invoke('switch_catalog_stats');
+        } catch (_) { stats = null; }
+        if (stats) {
+            renderCats(stats.cats);
+            setStatus('共 ' + (stats.total || 0) + ' 款游戏 · 已下载 ' + (stats.mm_count || 0) + ' 条本地记录');
+        } else {
+            setStatus('尚未同步');
+        }
+    }
+
+    function bind() {
+        const grid = $('sw-grid');
+        if (grid) {
+            grid.addEventListener('click', function (e) {
+                const play = e.target.closest('[data-sw-play]');
+                if (play) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    const g = items.find(function (x) { return x.id === play.dataset.swPlay; });
+                    if (g) launchGame(g);
+                    return;
+                }
+                const card = e.target.closest('[data-sw-id]');
+                if (card) openDetail(card.dataset.swId);
+            });
+        }
+        const sel = $('sw-category-filter');
+        if (sel) sel.addEventListener('change', function () { cat = this.value; load(true); });
+        const si = $('sw-search-input');
+        const sb = $('sw-search-btn');
+        const doSearch = function () { query = (si && si.value || '').trim(); load(true); };
+        if (sb) sb.addEventListener('click', doSearch);
+        if (si) si.addEventListener('keydown', function (e) { if (e.key === 'Enter') doSearch(); });
+
+        window.addEventListener('scroll', function () {
+            if (typeof currentActiveView === 'undefined' || currentActiveView !== 'switch') return;
+            if (loading || items.length >= total) return;
+            const doc = document.documentElement;
+            if (doc.scrollTop + window.innerHeight > doc.scrollHeight - 400) load(false);
+        }, { passive: true });
+    }
+
+    async function doSync() {
+        setStatus('同步中…');
+        let un = null;
+        try {
+            if (window.__TAURI__ && window.__TAURI__.event) {
+                un = await window.__TAURI__.event.listen('switch-refresh-progress', function (ev) {
+                    const p = ev.payload || {};
+                    setStatus('同步中: ' + (p.msg || '') + (p.done ? ' · 已抓 ' + p.done : ''));
+                });
+            }
+        } catch (_) {}
+        try {
+            stats = await invoke('switch_refresh');
+            renderCats(stats.cats);
+            setStatus('同步完成: 共 ' + stats.total + ' 款');
+            await load(true);
+        } catch (e) {
+            setStatus('同步失败: ' + e, 'err');
+            try { showToast('Switch 目录同步失败: ' + e, 'error', 6000); } catch (_) {}
+        } finally {
+            try { if (un) un(); } catch (_) {}
+        }
+    }
+
+    // ============================================================
+    // 详情页：复用普通游戏/成人游戏的同一套 DOM 与样式
+    //   detail-left  = 标题 / 标签 / 大图 / 简介
+    //   detail-right = 下载选项 + 相关推荐
+    // ============================================================
+    async function openDetail(id) {
+        let g = null;
+        try { g = await invoke('switch_detail', { id: id }); }
+        catch (e) { try { showToast('读取详情失败: ' + e, 'error', 5000); } catch (_) {} return; }
+        if (!g) return;
+        cur = g;
+
+        // 让「返回」回到 Switch 列表（showDetail 的返回按钮读这两个状态）
+        try {
+            state.detailFromPage = 'switch';
+            state._curViewKey = 'switch:list';
+        } catch (_) {}
+
+        const game = {
+            name: g.title,
+            source: 'switch',
+            appid: g.id,
+            detail_url: 'switch:' + g.id,
+            header_image: g.cover || '',
+            tags: (g.cats || []).slice(),
+        };
+        try { state.currentDetailGame = game; } catch (_) {}
+
+        document.querySelectorAll('.nav-btn').forEach(function (b) { b.classList.remove('active'); });
+        document.querySelectorAll('.page').forEach(function (p) { p.classList.remove('active'); });
+        const dp = $('page-detail');
+        if (dp) dp.classList.add('active');
+        const content = $('detail-content');
+        if (!content) return;
+
+        const tagsHtml = game.tags.length
+            ? '<div class="detail-tags">' + game.tags.map(function (t) { return '<span class="game-tag">' + esc(t) + '</span>'; }).join('') + '</div>'
+            : '';
+        const descHtml = g.desc
+            ? esc(g.desc).replace(/\n/g, '<br>')
+            : '暂无介绍';
+        const facts = [g.size, g.date].filter(Boolean).map(esc).join(' · ');
+
+        content.innerHTML = ''
+            + '<div class="detail-left">'
+            +   '<h1 class="detail-title">' + esc(g.title) + '</h1>'
+            +   '<div class="detail-meta">'
+            +     '<span>来源: ' + (g.source === 'mm' ? '本地资源库' : (g.source === 'both' ? '资源站 + 本地库' : 'NS 资源站')) + '</span>'
+            +     '<span>·</span><span>ID: ' + esc(g.id) + '</span>'
+            +     (facts ? '<span>·</span><span>' + facts + '</span>' : '')
+            +   '</div>'
+            +   tagsHtml
+            +   '<div class="detail-image sw-detail-cover">' + (g.cover ? '<img src="' + esc(g.cover) + '" onerror="this.style.display=\'none\'">' : '') + '</div>'
+            +   '<div class="detail-description">' + descHtml + '</div>'
+            +   '<div class="detail-meta" style="margin-top:14px"><span>下载目录: ' + esc(SW_DL_DIR) + '</span></div>'
+            +   '<div class="detail-meta"><span>安装目录: ' + esc(SW_DIR) + '</span></div>'
+            + '</div>'
+            + '<div class="detail-right">'
+            +   '<h3>下载选项</h3>'
+            +   '<div id="detail-downloads-wrap">' + renderSwDownloadBtn() + '</div>'
+            +   '<div class="sw-launch-row">'
+            +     '<button class="btn btn-secondary sw-launch-btn" id="sw-detail-launch">▶ 启动游戏</button>'
+            +   '</div>'
+            +   '<div id="recommend-section" class="recommend-section"><div class="loading">加载推荐中...</div></div>'
+            + '</div>';
+
+        const lb = $('sw-detail-launch');
+        if (lb) lb.addEventListener('click', function () { launchGame(g); });
+
+        // 下载按钮走和普通游戏同一个 onDownloadClick（在那边按 type==='switch' 分流）
+        try {
+            state.currentDetailDownloads = [{
+                name: g.title,
+                filename: safeName(g.title) + '.zip',
+                url: 'switch://download',
+                label: 'NS 游戏包',
+                type: 'switch',
+                game_name: g.title,
+                cover: g.cover || '',
+            }];
+        } catch (_) {}
+
+        loadRecs(g);
+    }
+
+    function renderSwDownloadBtn() {
+        const inst = false;
+        return '<button class="download-main-btn" onclick="onDownloadClick(0)"' + (inst ? ' disabled' : '') + '>下载</button>';
+    }
+
+    // 相关推荐：与普通详情页同一套 .recommend-grid / .recommend-card 结构
+    async function loadRecs(g) {
+        const section = $('recommend-section');
+        if (!section) return;
+        const tag = (g.cats || [])[0] || '';
+        try {
+            const r = await invoke('switch_list', { cat: tag || '全部', query: '', offset: 0, limit: 18 });
+            const list = ((r && r.items) || []).filter(function (x) { return x.id !== g.id; }).slice(0, 6);
+            if (!list.length) { section.innerHTML = ''; return; }
+            section.innerHTML = '<h3 class="recommend-title">相关推荐</h3>'
+                + '<div class="recommend-grid">'
+                + list.map(function (x) {
+                    return '<div class="recommend-card" data-sw-rec="' + esc(x.id) + '">'
+                        + '<div class="recommend-card-img">' + coverHtml(x) + '</div>'
+                        + '<div class="recommend-card-name">' + esc(x.title) + '</div>'
+                        + '<span class="recommend-card-source source-switch">NS</span>'
+                        + '</div>';
+                }).join('')
+                + '</div>';
+            section.onclick = function (e) {
+                const it = e.target.closest('[data-sw-rec]');
+                if (it) openDetail(it.dataset.swRec);
+            };
+        } catch (_) {
+            section.innerHTML = '';
+        }
+    }
+
+    // ============================================================
+    // 下载 / 启动
+    // ============================================================
+    async function startDownload() {
+        const g = cur;
+        if (!g) { try { showToast('请先打开一个游戏详情', 'warn', 3000); } catch (_) {} return; }
+        const btn = document.querySelector('#detail-downloads-wrap .download-main-btn');
+        if (btn) { btn.disabled = true; btn.textContent = '解析下载链接…'; }
+        try {
+            const files = await invoke('switch_download', { id: g.id });
+            if (!files || !files.length) throw new Error('没有解析到文件');
+            const dir = SW_DL_DIR + '\\' + safeName(g.title);
+            let n = 0;
+            for (const f of files) {
+                const taskId = 'sw_' + Date.now() + '_' + (n++);
+                const filePath = dir + '\\' + safeName(f.name);
+                state.downloads.set(taskId, {
+                    name: f.name, url: f.url, filePath: filePath, progress: 0, speed: '',
+                    state: 'starting', total: f.size || 0, downloaded: 0,
+                    autoExtract: false, createShortcut: false, gameName: g.title,
+                    source: 'switch', swTitle: g.title, engine: '', headers: f.headers || [],
+                });
+                await invoke('start_download', { taskId: taskId, url: f.url, filePath: filePath, headers: f.headers || [] });
+            }
+            renderDownloadList();
+            _switchToDownloadsTab();
+            try { showToast('《' + g.title + '》已加入下载（' + files.length + ' 个文件）', 'success', 4000); } catch (_) {}
+        } catch (e) {
+            try { showToast('下载失败: ' + e, 'error', 6000); } catch (_) {}
+            if (btn) { btn.disabled = false; btn.textContent = '下载'; }
+        }
+    }
+
+    // 下载完成后把压缩包解到模拟器目录（由 onDownloadFinished 调用）
+    async function installIfSwitch(taskId) {
+        const dl = state.downloads.get(taskId);
+        if (!dl || dl.source !== 'switch' || dl._swInstalled) return;
+        dl._swInstalled = true;
+        const title = dl.swTitle || dl.gameName || dl.name;
+        try {
+            try { showToast('正在解压《' + title + '》到模拟器目录…', 'info', 3000); } catch (_) {}
+            const rom = await invoke('switch_install', { archive: dl.filePath, title: title });
+            try { await invoke('emu_register_game', { dir: SW_DIR + '\\' + safeName(title) }); } catch (_) {}
+            try { showToast('《' + title + '》已解压完成，可在「模拟器」页启动', 'success', 5000); } catch (_) {}
+            frontLog('SW_INSTALL_OK', 'title=' + title + ' rom=' + rom);
+        } catch (e) {
+            frontLog('SW_INSTALL_ERR', 'title=' + title + ' err=' + e);
+            try { showToast('《' + title + '》解压失败: ' + e, 'error', 7000); } catch (_) {}
+        }
+    }
+    window.__vxSwInstall = installIfSwitch;
+
+    async function launchGame(g) {
+        try {
+            const p = await invoke('switch_find_local', { title: g.title });
+            if (!p) {
+                try { showToast('还没下载这个游戏 —— 先点「下载」', 'warn', 4000); } catch (_) {}
+                return;
+            }
+            await invoke('emu_launch', { path: p });
+            try { showToast('已启动模拟器', 'success', 3000); } catch (_) {}
+        } catch (e) {
+            try { showToast('启动失败: ' + e, 'error', 6000); } catch (_) {}
+        }
+    }
+
+    return { onShow: onShow, refresh: refreshStats, startDownload: startDownload, openDetail: openDetail };
+})();
+
+// ============================================================
+// 模拟器页：管理 D:\game\switch 下已下载的 Switch 游戏 (2026-10-19)
+// 左键启动、右键菜单（启动 / 打开文件位置 / 删除游戏）
+// ============================================================
+window.__vxEmu = (function () {
+    let inited = false;
+    const $ = (id) => document.getElementById(id);
+    const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
+    async function onShow() {
+        if (!inited) { inited = true; bind(); }
+        await render();
+    }
+
+    async function render() {
+        const grid = $('emu-grid');
+        const st = $('emu-status');
+        const sub = $('emu-status-sub');
+        let emu = null;
+        try { emu = await invoke('emu_info'); } catch (_) {}
+        if (st) st.textContent = (emu && emu.found) ? ('模拟器已就绪：' + (emu.name || 'Citron')) : '尚未找到模拟器';
+        if (sub) {
+            sub.textContent = (emu && emu.found)
+                ? emu.path
+                : '点右边「重新安装模拟器」从安装包释出（内置 Citron）';
+        }
+        let list = [];
+        try { list = await invoke('switch_downloaded'); } catch (_) {}
+        if (!grid) return;
+        if (!list || !list.length) {
+            grid.innerHTML = '<div class="empty-state">还没有下载 Switch 游戏 —— 去「游戏 → Switch 游戏」里下载<br>下载完成后会自动解压到模拟器目录</div>';
+            return;
+        }
+        grid.innerHTML = list.map((g) => {
+            // 有游戏自带图标就显示，没有就用占位
+            // 封面可能是「游戏目录里的本地图片」或「目录索引里的网络封面」→ 两种代理参数不同
+            let cover = '';
+            if (g.cover) {
+                const isUrl = /^https?:/i.test(g.cover);
+                const src = 'http://vxasset.localhost/img?' + (isUrl ? 'u=' : 'f=') + encodeURIComponent(g.cover);
+                cover = '<img src="' + src + '" loading="lazy" data-emu-cover>';
+            }
+            const ph = g.cover ? '' : '<div class="sw-cover-empty">NS</div>';
+            return '<div class="game-card emu-card" data-emu-dir="' + esc(g.dir) + '" data-emu-file="' + esc(g.file) + '" data-emu-title="' + esc(g.title) + '">'
+                + '<div class="game-card-image">' + cover + ph + '</div>'
+                + '<div class="game-card-info"><div class="game-card-name" title="' + esc(g.title) + '">' + esc(g.title) + '</div>'
+                + '<div class="sw-size">' + (typeof formatBytes === 'function' ? formatBytes(g.size) : (g.size + ' B')) + '</div>'
+                + '<div class="sw-size" style="opacity:.55">右键：删除 / 打开位置</div></div></div>';
+        }).join('');
+    }
+
+    function closeMenu() {
+        const m = document.getElementById('emu-ctx');
+        if (m) m.remove();
+    }
+
+    function showMenu(x, y, card) {
+        closeMenu();
+        const m = document.createElement('div');
+        m.id = 'emu-ctx';
+        m.className = 'emu-ctx';
+        m.innerHTML = '<button data-emu-act="launch">启动游戏</button>'
+            + '<button data-emu-act="folder">打开文件位置</button>'
+            + '<button data-emu-act="delete" class="danger">删除游戏</button>';
+        document.body.appendChild(m);
+        const w = m.offsetWidth || 150, h = m.offsetHeight || 110;
+        m.style.left = Math.min(x, window.innerWidth - w - 8) + 'px';
+        m.style.top = Math.min(y, window.innerHeight - h - 8) + 'px';
+        m.addEventListener('click', async function (e) {
+            const b = e.target.closest('[data-emu-act]');
+            if (!b) return;
+            e.stopPropagation();
+            const act = b.dataset.emuAct;
+            closeMenu();
+            const dir = card.dataset.emuDir, file = card.dataset.emuFile, title = card.dataset.emuTitle;
+            try {
+                if (act === 'launch') {
+                    await invoke('emu_launch', { path: file });
+                } else if (act === 'folder') {
+                    await invoke('open_folder', { path: dir });
+                } else if (act === 'delete') {
+                    if (await vxConfirm('确定删除《' + title + '》？\n\n会删除整个游戏目录：\n' + dir)) {
+                        await invoke('delete_path', { path: dir });
+                        try { showToast('已删除《' + title + '》', 'ok', 2500); } catch (_) {}
+                        await render();
+                    }
+                }
+            } catch (err) {
+                try { showToast('操作失败: ' + err, 'error', 5000); } catch (_) {}
+            }
+        });
+    }
+
+    function bind() {
+        const grid = $('emu-grid');
+        if (grid) {
+            grid.addEventListener('click', async function (e) {
+                const card = e.target.closest('.emu-card');
+                if (!card) return;
+                try {
+                    await invoke('emu_launch', { path: card.dataset.emuFile });
+                    setTimeout(function () { invoke('emu_overlay_open').catch(function () {}); }, 2500);
+                } catch (err) { try { showToast('启动失败: ' + err, 'error', 5000); } catch (_) {} }
+            });
+            grid.addEventListener('contextmenu', function (e) {
+                const card = e.target.closest('.emu-card');
+                if (!card) return;
+                e.preventDefault();
+                showMenu(e.clientX, e.clientY, card);
+            });
+        }
+        document.addEventListener('click', function (e) {
+            if (!e.target.closest('#emu-ctx')) closeMenu();
+        });
+        $('emu-refresh-btn')?.addEventListener('click', render);
+        $('emu-folder-btn')?.addEventListener('click', function () {
+            invoke('open_folder', { path: 'D:\\game\\switch' }).catch(function () {});
+        });
+        $('emu-emu-folder-btn')?.addEventListener('click', function () {
+            invoke('open_folder', { path: 'D:\\game\\switch\\emulator' }).catch(function () {});
+        });
+        $('emu-install-btn')?.addEventListener('click', async function (e) {
+            const b = e.currentTarget;
+            b.disabled = true;
+            const old = b.textContent;
+            b.textContent = '安装中…';
+            try {
+                const r = await invoke('emu_ensure_bundled');
+                try {
+                    showToast(r && r.installed ? '内置模拟器已安装到 ' + r.dir : '内置模拟器已就绪', 'ok', 4000);
+                } catch (_) {}
+                await render();
+            } catch (err) {
+                try { showToast('安装失败: ' + err, 'error', 6000); } catch (_) {}
+            } finally {
+                b.disabled = false;
+                b.textContent = old;
+            }
+        });
+    }
+
+    return { onShow: onShow, refresh: render };
+})();
+
+})();

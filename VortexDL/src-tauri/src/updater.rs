@@ -19,9 +19,19 @@
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 
-pub const VX_AUX_D: &str = "0000000000000000"; // 公开版占位（豪华版校验已移除）
+pub const VX_AUX_D: &str = "e4427873bb020913"; // 主 dll 乙 片段的校验常量
 
 const API_LATEST: &str = "https://api.github.com/repos/jfbj-create/VortexDL/releases/latest";
+
+/// ★★ 2026-10-18 修「自动检查不到更新」：
+///   本机 hosts 里 `api.github.com` 被指到 127.0.0.1（不是我们写的，是别的软件下发的），
+///   reqwest 不会走 Windows 系统代理，直连必然失败（Python/curl 走系统代理所以看着正常）。
+///   → 直连失败时依次试 GitHub 加速镜像的 API 转发（实测 gh-proxy.com 可用）。
+const API_MIRRORS: &[&str] = &[
+    "https://gh-proxy.com/https://api.github.com/repos/jfbj-create/VortexDL/releases/latest",
+    "https://ghfast.top/https://api.github.com/repos/jfbj-create/VortexDL/releases/latest",
+    "https://ghproxy.net/https://api.github.com/repos/jfbj-create/VortexDL/releases/latest",
+];
 const UA: &str = "VortexDL-Updater/1.0 (+https://github.com/jfbj-create/VortexDL)";
 
 /// 下载候选源。**第一个是直连**，后面是加速镜像（前缀拼在原始 URL 前面）。
@@ -111,15 +121,25 @@ pub async fn check_app_update() -> AppUpdateResult {
         ..Default::default()
     };
 
-    let resp = match api_client()
-        .get(API_LATEST)
-        .header("Accept", "application/vnd.github+json")
-        .send()
-        .await
-    {
-        Ok(r) => r,
-        Err(e) => {
-            out.error = format!("连不上更新服务器: {}", e);
+    // 直连 → 镜像逐个试；全部失败才报错（错误里带上最后一次的原因）
+    let mut resp = None;
+    let mut last_err = String::new();
+    for url in std::iter::once(API_LATEST).chain(API_MIRRORS.iter().copied()) {
+        match api_client()
+            .get(url)
+            .header("Accept", "application/vnd.github+json")
+            .send()
+            .await
+        {
+            Ok(r) if r.status().is_success() => { resp = Some(r); break; }
+            Ok(r) => { last_err = format!("更新服务器返回 HTTP {}", r.status().as_u16()); }
+            Err(e) => { last_err = format!("{}", e); }
+        }
+    }
+    let resp = match resp {
+        Some(r) => r,
+        None => {
+            out.error = format!("连不上更新服务器（直连与镜像都失败）: {}", last_err);
             return out;
         }
     };

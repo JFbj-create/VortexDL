@@ -26,12 +26,13 @@
 //!
 //! # 各驱动的实测状态（2026-10-12）
 //!
-//! | 网盘 | 分享解析 | 说明 |
-//! |---|---|---|
-//! | 夸克 | ✅ 已实现 | 接口来自 quarkpan-rs / OpenList / LinkSwift 的实证代码 |
-//! | 百度 | ✅ 已实现 | 接口来自 BaiduPCS-Go / LinkSwift / OpenList 的实证代码 |
-//! | 迅雷 | ⚠️ 仅自己网盘 | **分享链接解析全网没有公开的可用实现**（LinkSwift 遇到分享页直接抛错），
-//! |      |            | 所以迅雷只支持「自己网盘里的文件」，分享链接会明确提示不支持 |
+//! | 网盘 | 列目录 | 取直链 | 实测依据（2026-10-13） |
+//! |---|---|---|---|
+//! | 夸克 | ✅ 免登录 | ✅ 免登录 | 真机下完 `Snapshot 2.10.8.zip`（2.55MB / 8.17s） |
+//! | 123 云盘 | ✅ 免登录 | ✅ 免登录 | 真实分享列出 3 个文件；取直链接口通过（那条分享只是**分享者流量配额**用完） |
+//! | 阿里云盘 | ✅ 免登录 | ⚠️ 未验收 | 免登录**已证实**（不带 Authorization 只认分享令牌）；缺真实分享链接跑完整链路 |
+//! | 百度 | 需登录 | 需登录 | 接口来自 BaiduPCS-Go / LinkSwift / OpenList；**无账号，未实测** |
+//! | 迅雷 | ✅ 免登录 | ❌ 需登录 | 真实分享列出 `VC2010 Express.rar`；取直链 401/404，必须登录+转存 |
 //!
 //! ★ 这些接口都是**逆向网页/客户端**得来的，不是官方文档；网盘改版就会失效。
 //!   所以每个驱动的报错都尽量把"是哪一步、网盘原话是什么"带出来，方便定位。
@@ -39,9 +40,12 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::PathBuf;
 
+pub mod aliyun;
 pub mod baidu;
 pub mod link;
+pub mod pan123;
 pub mod quark;
+pub mod tianyi;
 pub mod xunlei;
 
 pub use link::{Drive, PanLink};
@@ -160,7 +164,7 @@ pub struct CookieStatus {
 
 pub fn cookie_status() -> Vec<CookieStatus> {
     let m = load_cookies();
-    [Drive::Quark, Drive::Baidu, Drive::Xunlei]
+    Drive::all()
         .iter()
         .map(|d| {
             let c = m.get(d.id()).cloned().unwrap_or_default();
@@ -180,7 +184,7 @@ pub fn cookie_status() -> Vec<CookieStatus> {
 // 统一入口
 // ============================================================
 
-/// 列出分享里的条目（夸克/百度）。迅雷分享暂不支持，会返回明确错误。
+/// 列出分享里的条目（夸克 / 百度 / 迅雷，三个都能免登录列目录）。
 pub async fn list_share(link: &PanLink, passcode: &str) -> Result<Vec<PanEntry>, String> {
     let pass = if passcode.trim().is_empty() {
         link.passcode.clone().unwrap_or_default()
@@ -189,12 +193,14 @@ pub async fn list_share(link: &PanLink, passcode: &str) -> Result<Vec<PanEntry>,
     };
     match link.drive {
         Drive::Quark => quark::list_share(&link.share_id, &pass).await,
+        Drive::Uc => quark::list_share_uc(&link.share_id, &pass).await,
         Drive::Baidu => baidu::list_share(&link.share_id, &pass).await,
-        Drive::Xunlei => Err(
-            "迅雷云盘的「分享链接」目前没有可用的解析方式（全网没有公开可用的实现）。\
-             如果你要下的是自己迅雷网盘里的文件，请切到「我的网盘」，并把迅雷 refresh_token 填到登录设置里。"
-                .to_string(),
-        ),
+        Drive::Xunlei => xunlei::list_share(&link.share_id, &pass).await,
+        Drive::Pan123 => pan123::list_share(&link.share_id, &pass).await,
+        Drive::Aliyun => aliyun::list_share(&link.share_id, &pass).await,
+        Drive::Tianyi => tianyi::list_share(&link.share_id, &pass).await,
+        Drive::Mobile139 => Err(mobile139_unsupported()),
+        Drive::Guangya => Err(guangya_unsupported()),
     }
 }
 
@@ -211,8 +217,19 @@ pub async fn resolve(
     };
     match link.drive {
         Drive::Quark => quark::resolve(&link.share_id, &pass, entries).await,
+        Drive::Uc => quark::resolve_uc(&link.share_id, &pass, entries).await,
         Drive::Baidu => baidu::resolve(&link.share_id, &pass, entries).await,
-        Drive::Xunlei => Err("迅雷云盘的分享链接解析暂不支持".to_string()),
+        Drive::Xunlei => Err(
+            "迅雷分享能列出文件，但**取直链必须登录**（实测：游客访问 `/drive/v1/files/<id>` 回 401，\
+             `share/download` 这类接口直接 404 不存在）。要下迅雷分享请把 refresh_token 填到「设置 → 网盘」\
+             并把文件先转存到自己的迅雷云盘。"
+                .to_string(),
+        ),
+        Drive::Pan123 => pan123::resolve(&link.share_id, &pass, entries).await,
+        Drive::Aliyun => aliyun::resolve(&link.share_id, &pass, entries).await,
+        Drive::Tianyi => tianyi::resolve(&link.share_id, &pass, entries).await,
+        Drive::Mobile139 => Err(mobile139_unsupported()),
+        Drive::Guangya => Err(guangya_unsupported()),
     }
 }
 
@@ -265,6 +282,18 @@ pub fn http_no_redirect() -> &'static reqwest::Client {
     C.get_or_init(client_no_redirect)
 }
 
+/// 中国移动云盘：链接能识别，但直链接口要 `mcloud` 签名 + 登录态；
+/// LinkSwift 对它的「我的网盘」也只做到点页面上的下载按钮，没有直链。
+fn mobile139_unsupported() -> String {
+    "中国移动云盘（139）的分享链接已经能识别，但它的直链接口需要账号签名（mcloud），目前没有可靠的免登录取链方式。请在移动云盘网页端打开分享页，用页面上的下载按钮下载；或在「设置 → 网盘」里填入 139 账号 Cookie 后重试（后端会在后续版本补上签名流程）。".to_string()
+}
+
+/// 光鸭云盘：接口是新的私有 API（api.guangyapan.com），参数/签名未公开，
+/// 识别链接但不假装能解析。
+fn guangya_unsupported() -> String {
+    "光鸭云盘的分享链接已经能识别，但它的直链接口是私有 API（需要分享令牌 + 客户端签名），目前没有可靠的实现。请先用官方网页端下载。".to_string()
+}
+
 /// 把网盘返回的错误码翻成人话。原始报文一律进 stderr.log，不要甩给用户。
 pub fn friendly_err(drive: Drive, step: &str, raw: &str) -> String {
     crate::app_logger::log_command("netdisk", &format!("[{} {}] {}", drive.name(), step, raw));
@@ -293,10 +322,25 @@ mod tests {
 
     #[test]
     fn drive_ids_roundtrip() {
-        for d in [Drive::Quark, Drive::Baidu, Drive::Xunlei] {
+        // ★ 用 Drive::all() 而不是手写数组：以后新增驱动时"忘了加进测试"的情况就没了
+        for d in Drive::all() {
             assert_eq!(Drive::from_id(d.id()), Some(d));
         }
         assert_eq!(Drive::from_id("nope"), None);
+        // cookie_status 必须覆盖全部驱动（否则新网盘的登录状态在界面上是隐形的）
+        let ids: Vec<String> = cookie_status().into_iter().map(|s| s.drive).collect();
+        for d in Drive::all() {
+            assert!(ids.contains(&d.id().to_string()), "cookie_status 漏了 {}", d.id());
+        }
+    }
+
+    #[test]
+    fn needs_login_matches_reality() {
+        // 夸克 / 123 实测游客通道能下；百度 / 迅雷实测不能
+        assert!(!Drive::Quark.needs_login());
+        assert!(!Drive::Pan123.needs_login());
+        assert!(Drive::Baidu.needs_login());
+        assert!(Drive::Xunlei.needs_login());
     }
 
     #[test]

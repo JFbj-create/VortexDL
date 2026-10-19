@@ -6,7 +6,7 @@
 
 !define APP_NAME "VortexDL"
 !define APP_FULL_NAME "漩涡下载器 VortexDL"
-!define APP_VERSION "1.2"
+!define APP_VERSION "1.6.2"
 !define APP_PUBLISHER "VortexDL"
 !define APP_EXE "VortexDL.exe"
 !define APP_URL "https://vortexdl.app"
@@ -59,7 +59,7 @@ ShowUnInstDetails show
 BrandingText "${APP_VERSION}"
 
 ; ---------- 版本信息 (在 exe 属性中显示) ----------
-VIProductVersion "1.2.0.0"
+VIProductVersion "1.6.2.0"
 VIAddVersionKey "ProductName" "${APP_FULL_NAME}"
 VIAddVersionKey "CompanyName" "${APP_PUBLISHER}"
 VIAddVersionKey "FileDescription" "${APP_FULL_NAME} 安装程序"
@@ -87,6 +87,7 @@ Section "主程序 (必需)" SecMain
   File "F:\vdgame\VortexDL\src-tauri\resources_main\WebView2Loader.dll"
   File "F:\vdgame\VortexDL\src-tauri\resources_main\game_index.json"
   File "F:\vdgame\VortexDL\src-tauri\resources_main\translations.json"
+  File "F:\vdgame\VortexDL\src-tauri\resources_main\switch_catalog.json"
 
   ; ----- MSVC 运行时 DLL (vortex-dl.exe 依赖) -----
   File "F:\vdgame\VortexDL\src-tauri\resources_main\vcruntime140.dll"
@@ -117,6 +118,10 @@ Section "主程序 (必需)" SecMain
   ; 补全：播放窗口 + 超分管线 + hls 依赖 + 着色器（便携模式缺一个就打不开播放器）
   File "F:\vdgame\VortexDL\src\player.html"
   File "F:\vdgame\VortexDL\src\player.js"
+  ; 模拟器顶部功能条（独立置顶窗口）
+  File "F:\vdgame\VortexDL\src\emu-overlay.html"
+  File "F:\vdgame\VortexDL\src\emu-overlay.js"
+  File "F:\vdgame\VortexDL\src\emu-overlay.css"
   File "F:\vdgame\VortexDL\src\anime4k.js"
   SetOutPath "$INSTDIR\vendor"
   File /nonfatal "F:\vdgame\VortexDL\src\vendor\hls.min.js"
@@ -142,10 +147,28 @@ Section "主程序 (必需)" SecMain
   File "F:\2种模块\系统修复工具\tools\dx\*.*"
   SetOutPath "$INSTDIR"
 
+  ; ----- 内置 Switch 模拟器 (Citron / GPL-3.0) -----
+  ; ★ 用户明确要求「模拟器一定要内置」：装完就能直接点 Switch 游戏启动。
+  ;   程序首次启动把这一整目录复制到 D:\game\switch\emulator
+  ;   （src/emulator/mod.rs → ensure_bundled，幂等，不覆盖用户自备的 Ryujinx/Yuzu）。
+  ;   目录里带 LICENSE-GPL-3.0.txt + README-许可与源码.txt（GPL-3.0 第 6 条源码提供声明）。
+  SetOutPath "$INSTDIR\resources_main\emulator"
+  File /r "F:\vdgame\VortexDL\src-tauri\resources_main\emulator\*.*"
+  SetOutPath "$INSTDIR"
+
   ; ----- 7z 工具 (resources\7z\) -----
   SetOutPath "$INSTDIR\resources\7z"
   File "F:\vdgame\VortexDL\src-tauri\resources_main\7z\7z.exe"
   File "F:\vdgame\VortexDL\src-tauri\resources_main\7z\7z.dll"
+
+  ; ----- OpenSteamTool 内核包 (resources\archives\) -----
+  ; ★ 2026-10-18 修复：tauri.conf.json 的 bundle.resources 里写了
+  ;   `resources_main/archives/*`，但手写的 installer.nsi 一直没抄这一行，
+  ;   结果安装版里「内核注入」找不到本地包（kernel.rs 找的是
+  ;   <exe目录>\resources\archives\OpenSteamTool-*.zip），只能去 GitHub 现下。
+  SetOutPath "$INSTDIR\resources\archives"
+  File /nonfatal "F:\vdgame\VortexDL\src-tauri\resources_main\archives\*.zip"
+  SetOutPath "$INSTDIR"
 
   ; ----- 模块教程 -----
   SetOutPath "$INSTDIR\module_tutorial"
@@ -270,6 +293,7 @@ Section "Uninstall"
   Delete "$INSTDIR\WebView2Loader.dll"
   Delete "$INSTDIR\game_index.json"
   Delete "$INSTDIR\translations.json"
+  Delete "$INSTDIR\switch_catalog.json"
 
   ; 删除 MSVC 运行时 DLL
   Delete "$INSTDIR\vcruntime140.dll"
@@ -307,6 +331,9 @@ Section "Uninstall"
   Delete "$INSTDIR\resources\7z\7z.dll"
   RMDir "$INSTDIR\resources\7z"
   RMDir "$INSTDIR\resources"
+
+  ; 删除内置模拟器（99 MB）
+  RMDir /r "$INSTDIR\resources_main\emulator"
 
   ; 删除教程和模块
   RMDir /r "$INSTDIR\module_tutorial"

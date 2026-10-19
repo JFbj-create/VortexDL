@@ -1033,6 +1033,9 @@ impl SearchEngine {
             //   改为节流写盘 (最短 30s 一次), 翻译名最终仍会持久化, 且不再阻塞交互。
             self.maybe_save_index_throttled();
         }
+        // ★ 2026-10-18: 同步进浏览缓存的名字索引 —— 下次用中文名搜，
+        //   即使在线翻译超时也能本地命中（用户报"翻译过的资源搜不到"）。
+        crate::game_cache::set_name_cn(appid, name_cn);
         found
     }
 
@@ -1093,6 +1096,11 @@ impl SearchEngine {
                     }
                 }
             }
+        }
+        drop(ko);
+        // ★ 2026-10-18: 批量回写浏览缓存的名字索引（中文名本地可搜）
+        for (a, n) in pairs {
+            crate::game_cache::set_name_cn(a, n);
         }
         count
     }
@@ -1635,13 +1643,17 @@ impl SearchEngine {
                     q.clone()
                 };
                 let url = format!("{BYRUT_BASE}/?s={}", urlencoding::encode(&search_kw));
-                if let Ok(resp) = self.http.get(&url).send().await {
-                    if let Ok(html) = resp.text().await {
-                        let server = parse_byrut_list(&html, "byrut", 1);
-                        let have: std::collections::HashSet<String> = all.iter().map(|g| g.appid.clone()).collect();
-                        for c in server {
-                            if !have.contains(&c.appid) { all.push(c); }
-                        }
+                // ★ 2026-10-18: 在线补搜加 6 秒硬超时。http 客户端默认 30 秒，
+                //   源站抽风时用户会对着"搜索中"干等半分钟（本地缓存结果其实早就有了）。
+                let fetched = tokio::time::timeout(std::time::Duration::from_secs(6), async {
+                    let resp = self.http.get(&url).send().await.ok()?;
+                    resp.text().await.ok()
+                }).await;
+                if let Ok(Some(html)) = fetched {
+                    let server = parse_byrut_list(&html, "byrut", 1);
+                    let have: std::collections::HashSet<String> = all.iter().map(|g| g.appid.clone()).collect();
+                    for c in server {
+                        if !have.contains(&c.appid) { all.push(c); }
                     }
                 }
             }
@@ -1662,7 +1674,11 @@ impl SearchEngine {
             // 有关键词时, 额外走服务端搜索获取更全结果
             if !q.is_empty() {
                 let url = format!("{PLAYZIP_BASE}/?keywords={}", urlencoding::encode(query.trim()));
-                let server = self.fetch_playzip_cards(&url, "koyso", 1).await;
+                // ★ 2026-10-18: 同样加 6 秒硬超时，避免源站抽风把搜索卡到 30 秒
+                let server = tokio::time::timeout(
+                    std::time::Duration::from_secs(6),
+                    self.fetch_playzip_cards(&url, "koyso", 1),
+                ).await.unwrap_or_default();
                 // 去重 (按 appid)
                 let have: std::collections::HashSet<String> = all.iter().map(|g| g.appid.clone()).collect();
                 for c in server {
@@ -1676,20 +1692,30 @@ impl SearchEngine {
             all.retain(|g| !g.tags.iter().any(|t| t == "成人游戏"));
         }
 
+        // ★ 浏览缓存 (2026-10-18): 这一批卡片全部记进本地索引（中英文名 + 封面 + 详情链接）。
+        //   用户要求「只要浏览到的游戏就在本地缓存」—— 无关键词的浏览也要记，
+        //   所以这一步放在 q.is_empty() 提前返回之前。
+        //   ★ 必须走批量接口：一次列表可能是 4 万张卡，逐条加锁/逐条落盘会把搜索拖到 20 秒。
+        crate::game_cache::enrich_cards(&mut all);
+        crate::game_cache::remember_cards(&all);
+
         if q.is_empty() && (category.is_empty() || category == "全部类型") {
             return all;
         }
 
         // 搜索时翻译中文查询词到英文, 同时匹配原文和译文
         // 解决 name_cn 未翻译时, 用户用中文名搜不到游戏的问题 (如 "千恋万花" → "Senren Banka")
-        // ★ 修复搜索无响应: 此处 translate_texts 同样用 1.2s 超时兜底, 避免阻塞搜索返回
+        // ★ 修复搜索无响应: 此处 translate_texts 同样用超时兜底, 避免阻塞搜索返回。
+        // ★ 2026-10-18: 本地缓存一条都没命中时把超时从 1.2s 放宽到 4s —— 之前
+        //   翻译经常被 1.2s 掐断，回退成中文原词去搜英文站，结果就是"翻译过的资源搜不到"。
         let mut queries: Vec<String> = vec![q.clone()];
         // 英文查询分词: "metal gear solid 5" → ["metal","gear","solid","5"]
         // 用于部分匹配 (搜 "合金装备5" 时即使没有 MGS5 也能匹配到 MGS3/MGS4 等同系列)
         let mut en_words: Vec<String> = Vec::new();
         if !q.is_empty() && contains_cjk(&q) {
+            let translate_budget = if all.is_empty() { 4000 } else { 1200 };
             let translated = tokio::time::timeout(
-                std::time::Duration::from_millis(1200),
+                std::time::Duration::from_millis(translate_budget),
                 translate_texts(&[q.clone()], "en")
             ).await;
             if let Ok(r) = translated {
@@ -1712,6 +1738,35 @@ impl SearchEngine {
                 let w = w.trim();
                 if w.len() >= 2 || w.chars().all(|c| c.is_ascii_digit()) {
                     en_words.push(w.to_string());
+                }
+            }
+        }
+
+        // ★ 浏览缓存 (2026-10-18):
+        //   ① 把这次看到的每一张卡（中英文名/封面/详情链接）记进本地名字索引
+        //      —— 用户要求「只要浏览到的游戏就缓存」；
+        //   ② 用本地索引补 name_cn（列表接口常常不带中文名）；
+        //   ③ 本地索引里命中但列表里没有的游戏补进来，这样即使在线翻译超时，
+        //      之前浏览过的游戏用中文名也能搜到。
+        if !q.is_empty() {
+            let local_hits = crate::game_cache::search_names(&q, 60);
+            if !local_hits.is_empty() {
+                let have: std::collections::HashSet<String> = all
+                    .iter()
+                    .map(|g| {
+                        if g.appid.is_empty() { g.detail_url.clone() } else { g.appid.clone() }
+                    })
+                    .collect();
+                let mut added = 0;
+                for mut c in local_hits {
+                    let k = if c.appid.is_empty() { c.detail_url.clone() } else { c.appid.clone() };
+                    if k.is_empty() || have.contains(&k) { continue; }
+                    crate::game_cache::enrich_card(&mut c);
+                    all.push(c);
+                    added += 1;
+                }
+                if added > 0 {
+                    crate::app_logger::log_cache("NAME_INDEX", &format!("q={} added={}", q, added));
                 }
             }
         }
@@ -1783,6 +1838,25 @@ impl SearchEngine {
 
     // ============ 详情 / 下载链接 ============
     pub async fn fetch_detail(&self, source: &str, detail_url: &str) -> GameDetail {
+        // ★ 浏览缓存 (2026-10-18): 详情页 7 天内直接走本地，不再每次重新爬。
+        //   弱网下这一下就是几秒到十几秒的差别；封面/简介/下载链接一起命中。
+        if let Some(d) = crate::game_cache::get_detail(source, detail_url, false) {
+            crate::app_logger::log_cache("DETAIL_HIT", &format!("source={} url={}", source, detail_url));
+            return d;
+        }
+        let detail = self.fetch_detail_uncached(source, detail_url).await;
+        if !detail.title.trim().is_empty() || !detail.cover.trim().is_empty() {
+            crate::game_cache::put_detail(source, detail_url, &detail);
+            crate::game_cache::remember_detail(source, detail_url, &detail, "");
+            crate::app_logger::log_cache(
+                "DETAIL_PUT",
+                &format!("source={} url={} title={}", source, detail_url, detail.title),
+            );
+        }
+        detail
+    }
+
+    async fn fetch_detail_uncached(&self, source: &str, detail_url: &str) -> GameDetail {
         let is_playzip = detail_url.contains("playzip.com")
             || detail_url.contains("koyso")
             || source == "koyso" || source == "playzip" || source == "adult";
@@ -1944,6 +2018,26 @@ impl SearchEngine {
     }
 
     pub async fn fetch_downloads(&self, source: &str, detail_url: &str) -> Vec<DownloadLink> {
+        // ★ 下载链接缓存 (2026-10-18): 6 小时内直接用缓存，避免每次点「下载」
+        //   都去撞一次 playzip API / 重新爬详情页。签名链接过期由下载引擎兜底。
+        if let Some(links) = crate::game_cache::get_downloads(source, detail_url, false) {
+            if !links.is_empty() {
+                crate::app_logger::log_cache("LINKS_HIT", &format!("source={} url={} n={}", source, detail_url, links.len()));
+                return links;
+            }
+        }
+        let links = self.fetch_downloads_uncached(source, detail_url).await;
+        if !links.is_empty() {
+            crate::game_cache::put_downloads(source, detail_url, &links);
+            crate::app_logger::log_cache("LINKS_PUT", &format!("source={} url={} n={}", source, detail_url, links.len()));
+        } else if let Some(stale) = crate::game_cache::get_downloads(source, detail_url, true) {
+            // 抓取失败时退回旧缓存，至少让用户能点（链接可能已过期，引擎会重取）
+            return stale;
+        }
+        links
+    }
+
+    async fn fetch_downloads_uncached(&self, source: &str, detail_url: &str) -> Vec<DownloadLink> {
         let is_playzip = detail_url.contains("playzip.com")
             || detail_url.contains("koyso")
             || source == "koyso" || source == "playzip" || source == "adult";

@@ -9,32 +9,86 @@ use serde::{Deserialize, Serialize};
 #[serde(rename_all = "lowercase")]
 pub enum Drive {
     Quark,
+    Uc,
     Baidu,
     Xunlei,
+    Pan123,
+    Aliyun,
+    Tianyi,
+    Mobile139,
+    Guangya,
 }
 
 impl Drive {
     pub fn id(&self) -> &'static str {
         match self {
             Drive::Quark => "quark",
+            Drive::Uc => "uc",
             Drive::Baidu => "baidu",
             Drive::Xunlei => "xunlei",
+            Drive::Pan123 => "pan123",
+            Drive::Aliyun => "aliyun",
+            Drive::Tianyi => "tianyi",
+            Drive::Mobile139 => "mobile139",
+            Drive::Guangya => "guangya",
         }
     }
     pub fn name(&self) -> &'static str {
         match self {
             Drive::Quark => "夸克网盘",
+            Drive::Uc => "UC 网盘",
             Drive::Baidu => "百度网盘",
             Drive::Xunlei => "迅雷云盘",
+            Drive::Pan123 => "123 云盘",
+            Drive::Aliyun => "阿里云盘",
+            Drive::Tianyi => "天翼云盘",
+            Drive::Mobile139 => "中国移动云盘",
+            Drive::Guangya => "光鸭云盘",
+        }
+    }
+    /// 这个网盘取直链**是否必须登录**。
+    /// 前端据此提前提示"去设置里填 Cookie"，而不是让用户白等一个必然失败的解析。
+    pub fn needs_login(&self) -> bool {
+        match self {
+            // 夸克 / 123 的游客通道实测能直接下，不需要账号
+            Drive::Quark => false,
+            Drive::Uc => false,
+            Drive::Pan123 => false,
+            Drive::Aliyun => false, // 分享令牌免登录，实测确认（见 aliyun.rs 的说明）
+            Drive::Baidu => true,
+            Drive::Xunlei => true,
+            Drive::Tianyi => true,
+            Drive::Mobile139 => true,
+            Drive::Guangya => true,
         }
     }
     pub fn from_id(s: &str) -> Option<Drive> {
         match s.trim().to_ascii_lowercase().as_str() {
-            "quark" | "uc" => Some(Drive::Quark),
+            "quark" => Some(Drive::Quark),
+            "uc" | "ucpan" => Some(Drive::Uc),
             "baidu" | "bd" => Some(Drive::Baidu),
             "xunlei" | "xl" => Some(Drive::Xunlei),
+            "pan123" | "123" | "123pan" => Some(Drive::Pan123),
+            "aliyun" | "ali" | "alipan" | "aliyundrive" => Some(Drive::Aliyun),
+            "tianyi" | "189" | "tcloud" => Some(Drive::Tianyi),
+            "mobile139" | "139" | "caiyun" | "mcloud" => Some(Drive::Mobile139),
+            "guangya" | "guangyapan" => Some(Drive::Guangya),
             _ => None,
         }
+    }
+    /// 全部驱动（顺序 = 界面里的展示顺序）
+    pub fn all() -> [Drive; 9] {
+        [
+            Drive::Quark,
+            Drive::Uc,
+            Drive::Pan123,
+            Drive::Aliyun,
+            Drive::Baidu,
+            Drive::Xunlei,
+            Drive::Tianyi,
+            Drive::Mobile139,
+            Drive::Guangya,
+        ]
     }
 }
 
@@ -101,6 +155,15 @@ fn query_pwd(u: &url::Url) -> Option<String> {
     None
 }
 
+/// 主机名是否属于某个域名（允许带子域）。★ 必须按"点分段"比，
+/// 不能用 `contains` —— 否则 `not123pan.com` 这种也会被认成 123 云盘。
+fn host_is(host: &str, domain: &str) -> bool {
+    host == domain || host.ends_with(&format!(".{}", domain))
+}
+
+/// 123 云盘有一堆域名，都是同一家（同一套接口）。
+const PAN123_DOMAINS: [&str; 4] = ["123pan.com", "123865.com", "123684.com", "123912.com"];
+
 /// 主入口：把用户粘贴的一段文本识别成分享链接。
 ///
 /// ★ 只认 http(s) 开头的 URL；**不认识的链接返回 None**（上层据此提示"不支持"），
@@ -124,9 +187,9 @@ pub fn recognize(input: &str) -> Option<PanLink> {
     let path = u.path().to_string();
     let qpwd = query_pwd(&u);
 
-    // ---------- 夸克 / UC ----------
-    // 分享页形如 pan.quark.cn/s/<id>、drive.quark.cn/s/<id>、pan.uc.cn/s/<id>
-    if host.contains("quark.cn") || host.contains("uc.cn") {
+    // ---------- 夸克 ----------
+    // 分享页形如 pan.quark.cn/s/<id>、drive.quark.cn/s/<id>
+    if host_is(&host, "quark.cn") {
         if let Some(id) = path.strip_prefix("/s/") {
             let id = id.trim_matches('/').to_string();
             if !id.is_empty() {
@@ -141,9 +204,121 @@ pub fn recognize(input: &str) -> Option<PanLink> {
         return None;
     }
 
+    // ---------- UC 网盘 ----------
+    // 分享页形如 drive.uc.cn/s/<id>、fast.uc.cn/s/<id>、pan.uc.cn/s/<id>
+    // ★ UC 和夸克是同一套云盘后端，但**接口域名和 pr 参数不同**，
+    //   以前把 pan.uc.cn 当夸克打过去必然失败。
+    if host_is(&host, "uc.cn") {
+        if let Some(id) = path.strip_prefix("/s/") {
+            let id = id.trim_matches('/').to_string();
+            if !id.is_empty() {
+                return Some(PanLink {
+                    drive: Drive::Uc,
+                    share_id: id,
+                    passcode: pick_passcode(&raw, qpwd.as_deref()),
+                    raw,
+                });
+            }
+        }
+        return None;
+    }
+
+    // ---------- 天翼云盘 ----------
+    // cloud.189.cn/t/<code>、cloud.189.cn/web/share?code=<code>、
+    // h5.cloud.189.cn/share.html#/t/<code>
+    if host_is(&host, "cloud.189.cn") {
+        let mut code: Option<String> = None;
+        if let Some(id) = path.strip_prefix("/t/") {
+            code = Some(id.trim_matches('/').to_string());
+        } else if path.starts_with("/web/share") || path.starts_with("/share") {
+            code = u
+                .query_pairs()
+                .find(|(k, _)| k == "code" || k == "shareCode")
+                .map(|(_, v)| v.trim().to_string());
+        }
+        // 有些链接把 code 放在 #/t/<code> 片段里
+        if code.as_deref().unwrap_or("").is_empty() {
+            if let Some(frag) = u.fragment() {
+                if let Some(rest) = frag.strip_prefix("/t/") {
+                    code = Some(rest.trim_matches('/').to_string());
+                }
+            }
+        }
+        if let Some(c) = code {
+            if !c.is_empty() {
+                return Some(PanLink {
+                    drive: Drive::Tianyi,
+                    share_id: c,
+                    passcode: None,
+                    raw,
+                });
+            }
+        }
+        return None;
+    }
+
+    // ---------- 中国移动云盘 ----------
+    // caiyun.139.com/m/i?<code>（code 直接就是整段 query）、
+    // yun.139.com/shareweb/#/w/i/<id>
+    if host_is(&host, "139.com") {
+        let mut code: Option<String> = None;
+        if path.starts_with("/m/i") {
+            // 形如 /m/i?2jQXnjF...，query 里没有等号，整段就是分享码
+            let q = u.query().unwrap_or("").trim();
+            if !q.is_empty() && !q.contains('=') {
+                code = Some(q.to_string());
+            } else {
+                code = u
+                    .query_pairs()
+                    .find(|(k, _)| k == "code" || k == "id")
+                    .map(|(_, v)| v.trim().to_string());
+            }
+        } else if let Some(frag) = u.fragment() {
+            if let Some(i) = frag.rfind("/i/") {
+                code = Some(frag[i + 3..].trim_matches('/').to_string());
+            }
+        }
+        if let Some(c) = code {
+            if !c.is_empty() {
+                return Some(PanLink {
+                    drive: Drive::Mobile139,
+                    share_id: c,
+                    passcode: None,
+                    raw,
+                });
+            }
+        }
+        return None;
+    }
+
+    // ---------- 光鸭云盘 ----------
+    // www.guangyapan.com 的分享页（格式还在变，先按常见的 /s/<id> 与 ?code= 兜住）
+    if host_is(&host, "guangyapan.com") {
+        let mut code: Option<String> = None;
+        if let Some(id) = path.strip_prefix("/s/") {
+            code = Some(id.trim_matches('/').to_string());
+        } else {
+            code = u
+                .query_pairs()
+                .find(|(k, _)| k == "code" || k == "shareCode" || k == "id")
+                .map(|(_, v)| v.trim().to_string());
+        }
+        if let Some(c) = code {
+            if !c.is_empty() {
+                return Some(PanLink {
+                    drive: Drive::Guangya,
+                    share_id: c,
+                    passcode: None,
+                    raw,
+                });
+            }
+        }
+        return None;
+    }
+
     // ---------- 百度 ----------
     // /s/<surl>（surl 一般以 1 开头），以及旧式 /share/init?surl=<surl>
-    if host.contains("baidu.com") {
+    if host_is(&host, "baidu.com") {
         let surl = if let Some(id) = path.strip_prefix("/s/") {
             Some(id.trim_matches('/').to_string())
         } else if path.starts_with("/share/init") {
@@ -168,7 +343,7 @@ pub fn recognize(input: &str) -> Option<PanLink> {
 
     // ---------- 迅雷 ----------
     // pan.xunlei.com/s/<id>（迅雷分享链接带 ?pwd=）
-    if host.contains("xunlei.com") {
+    if host_is(&host, "xunlei.com") {
         let id = if let Some(id) = path.strip_prefix("/s/") {
             Some(id.trim_matches('/').to_string())
         } else if path.starts_with("/s") {
@@ -182,6 +357,43 @@ pub fn recognize(input: &str) -> Option<PanLink> {
                 return Some(PanLink {
                     drive: Drive::Xunlei,
                     share_id: id,
+                    passcode: pick_passcode(&raw, qpwd.as_deref()),
+                    raw,
+                });
+            }
+        }
+        return None;
+    }
+
+    // ---------- 阿里云盘 ----------
+    // 分享页形如 alipan.com/s/<shareId>、aliyundrive.com/s/<shareId>
+    // （阿里 2023 年从 aliyundrive 改名 alipan，老域名还在跳转，两个都要认）
+    if host_is(&host, "alipan.com") || host_is(&host, "aliyundrive.com") {
+        if let Some(id) = path.strip_prefix("/s/") {
+            let id = id.trim_matches('/').to_string();
+            if !id.is_empty() {
+                return Some(PanLink {
+                    drive: Drive::Aliyun,
+                    share_id: id,
+                    passcode: pick_passcode(&raw, qpwd.as_deref()),
+                    raw,
+                });
+            }
+        }
+        return None;
+    }
+
+    // ---------- 123 云盘 ----------
+    // 分享页形如 123pan.com/s/<shareKey>，shareKey 形如 `AbCdEf-GhIj`（6位-4位），
+    // 有的链接尾巴带 `.html`。域名有 4 个（见 PAN123_DOMAINS），都是同一套接口。
+    if PAN123_DOMAINS.iter().any(|d| host_is(&host, d)) {
+        if let Some(id) = path.strip_prefix("/s/") {
+            let id = id.trim_matches('/');
+            let id = id.strip_suffix(".html").unwrap_or(id);
+            if !id.is_empty() {
+                return Some(PanLink {
+                    drive: Drive::Pan123,
+                    share_id: id.to_string(),
                     passcode: pick_passcode(&raw, qpwd.as_deref()),
                     raw,
                 });
@@ -214,8 +426,38 @@ mod tests {
     }
 
     #[test]
-    fn quark_uc_host() {
-        assert_eq!(recognize("https://pan.uc.cn/s/xyz").unwrap().drive, Drive::Quark);
+    fn uc_host_is_uc_not_quark() {
+        assert_eq!(recognize("https://pan.uc.cn/s/xyz").unwrap().drive, Drive::Uc);
+        assert_eq!(recognize("https://drive.uc.cn/s/xyz").unwrap().drive, Drive::Uc);
+        assert_eq!(recognize("https://fast.uc.cn/s/xyz").unwrap().drive, Drive::Uc);
+    }
+
+    #[test]
+    fn tianyi_forms() {
+        assert_eq!(recognize("https://cloud.189.cn/t/AbCdEf123").unwrap().drive, Drive::Tianyi);
+        let l = recognize("https://cloud.189.cn/web/share?code=AbCdEf123").unwrap();
+        assert_eq!(l.drive, Drive::Tianyi);
+        assert_eq!(l.share_id, "AbCdEf123");
+        assert_eq!(
+            recognize("https://h5.cloud.189.cn/share.html#/t/AbCdEf123").unwrap().share_id,
+            "AbCdEf123"
+        );
+    }
+
+    #[test]
+    fn mobile139_forms() {
+        let l = recognize("https://caiyun.139.com/m/i?2jQXnjFabcd").unwrap();
+        assert_eq!(l.drive, Drive::Mobile139);
+        assert_eq!(l.share_id, "2jQXnjFabcd");
+        assert_eq!(
+            recognize("https://yun.139.com/shareweb/#/w/i/abc123").unwrap().share_id,
+            "abc123"
+        );
+    }
+
+    #[test]
+    fn guangya_host() {
+        assert_eq!(recognize("https://www.guangyapan.com/s/abc").unwrap().drive, Drive::Guangya);
     }
 
     #[test]
@@ -261,6 +503,67 @@ mod tests {
         assert!(recognize("没有链接的一段话").is_none());
         // ★ 关键：别的站点 /s/ 路径不能被误判成网盘分享
         assert!(recognize("https://pan.qq.com/s/abc").is_none());
+    }
+
+    #[test]
+    fn pan123_basic() {
+        let l = recognize("https://www.123pan.com/s/pMuDVv-vMkJ3").unwrap();
+        assert_eq!(l.drive, Drive::Pan123);
+        assert_eq!(l.share_id, "pMuDVv-vMkJ3");
+    }
+
+    #[test]
+    fn pan123_other_domains() {
+        // 123 云盘有 4 个域名，都是同一家
+        for h in ["123865.com", "123684.com", "123912.com", "www.123865.com"] {
+            let l = recognize(&format!("https://{}/s/AbCdEf-GhIj", h)).unwrap();
+            assert_eq!(l.drive, Drive::Pan123, "host {}", h);
+            assert_eq!(l.share_id, "AbCdEf-GhIj");
+        }
+    }
+
+    #[test]
+    fn pan123_strips_html_suffix() {
+        let l = recognize("https://www.123pan.com/s/pMuDVv-vMkJ3.html").unwrap();
+        assert_eq!(l.share_id, "pMuDVv-vMkJ3");
+    }
+
+    #[test]
+    fn pan123_with_passcode() {
+        let l = recognize("123云盘：https://www.123pan.com/s/pMuDVv-vMkJ3 提取码：a1b2").unwrap();
+        assert_eq!(l.passcode.as_deref(), Some("a1b2"));
+    }
+
+    #[test]
+    fn pan123_lookalike_domain_rejected() {
+        // ★ `not123pan.com` / `123pan.com.evil.com` 都不是 123 云盘
+        assert!(recognize("https://not123pan.com/s/AbCdEf-GhIj").is_none());
+        assert!(recognize("https://123pan.com.evil.com/s/AbCdEf-GhIj").is_none());
+        assert!(recognize("https://www.123pan.com/").is_none());
+    }
+
+    #[test]
+    fn aliyun_basic() {
+        for h in ["www.alipan.com", "alipan.com", "www.aliyundrive.com"] {
+            let l = recognize(&format!("https://{}/s/AbCdEfGhIjK", h)).unwrap();
+            assert_eq!(l.drive, Drive::Aliyun, "host {}", h);
+            assert_eq!(l.share_id, "AbCdEfGhIjK");
+        }
+    }
+
+    #[test]
+    fn aliyun_lookalike_rejected() {
+        assert!(recognize("https://notalipan.com/s/AbCdEfGhIjK").is_none());
+    }
+
+    #[test]
+    fn host_is_is_segment_wise() {
+        assert!(host_is("pan.baidu.com", "baidu.com"));
+        assert!(host_is("baidu.com", "baidu.com"));
+        assert!(!host_is("notbaidu.com", "baidu.com"));
+        assert!(!host_is("baidu.com.evil.com", "baidu.com"));
+        // ★ 这条是修 `contains` 误判的核心：`my123pan.com` 不能匹配 `123pan.com`
+        assert!(!host_is("my123pan.com", "123pan.com"));
     }
 
     #[test]

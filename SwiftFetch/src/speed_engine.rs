@@ -541,7 +541,16 @@ pub struct SmoothScheduler {
     pub high_bandwidth_count: u32,
     pub low_bandwidth_count: u32,
     pub very_high_count: u32,
+    /// ★ 2026-10-18 抢网: 连续多少次 tick 处于"worker 全忙但吞吐占比低"。
+    ///   这是"被别的下载器抢带宽"的典型特征 —— 单流公平份额被压小，
+    ///   增加并发流能直接拿回份额（详见 tick 里的注释）。
+    pub starve_count: u32,
 }
+
+/// 抢网模式下允许增长到的并发上限。
+/// 不直接用 MAX_CONNECTIONS_PER_HOST(256)：200+ 条流在弱网/老旧路由器上
+/// 会触发 NAT 表压力，反而掉速。160 是"比默认明显更凶、但不至于失控"的折中。
+pub const STARVE_MAX_CONNS: u32 = 160;
 
 impl SmoothScheduler {
     pub fn new(initial_conns: u32, probe_max_bps: u64, base_size: u64) -> Self {
@@ -557,6 +566,7 @@ impl SmoothScheduler {
             high_bandwidth_count: 0,
             low_bandwidth_count: 0,
             very_high_count: 0,
+            starve_count: 0,
         }
     }
 
@@ -607,6 +617,32 @@ impl SmoothScheduler {
             self.very_high_count = 0;
             // 速度低时不减连接: 速度低通常是服务器限速, 减连接只会更慢
             // 仅调整 base_chunk_size 来适应低速环境
+            //
+            // ★★ 2026-10-18 「抢网能力」补丁：
+            //   旧逻辑在 ratio < 0.60 时**只缩块、不加连接**，隐含假设是"速度低 =
+            //   服务器限速"。但用户报的场景是**同时开着别的下载器**：带宽被别人占走，
+            //   我们自己的单条 TCP 流按公平排队只分到很小一份 → 吞吐占比自然低。
+            //   这时"不加连接"等于自愿认输（别的下载器动辄几十上百连接）。
+            //
+            //   判据：`idle_workers == 0` —— 所有并发槽都在忙，说明不是我们调度不上，
+            //   而是每条流都慢。此时按 +4/两拍 的步长加到 STARVE_MAX_CONNS(160)。
+            //   服务器真限速时多出来的流只是排队，不会更慢（也不会更多浪费，因为
+            //   分块是动态切的，不会预先占住数据）。
+            if self.idle_workers == 0 && self.target_connections < STARVE_MAX_CONNS {
+                self.starve_count += 1;
+                if self.starve_count >= 2 {
+                    self.target_connections = (self.target_connections + 4).min(STARVE_MAX_CONNS);
+                    self.starve_count = 0;
+                    self.low_bandwidth_count = 0;
+                    self.last_adjust_time = Instant::now();
+                    return Some(SchedulerDecision {
+                        target_connections: self.target_connections,
+                        base_chunk_size_adjust: None,
+                    });
+                }
+            } else {
+                self.starve_count = 0;
+            }
             if self.low_bandwidth_count >= 3 {
                 let load_per_conn = if self.target_connections > 0 {
                     self.original_base_size as f64 / self.target_connections as f64
@@ -630,6 +666,7 @@ impl SmoothScheduler {
             self.high_bandwidth_count = 0;
             self.low_bandwidth_count = 0;
             self.very_high_count = 0;
+            self.starve_count = 0;
         }
         decision
     }

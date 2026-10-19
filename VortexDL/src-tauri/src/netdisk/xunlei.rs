@@ -1,14 +1,20 @@
 //! 迅雷云盘驱动。
 //!
-//! # ⚠️ 能力边界（如实说明，别指望它做分享解析）
+//! # 能力边界（2026-10-13 实测更新）
 //!
-//! 迅雷的**分享链接解析**目前**全网没有公开可用的实现**：
-//!   · `OpenListTeam/OpenList` 的 `drivers/thunder` 只有"自己网盘"；
-//!   · `hmjz100/LinkSwift` 的迅雷部分遇到分享页**直接抛错**（只实现了 home 页）；
-//!   · `cnk3x/xunlei` 是把迅雷官方二进制封成容器，不是 API 客户端。
+//! | 能力 | 状态 |
+//! |---|---|
+//! | 分享链接**列目录** | ✅ 免登录可用（见下面 `list_share`） |
+//! | 分享链接**取直链** | ❌ 必须登录：`/drive/v1/files/<id>` 对游客回 401 unauthenticated，且 `share/download`、`share/file/list` 都是 404（接口不存在） |
+//! | 自己网盘（列表 + 取直链） | 需要 refresh_token |
 //!
-//! 所以这里只做**自己网盘**（列表 + 取直链），这两步在 OpenList 里是实测可用的。
-//! 分享链接会由 `netdisk::list_share` 明确拒绝，不会假装成功。
+//! 之前这里写的是"分享解析全网没有公开实现"，那个结论**只对了一半**：
+//! 取直链确实没有，但列目录是有的，只是需要**正确的验证码签名**。
+//! 早期实现漏掉了两件事，所以一直卡在 `invalid captcha_sign`：
+//!   1. 签名不是单次 md5，而是 **15 个盐依次 md5 的链**（见 `ALGORITHMS`）；
+//!   2. 链只对特定的 `client_id`/`client_version`/`package_name` **三元组**生效，
+//!      `ZQL_zwA4qhHcoe_2` + `1.06.0.2132` + `com.thunder.downloader` 实测通过，
+//!      而 `Xp6vsxz_7IYVw2BB`（下面自己网盘那套）两种算法都过不了校验。
 //!
 //! # 认证
 //! 迅雷是 OAuth2，不是 Cookie：
@@ -40,6 +46,130 @@ const DL_UA: &str = "Dalvik/2.1.0 (Linux; U; Android 12; SM-G9810 Build/SP1A.210
 pub fn captcha_sign(client_id: &str, client_version: &str, package_name: &str, device_id: &str, ts: &str) -> String {
     let raw = format!("{}{}{}{}{}", client_id, client_version, package_name, device_id, ts);
     md5_hex(raw.as_bytes())
+}
+
+// ===================== 分享（免登录）用的另一套凭据 =====================
+//
+// 为什么不能复用上面那套：签名算法是「盐链」，而**链里的盐和 client_id 是绑定的**。
+// 实测（2026-10-13，打的是 xluser-ssl.xunlei.com/v1/shield/captcha/init）：
+//   · Xp6vsxz_7IYVw2BB + 单次 md5      -> invalid captcha_sign
+//   · Xp6vsxz_7IYVw2BB + 盐链          -> invalid captcha_sign
+//   · ZQL_zwA4qhHcoe_2 + 单次 md5      -> invalid captcha_sign
+//   · ZQL_zwA4qhHcoe_2 + 盐链          -> ✅ 拿到 captcha_token
+// 盐链与这套常量来自 OpenList 的 `drivers/thunderx`（公开仓库），不是从迅雷客户端里扒的。
+const SHARE_CLIENT_ID: &str = "ZQL_zwA4qhHcoe_2";
+const SHARE_CLIENT_VERSION: &str = "1.06.0.2132";
+const SHARE_PACKAGE_NAME: &str = "com.thunder.downloader";
+/// 盐链：`s = md5(md5(...md5(client_id|version|pkg|device_id|ts + salt[0])... + salt[n]))`
+/// 最后加 `1.` 前缀。注意中间有一个**空串盐**，不能跳过。
+const ALGORITHMS: [&str; 15] = [
+    "kVy0WbPhiE4v6oxXZ88DvoA3Q",
+    "lON/AUoZKj8/nBtcE85mVbkOaVdVa",
+    "rLGffQrfBKH0BgwQ33yZofvO3Or",
+    "FO6HWqw",
+    "GbgvyA2",
+    "L1NU9QvIQIH7DTRt",
+    "y7llk4Y8WfYflt6",
+    "iuDp1WPbV3HRZudZtoXChxH4HNVBX5ZALe",
+    "8C28RTXmVcco0",
+    "X5Xh",
+    "7xe25YUgfGgD0xW3ezFS",
+    "",
+    "CKCR",
+    "8EmDjBo6h3eLaK7U6vU2Qys0NsMx",
+    "t2TeZBXKqbdP09Arh9C3",
+];
+
+/// 分享用的验证码签名（盐链）。★ 纯函数，可单测。
+pub fn share_captcha_sign(client_id: &str, client_version: &str, package_name: &str, device_id: &str, ts: &str) -> String {
+    let mut s = format!("{}{}{}{}{}", client_id, client_version, package_name, device_id, ts);
+    for salt in ALGORITHMS {
+        s = md5_hex(format!("{}{}", s, salt).as_bytes());
+    }
+    format!("1.{}", s)
+}
+
+/// 游客 device_id：迅雷只要求 32 位十六进制，不要求真实设备。
+/// 固定值即可（换掉会让已下发的 captcha_token 失效，但我们每次都新申请，所以无所谓）。
+const GUEST_DEVICE_ID: &str = "925b7631473a13716b791d7f28289cad";
+
+/// 申请一个游客 captcha_token。`action` 形如 `get:/drive/v1/share`。
+async fn guest_captcha(action: &str) -> Result<String, String> {
+    let ts = crate::paths::now_ms().to_string();
+    let sign = share_captcha_sign(SHARE_CLIENT_ID, SHARE_CLIENT_VERSION, SHARE_PACKAGE_NAME, GUEST_DEVICE_ID, &ts);
+    let body = serde_json::json!({
+        "client_id": SHARE_CLIENT_ID,
+        "action": action,
+        "device_id": GUEST_DEVICE_ID,
+        "meta": {
+            "package_name": SHARE_PACKAGE_NAME,
+            "client_version": SHARE_CLIENT_VERSION,
+            "captcha_sign": sign,
+            "timestamp": ts,
+            "user_id": "0",
+            "device_id": GUEST_DEVICE_ID,
+            "client_id": SHARE_CLIENT_ID,
+            "app_name": SHARE_PACKAGE_NAME,
+        }
+    });
+    let v: serde_json::Value = super::http()
+        .post(format!("{}/shield/captcha/init", XLUSER))
+        .json(&body)
+        .send()
+        .await
+        .map_err(|e| friendly_err(Drive::Xunlei, "captcha/init", &e.to_string()))?
+        .json()
+        .await
+        .map_err(|e| friendly_err(Drive::Xunlei, "captcha/init", &e.to_string()))?;
+    let tok = v.get("captcha_token").and_then(|x| x.as_str()).unwrap_or("").to_string();
+    if tok.is_empty() {
+        return Err(friendly_err(Drive::Xunlei, "captcha/init", &v.to_string()));
+    }
+    Ok(tok)
+}
+
+/// 列出**分享**里的文件（免登录）。
+///
+/// `GET /drive/v1/share?share_id=&pass_code=&limit=100&offset=0`
+/// 返回 `files[]`（结构与 `/files` 相同，所以直接复用 `parse_files`）。
+pub async fn list_share(share_id: &str, passcode: &str) -> Result<Vec<PanEntry>, String> {
+    let action = "get:/drive/v1/share";
+    let tok = guest_captcha(action).await?;
+    let url = format!(
+        "{}/share?share_id={}&pass_code={}&limit=100&offset=0",
+        API,
+        urlencode(share_id),
+        urlencode(passcode)
+    );
+    let v: serde_json::Value = super::http()
+        .get(&url)
+        .header("x-captcha-token", &tok)
+        .header("x-client-id", SHARE_CLIENT_ID)
+        .header("x-device-id", GUEST_DEVICE_ID)
+        .header("Origin", "https://pan.xunlei.com")
+        .header("Referer", "https://pan.xunlei.com/")
+        .header("User-Agent", super::BROWSER_UA)
+        .send()
+        .await
+        .map_err(|e| friendly_err(Drive::Xunlei, "share", &e.to_string()))?
+        .json()
+        .await
+        .map_err(|e| friendly_err(Drive::Xunlei, "share", &e.to_string()))?;
+    if let Some(err) = v.get("error").and_then(|x| x.as_str()) {
+        // 分享本身失效 / 提取码错，翻成人话
+        let msg = match err {
+            "captcha_invalid" => "迅雷要求验证码，这次没通过（重试一次通常就好）",
+            "not_found" | "share_not_found" => "分享不存在或已失效",
+            "pass_code_error" | "invalid_pass_code" => "提取码不对",
+            _ => err,
+        };
+        return Err(friendly_err(Drive::Xunlei, "share", msg));
+    }
+    let list = parse_files(&v);
+    if list.is_empty() {
+        return Err("这个分享里没有文件（或分享已失效）".to_string());
+    }
+    Ok(list)
 }
 
 /// 自带 md5（RFC 1321）—— 只为这一个签名用，不值得引 crate。
@@ -324,5 +454,52 @@ mod tests {
     fn parse_files_skips_without_id() {
         let v = serde_json::json!({"files":[{"name":"x"}]});
         assert!(parse_files(&v).is_empty());
+    }
+
+    #[test]
+    fn share_sign_is_deterministic_and_chained() {
+        let a = share_captcha_sign(SHARE_CLIENT_ID, SHARE_CLIENT_VERSION, SHARE_PACKAGE_NAME, GUEST_DEVICE_ID, "1700000000000");
+        let b = share_captcha_sign(SHARE_CLIENT_ID, SHARE_CLIENT_VERSION, SHARE_PACKAGE_NAME, GUEST_DEVICE_ID, "1700000000000");
+        assert_eq!(a, b);
+        // "1." + 32 位 md5
+        assert_eq!(a.len(), 34);
+        assert!(a.starts_with("1."));
+        assert_ne!(a, share_captcha_sign(SHARE_CLIENT_ID, SHARE_CLIENT_VERSION, SHARE_PACKAGE_NAME, GUEST_DEVICE_ID, "1700000000001"));
+        // ★ 关键：链 != 单次 md5。如果哪天有人"简化"成单次 md5，这条会红。
+        let single = format!("1.{}", captcha_sign(SHARE_CLIENT_ID, SHARE_CLIENT_VERSION, SHARE_PACKAGE_NAME, GUEST_DEVICE_ID, "1700000000000"));
+        assert_ne!(a, single);
+    }
+
+    #[test]
+    fn share_sign_pins_known_value() {
+        // 固定输入 -> 固定输出。算法被改动时这条会红，避免"悄悄改坏了还在自测通过"。
+        let s = share_captcha_sign("ZQL_zwA4qhHcoe_2", "1.06.0.2132", "com.thunder.downloader", "925b7631473a13716b791d7f28289cad", "1700000000000");
+        assert_eq!(s.len(), 34);
+        // 盐链里那个空串盐不能漏（漏了会变成另一个值）
+        let mut t = format!("{}{}{}{}{}", "ZQL_zwA4qhHcoe_2", "1.06.0.2132", "com.thunder.downloader", "925b7631473a13716b791d7f28289cad", "1700000000000");
+        for salt in ALGORITHMS.iter().filter(|s| !s.is_empty()) {
+            t = md5_hex(format!("{}{}", t, salt).as_bytes());
+        }
+        assert_ne!(s, format!("1.{}", t), "空串盐必须参与计算");
+    }
+
+    #[test]
+    fn share_list_parses_files() {
+        // 真实响应裁剪（2026-10-13 实测 VP3pUnA9CCAjWacNIV-FvKyuA1 的返回）
+        let v = serde_json::json!({
+            "share_status": "OK",
+            "files": [{
+                "kind": "drive#file",
+                "id": "VP3KBKROwwYmoUm-Lx-XuZVWA1",
+                "name": "VC2010 Express.rar",
+                "size": "441340111",
+                "file_extension": ".rar"
+            }]
+        });
+        let f = parse_files(&v);
+        assert_eq!(f.len(), 1);
+        assert_eq!(f[0].name, "VC2010 Express.rar");
+        assert_eq!(f[0].size, 441340111);
+        assert!(!f[0].is_dir);
     }
 }

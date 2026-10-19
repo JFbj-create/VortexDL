@@ -480,6 +480,24 @@ async fn engine_translate_batch(idx: u8, texts: &[String], tl: &str) -> Result<V
 // 回退链: 从最近成功的引擎开始依次尝试, 成功即记住 (省去反复撞被墙端点的超时)
 // 熔断中的引擎直接跳过
 // ★ 超过引擎安全长度的**也跳过** —— 否则 MyMemory 会静默截断, 给出半截译文还不报错
+//
+// ★ 2026-10-18 「翻译过的资源搜不到」修复：
+//   部分引擎（尤其被墙/限流时的 Google 端点）会**原样返回中文**而不报错。
+//   旧逻辑把这种"没翻译"当成成功 → best_engine 被记住 → 搜索词永远是中文 →
+//   去英文站当然搜不到。现在对 `en` 目标做一次校验：源是中文而译文仍是中文
+//   就视为该引擎失败，换下一个；全部引擎都这样才回退原文。
+fn looks_untranslated(src: &str, out: &str, tl: &str) -> bool {
+    if !tl.starts_with("en") {
+        return false;
+    }
+    let out_t = out.trim();
+    if out_t.is_empty() {
+        return true;
+    }
+    let has_cjk = |s: &str| s.chars().any(|c| ('\u{4e00}'..='\u{9fff}').contains(&c));
+    has_cjk(src) && has_cjk(out_t)
+}
+
 async fn translate_via_chain(text: &str, tl: &str) -> Result<String, String> {
     let start = store().best_engine.load(Ordering::Relaxed);
     let n = text.chars().count();
@@ -493,6 +511,11 @@ async fn translate_via_chain(text: &str, tl: &str) -> Result<String, String> {
         }
         match engine_translate(idx, text, tl).await {
             Ok(t) => {
+                if looks_untranslated(text, &t, tl) {
+                    breaker_on_fail(idx);
+                    last_err = format!("engine{}: 返回未翻译文本", idx);
+                    continue;
+                }
                 store().best_engine.store(idx, Ordering::Relaxed);
                 breaker_on_success(idx);
                 return Ok(t);
@@ -520,6 +543,14 @@ async fn translate_via_chain_batch(texts: &[String], tl: &str) -> Result<Vec<Str
         }
         match engine_translate_batch(idx, texts, tl).await {
             Ok(v) => {
+                // ★ 批量里只要有一条"源中文→译文还是中文"，就认为该引擎这轮没干活，
+                //   整批作废交给上层逐条换引擎（逐条时同样的校验会生效）。
+                let bad = texts.iter().zip(v.iter()).any(|(s, t)| looks_untranslated(s, t, tl));
+                if bad {
+                    breaker_on_fail(idx);
+                    last_err = format!("engine{}: 批量返回未翻译文本", idx);
+                    continue;
+                }
                 store().best_engine.store(idx, Ordering::Relaxed);
                 breaker_on_success(idx);
                 return Ok(v);

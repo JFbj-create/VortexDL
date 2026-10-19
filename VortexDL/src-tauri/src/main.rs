@@ -13,12 +13,16 @@ mod app_logger;
 mod cache;
 mod commands;
 mod config;
+mod dlss;
 mod download_engine;
 mod downloader;
+mod emulator;
 mod extractor;
+mod game_cache;
 mod game_scrape;
 mod gx;
 mod game_translator;
+mod kernel;
 mod licensing;
 mod paths;
 mod books;
@@ -26,6 +30,7 @@ mod mobi;
 mod netdisk;
 mod search_engine;
 mod snapshot;
+mod switch_games;
 mod system_monitor;
 mod trainer;
 mod translator;
@@ -63,11 +68,12 @@ use crate::commands::{
     parse_torrent_preview,
     get_speed_engine_status, aria2_status, aria2_start, aria2_stop, aria2_get_active_downloads,
     clear_cache, snapshot_stats, snapshot_categories, refresh_snapshot, preload_byko, clear_snapshot, reset_adult_tags, recommend,
+    game_cache_stats, game_cache_clear, game_cache_flush,
     get_cache_usage, clear_temp_cache, clear_app_cache,
-    open_folder, open_file, delete_path, launch_program, program_exists, extract_archive, list_archives, check_bt_disk_progress, browse_path, get_game_translator_path,
+    open_folder, open_file, delete_path, launch_program, program_exists, extract_archive, list_archives, check_bt_disk_progress, paths_exist, browse_path, get_game_translator_path,
     copy_to_clipboard,
     get_app_info, mark_version_seen, check_app_update, download_app_update,
-    pan_recognize, pan_cookie_status, pan_set_cookie, pan_clear_cookie,
+    pan_recognize, pan_drives, pan_cookie_status, pan_set_cookie, pan_clear_cookie,
     pan_list, pan_resolve, pan_list_mine, pan_resolve_mine,
     get_system_status, append_frontend_log,
     open_external_browser,
@@ -76,14 +82,30 @@ use crate::commands::{
     restart_system,
     game_scrape_site, game_scrape_pick_download,
     gx_sync, gx_status, gx_tags, gx_browse, gx_detail, gx_resources, gx_pick_download, gx_related,
+    switch_catalog_stats, switch_refresh, switch_list, switch_detail, switch_download,
+    switch_install, switch_download_dir, switch_downloaded, switch_find_local, switch_emu_status, switch_emu_launch,
+    emu_info, emu_launch, emu_stop, emu_alive, emu_input,
+    emu_binds_get, emu_binds_set, emu_binds_reset,
+    emu_settings_get, emu_settings_set, emu_ensure_bundled,
+    emu_toggle_max, emu_toggle_fullscreen, emu_overlay_open, emu_overlay_close, emu_overlay_resize,
+    emu_register_game,
     open_player_window, player_take_payload, focus_main_and_open, raise_main_window, main_sync_subject,
 };
 
+use crate::kernel::{
+    kernel_status, kernel_inject, kernel_remove, stop_steam, restart_steam,
+    kernel_check_update, kernel_download_update,
+};
 
+use crate::dlss::{
+    dlss_get_settings, dlss_save_settings, dlss_scan_games,
+    dlss_library_list, dlss_library_import, dlss_library_delete,
+    dlss_apply, dlss_restore, dlss_pick_folder, dlss_pick_dll,
+};
 
 use crate::books::{
     book_home, book_search, book_content, book_download, book_extra_downloads,
-    book_local_dir, book_open_local_dir, book_import, book_probe, book_covers, book_translate,
+    book_local_dir, book_open_local_dir, book_import, book_probe, book_translate, book_covers,
 };
 
 use crate::trainer::{
@@ -229,8 +251,44 @@ fn main() {
 
     tauri::Builder::default()
         .manage(AppState::new())
+        // ★ 封面图本地缓存协议 (2026-10-18): 前端把 http(s) 图片改写成
+        //   `vxasset://localhost/img?u=<encodeURIComponent(url)>`，这里先查磁盘缓存，
+        //   未命中才联网抓一次并落盘。这样「浏览过的游戏」第二次打开是本地读图，
+        //   弱网/图床限流都不会再出现一片空白。
+        .register_asynchronous_uri_scheme_protocol("vxasset", |_app, request, responder| {
+            let uri = request.uri().to_string();
+            tauri::async_runtime::spawn(async move {
+                let (status, body, ct) = crate::game_cache::serve_image(&uri).await;
+                let resp = tauri::http::Response::builder()
+                    .status(status)
+                    .header("Content-Type", ct)
+                    .header("Access-Control-Allow-Origin", "*")
+                    .header("Cache-Control", "public, max-age=604800")
+                    .body(body)
+                    .unwrap_or_else(|_| {
+                        tauri::http::Response::builder()
+                            .status(500)
+                            .body(Vec::new())
+                            .expect("empty response")
+                    });
+                responder.respond(resp);
+            });
+        })
         .setup(|app| {
             crate::licensing::start_watchdog(app.handle().clone());
+            // ★ Switch 模拟器是随包内置的：第一次启动后把 resources_main\emulator
+            //   复制到 D:\game\switch\emulator（99 MB，放后台线程，别拖慢启动）。
+            //   之后每次启动都是幂等的空操作（目标目录已有 citron.exe 就返回）。
+            std::thread::spawn(|| {
+                match crate::emulator::ensure_bundled() {
+                    Ok((true, dir)) => crate::app_logger::log_system(
+                        "EMU_BUNDLED",
+                        &format!("内置模拟器已释出到 {}", dir.display()),
+                    ),
+                    Ok((false, _)) => {}
+                    Err(e) => crate::app_logger::log_system("EMU_BUNDLED", &format!("内置模拟器释出失败: {e}")),
+                }
+            });
             // ★ GX（galgamex 游戏库）索引：启动时把磁盘索引读进内存，
             //   前端一进页面就能直接浏览，不用等同步。
             crate::gx::load_index_from_disk();
@@ -479,33 +537,46 @@ fn main() {
             parse_torrent_preview,
             get_speed_engine_status, aria2_status, aria2_start, aria2_stop, aria2_get_active_downloads,
             clear_cache, snapshot_stats, snapshot_categories, refresh_snapshot, preload_byko, clear_snapshot, reset_adult_tags, recommend,
+    game_cache_stats, game_cache_clear, game_cache_flush,
             get_cache_usage, clear_temp_cache, clear_app_cache,
             vx_window_min, vx_window_toggle_max, vx_window_close,
             anime_home, anime_detail, anime_search_bgm,
             anime_follow, anime_follow_toggle, anime_follow_progress, anime_danmaku,
             anime_sources, anime_search_online, anime_search_all, anime_episodes, anime_resolve,
             anime_hot, anime_rec_paged,
-            open_folder, open_file, delete_path, launch_program, program_exists, extract_archive, list_archives, check_bt_disk_progress, browse_path, get_game_translator_path,
+            open_folder, open_file, delete_path, launch_program, program_exists, extract_archive, list_archives, check_bt_disk_progress, paths_exist, browse_path, get_game_translator_path,
             copy_to_clipboard,
             get_app_info, mark_version_seen, check_app_update, download_app_update,
             // —— 网盘解析 ——
-            pan_recognize, pan_cookie_status, pan_set_cookie, pan_clear_cookie,
+            pan_recognize, pan_drives, pan_cookie_status, pan_set_cookie, pan_clear_cookie,
             pan_list, pan_resolve, pan_list_mine, pan_resolve_mine,
             get_system_status, append_frontend_log,
             open_external_browser,
             game_scrape_site, game_scrape_pick_download,
             gx_sync, gx_status, gx_tags, gx_browse, gx_detail, gx_resources, gx_pick_download, gx_related,
+            switch_catalog_stats, switch_refresh, switch_list, switch_detail, switch_download,
+            switch_install, switch_download_dir, switch_downloaded, switch_find_local, switch_emu_status, switch_emu_launch,
+            emu_info, emu_launch, emu_stop, emu_alive, emu_input,
+    emu_binds_get, emu_binds_set, emu_binds_reset,
+    emu_settings_get, emu_settings_set, emu_ensure_bundled,
+    emu_toggle_max, emu_toggle_fullscreen, emu_overlay_open, emu_overlay_close, emu_overlay_resize,
+    emu_register_game,
             open_player_window, player_take_payload, focus_main_and_open, raise_main_window, main_sync_subject,
             create_desktop_shortcut, list_exe_candidates,
             repair_runtime,
             restart_system,
+            kernel_status, kernel_inject, kernel_remove, stop_steam, restart_steam,
+            kernel_check_update, kernel_download_update,
+            dlss_get_settings, dlss_save_settings, dlss_scan_games,
+            dlss_library_list, dlss_library_import, dlss_library_delete,
+            dlss_apply, dlss_restore, dlss_pick_folder, dlss_pick_dll,
             // —— 修改器 ——
             tr_sync, tr_index, tr_detail, tr_download, tr_library,
             tr_import, tr_delete, tr_launch, tr_rename, tr_translate_names, tr_open_folder,
             tr_defender_exclude,
             // —— 书库 ——
             book_home, book_search, book_content, book_download, book_extra_downloads,
-            book_local_dir, book_open_local_dir, book_import, book_probe, book_covers, book_translate,
+            book_local_dir, book_open_local_dir, book_import, book_probe, book_translate, book_covers,
         ])
         .run(tauri::generate_context!())
         .expect("error while running vortex-dl application");

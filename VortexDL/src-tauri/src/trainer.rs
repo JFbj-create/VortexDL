@@ -223,6 +223,90 @@ fn names_path() -> PathBuf {
     crate::paths::data_dir().join("trainers").join("names_zh.json")
 }
 
+// ============================================================
+// 详情页持久缓存 (2026-10-18)
+// ------------------------------------------------------------
+// 用户报「修改器点进去太慢」：flingtrainer 在国内访问经常 5~15 秒。
+// 同一个修改器反复点开时没必要每次都重新爬 —— 缓存 7 天，抓取失败时
+// 也退回旧缓存（至少能把下载按钮亮出来）。
+// ============================================================
+const DETAIL_TTL_MS: i64 = 7 * 24 * 3600 * 1000;
+const DETAIL_CACHE_MAX: usize = 2000;
+
+#[derive(Serialize, Deserialize, Clone)]
+struct DetailCacheEntry {
+    detail: TrainerDetail,
+    ts: i64,
+}
+
+fn detail_cache_path() -> PathBuf {
+    crate::paths::data_dir().join("trainers").join("detail_cache.json")
+}
+
+fn load_detail_cache() -> std::collections::HashMap<String, DetailCacheEntry> {
+    match std::fs::read(detail_cache_path()) {
+        Ok(b) => serde_json::from_slice(&b).unwrap_or_default(),
+        Err(_) => std::collections::HashMap::new(),
+    }
+}
+
+fn save_detail_cache(m: &std::collections::HashMap<String, DetailCacheEntry>) {
+    let p = detail_cache_path();
+    if let Some(d) = p.parent() {
+        let _ = std::fs::create_dir_all(d);
+    }
+    let mut v: Vec<(&String, &DetailCacheEntry)> = m.iter().collect();
+    // 超过上限时按时间保留最新的
+    if v.len() > DETAIL_CACHE_MAX {
+        v.sort_by_key(|(_, e)| std::cmp::Reverse(e.ts));
+        v.truncate(DETAIL_CACHE_MAX);
+    }
+    let trimmed: std::collections::HashMap<String, DetailCacheEntry> =
+        v.into_iter().map(|(k, e)| (k.clone(), e.clone())).collect();
+    if let Ok(b) = serde_json::to_vec(&trimmed) {
+        let _ = std::fs::write(&p, b);
+    }
+}
+
+/// 带缓存 + 超时 + 一次重试的详情抓取
+pub async fn fetch_detail_cached(
+    client: &reqwest::Client,
+    url: &str,
+) -> Result<TrainerDetail, String> {
+    let mut cache = load_detail_cache();
+    if let Some(e) = cache.get(url) {
+        if now_ms() - e.ts < DETAIL_TTL_MS {
+            return Ok(e.detail.clone());
+        }
+    }
+    let mut last_err = String::new();
+    for attempt in 0..2u32 {
+        match tokio::time::timeout(
+            std::time::Duration::from_secs(12),
+            fetch_detail(client, url),
+        )
+        .await
+        {
+            Ok(Ok(d)) => {
+                cache.insert(url.to_string(), DetailCacheEntry { detail: d.clone(), ts: now_ms() });
+                save_detail_cache(&cache);
+                return Ok(d);
+            }
+            Ok(Err(e)) => last_err = e,
+            Err(_) => last_err = "打开修改器页面超时（12 秒）".to_string(),
+        }
+        if attempt == 0 {
+            tokio::time::sleep(std::time::Duration::from_millis(400)).await;
+        }
+    }
+    // 抓取失败：有旧缓存就用旧的（下载链接多半还有效）
+    if let Some(e) = cache.get(url) {
+        eprintln!("[TR] 详情抓取失败，退回缓存: {} ({})", url, last_err);
+        return Ok(e.detail.clone());
+    }
+    Err(last_err)
+}
+
 pub fn load_names() -> std::collections::HashMap<String, String> {
     std::fs::read_to_string(names_path())
         .ok()
@@ -1546,10 +1630,9 @@ pub async fn tr_detail(url: String) -> Result<TrainerDetail, String> {
     let c = client();
     // ★ 必须单独限时: mc_client 的总超时是 300 秒, 一个页面卡住会让前端
     //   "点了没反应"整整五分钟 (而且旧的 busy 守卫会把整个网格一起锁死)。
-    match tokio::time::timeout(std::time::Duration::from_secs(20), fetch_detail(&c, &url)).await {
-        Ok(r) => r,
-        Err(_) => Err("打开修改器页面超时（20 秒），请重试".to_string()),
-    }
+    // ★ 2026-10-18: 走带缓存版本 —— 同一修改器 7 天内直接返回，不再每次重爬；
+    //   内部还有 12 秒超时 + 一次重试 + 失败回退旧缓存。
+    fetch_detail_cached(&c, &url).await
 }
 
 #[tauri::command]
