@@ -193,7 +193,23 @@ const PRESET: &[(&str, &str, &str)] = &[
 ///
 /// ★ 不用 `WritePrivateProfileStringW`：它按 ANSI 处理没有 BOM 的文件，
 ///   而 Qt 6 的 INI 是 UTF-8 —— 里面的中文游戏目录会被写成乱码。
+/// ★★ 值以 `#` / `;` 开头（比如主题色 `#eb3333`）时必须加双引号，
+///    否则 Qt 会当成注释，读回来是空值 —— 实测会静默丢主题色。
+fn ini_value(value: &str) -> String {
+    let need_quote = value.starts_with('#')
+        || value.starts_with(';')
+        || value.starts_with('"')
+        || value.trim() != value
+        || value.contains(',');
+    if need_quote && !(value.starts_with('"') && value.ends_with('"')) {
+        format!("\"{}\"", value)
+    } else {
+        value.to_string()
+    }
+}
+
 fn upsert_ini(text: &str, section: &str, key: &str, value: &str) -> String {
+    let value = &ini_value(value);
     let mut lines: Vec<String> = text.lines().map(|s| s.to_string()).collect();
     let header = format!("[{}]", section);
     let mut sec: Option<(usize, usize)> = None;
@@ -707,5 +723,13 @@ mod tests {
         assert_eq!(lang.2, "15");
         let region = PRESET.iter().find(|(s, k, _)| *s == "System" && *k == "region_index").unwrap();
         assert_eq!(region.2, "4");
+    }
+
+    /// ★ 以 # 开头的值不加引号会被 Qt 当注释（主题色会静默丢失）
+    #[test]
+    fn ini_quotes_hash_values() {
+        assert_eq!(ini_value("#eb3333"), "\"#eb3333\"");
+        assert_eq!(ini_value("true"), "true");
+        assert_eq!(ini_value("15"), "15");
     }
 }
