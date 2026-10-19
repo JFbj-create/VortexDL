@@ -1,6 +1,6 @@
 // 纯 Rust 解压引擎 - 支持 7z/zip (内置库) + rar (7z.exe 兜底)
 
-pub const VX_AUX_C: &str = "21cd16edd217108ef"; // 主 dll 甲 片段的校验常量
+pub const VX_AUX_C: &str = "0000000000000000"; // 公开版占位（豪华版校验已移除）
 // 使用 sevenz-rust2 (纯 Rust 7z) + zip (纯 Rust zip) 替代外部 7z.exe
 // 支持进度上报: 百分比 + 已解压字节/总字节 + 当前文件名
 use std::path::{Path, PathBuf};

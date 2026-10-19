@@ -13,7 +13,6 @@ mod app_logger;
 mod cache;
 mod commands;
 mod config;
-mod dlss;
 mod download_engine;
 mod downloader;
 mod emulator;
@@ -22,7 +21,6 @@ mod game_cache;
 mod game_scrape;
 mod gx;
 mod game_translator;
-mod kernel;
 mod licensing;
 mod paths;
 mod books;
@@ -92,16 +90,6 @@ use crate::commands::{
     open_player_window, player_take_payload, focus_main_and_open, raise_main_window, main_sync_subject,
 };
 
-use crate::kernel::{
-    kernel_status, kernel_inject, kernel_remove, stop_steam, restart_steam,
-    kernel_check_update, kernel_download_update,
-};
-
-use crate::dlss::{
-    dlss_get_settings, dlss_save_settings, dlss_scan_games,
-    dlss_library_list, dlss_library_import, dlss_library_delete,
-    dlss_apply, dlss_restore, dlss_pick_folder, dlss_pick_dll,
-};
 
 use crate::books::{
     book_home, book_search, book_content, book_download, book_extra_downloads,
@@ -565,11 +553,6 @@ fn main() {
             create_desktop_shortcut, list_exe_candidates,
             repair_runtime,
             restart_system,
-            kernel_status, kernel_inject, kernel_remove, stop_steam, restart_steam,
-            kernel_check_update, kernel_download_update,
-            dlss_get_settings, dlss_save_settings, dlss_scan_games,
-            dlss_library_list, dlss_library_import, dlss_library_delete,
-            dlss_apply, dlss_restore, dlss_pick_folder, dlss_pick_dll,
             // —— 修改器 ——
             tr_sync, tr_index, tr_detail, tr_download, tr_library,
             tr_import, tr_delete, tr_launch, tr_rename, tr_translate_names, tr_open_folder,

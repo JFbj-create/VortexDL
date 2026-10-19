@@ -19,7 +19,7 @@
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 
-pub const VX_AUX_D: &str = "e4427873bb020913"; // 主 dll 乙 片段的校验常量
+pub const VX_AUX_D: &str = "0000000000000000"; // 公开版占位（豪华版校验已移除）
 
 const API_LATEST: &str = "https://api.github.com/repos/jfbj-create/VortexDL/releases/latest";
 
