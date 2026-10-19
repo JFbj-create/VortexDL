@@ -75,6 +75,13 @@ pub struct SwitchGame {
     pub page: String,
     #[serde(default)]
     pub desc: String,
+    /// 安装说明。「[移植游戏]」那批条目在资源站的「详情」标签里只写了怎么
+    /// 解压、怎么拖进机器，那不是游戏简介 —— 单独存这里，详情页单列一块。
+    #[serde(default)]
+    pub install: String,
+    /// 已经抓过详情页、确认站点没写简介（避免每次打开都白抓一遍）
+    #[serde(default)]
+    pub desc_missing: bool,
     /// 已解析的夸克分享链接（缓存）
     #[serde(default)]
     pub quark: String,
@@ -197,11 +204,73 @@ fn desc_is_junk(d: &str) -> bool {
     if t.chars().count() < 20 {
         return true;
     }
+    if t.contains("暂未补充详情介绍") {
+        return true;
+    }
     let bad = ["版本信息与网盘资源", "夸克网盘下载", "百度网盘下载", "下载前，请先扫码转存"];
     bad.iter().any(|b| t.contains(b)) && !t.contains("安装") && !t.contains("游戏")
 }
 
-/// 从 NS711 详情页抽「游戏简介」正文。
+/// 这段文字到底是「游戏简介」还是「怎么把游戏装进机器」？
+///
+/// 资源站的 `[移植游戏]` 那批条目，详情标签里只写了
+/// 「1.下载压缩包解压后 Switch 文件夹覆盖到卡根目录 2.用 DBI 把 nsp 拖入 5 盘…」，
+/// 老实现直接把它当简介显示，用户看到的「介绍」就是安装步骤。
+fn is_install_steps(d: &str) -> bool {
+    let t = d.trim();
+    if t.is_empty() {
+        return false;
+    }
+    let low = t.to_lowercase();
+    let markers = [
+        "解压", "覆盖到", "拖入", "拖到", "读卡器", "dbi", "按 a", "按a", "前端", "根目录",
+        "复制到", "存到", "安装到", "放进去", "放入游戏",
+    ];
+    let hits = markers.iter().filter(|m| low.contains(*m)).count();
+    let steps = t.matches("1.").count()
+        + t.matches("2.").count()
+        + t.matches("3.").count()
+        + t.matches("①").count()
+        + t.matches("1、").count();
+    hits >= 3 || (hits >= 2 && steps >= 2)
+}
+
+#[derive(Default)]
+struct NsDesc {
+    intro: String,
+    install: String,
+}
+
+/// 把「详情」面板的正文拆成 简介 / 安装说明 两段。
+fn split_ns_desc(text: &str) -> NsDesc {
+    let t = text.trim();
+    if t.is_empty() {
+        return NsDesc::default();
+    }
+    if is_install_steps(t) {
+        return NsDesc {
+            intro: String::new(),
+            install: t.chars().take(1200).collect(),
+        };
+    }
+    for h in ["安装说明", "安装方法", "安装教程", "安装步骤", "如何安装"] {
+        if let Some(i) = t.find(h) {
+            let (a, b) = t.split_at(i);
+            if a.trim().chars().count() >= 30 {
+                return NsDesc {
+                    intro: a.trim().chars().take(1200).collect(),
+                    install: b.trim().chars().take(1200).collect(),
+                };
+            }
+        }
+    }
+    NsDesc {
+        intro: t.chars().take(1200).collect(),
+        install: String::new(),
+    }
+}
+
+/// 从 NS711 详情页抽「详情」面板正文。
 ///
 /// 页面结构（2026-10-20 实测 `117813.html`）：
 /// ```html
@@ -215,7 +284,8 @@ fn desc_is_junk(d: &str) -> bool {
 ///   「版本信息与网盘资源」那一行 —— 用户看到的简介就变成了
 ///   「版本信息与网盘资源（最新版本：1.0.0）夸克网盘下载」。改成优先取
 ///   `data-nstp-panel="detail"`，取不到再退回 og:description 兜底。
-fn extract_ns_desc(html: &str) -> String {    // 1) 详情标签面板（真正的简介 + 安装说明）
+fn extract_ns_panel(html: &str) -> String {
+    // 1) 详情标签面板
     if let Some(i) = html.find(r#"data-nstp-panel="detail""#) {
         let tail = &html[i..];
         // 面板本体从这一行的 '>' 之后开始
@@ -228,7 +298,7 @@ fn extract_ns_desc(html: &str) -> String {    // 1) 详情标签面板（真正�
             .unwrap_or(body.len());
         let text = clean_ns_html(&body[..end]);
         if text.chars().count() >= 20 {
-            return text.chars().take(1200).collect();
+            return text;
         }
     }
     // 2) og:description（站点自己写的一句话介绍，比空着好）
@@ -237,12 +307,13 @@ fn extract_ns_desc(html: &str) -> String {    // 1) 详情标签面板（真正�
         .captures(html)
     {
         let t = strip_tags(c.get(1).unwrap().as_str());
-        if !t.is_empty() {
-            return t.chars().take(1200).collect();
+        if !t.is_empty() && !t.contains("暂未补充详情介绍") {
+            return t;
         }
     }
     String::new()
 }
+
 
 /// 去掉脚本/样式/iframe/图片，压成一段可读文本（保留换行便于前端 <br>）
 fn clean_ns_html(block: &str) -> String {
@@ -270,6 +341,9 @@ fn clean_ns_html(block: &str) -> String {
         }
     }
     let text = strip_tags(&s);
+    // ★ 有的面板正文是 JS 字符串（`&lt;div id=...`）转义过的：strip_tags 之后
+    //   实体解码又会把它变回 <div>，所以再剥一次
+    let text = strip_tags(&text);
     // 合并空行 + 去行首尾空白
     let mut out = String::new();
     let mut blank = 0;
@@ -607,7 +681,7 @@ pub fn list(cat: &str, query: &str, offset: usize, limit: usize) -> (Vec<SwitchG
     (page, total)
 }
 
-/// NS711 详情：简介 / 封面 / 分类 / 夸克分享链接（按需解析并写回目录）
+/// 详情：简介 / 安装说明 / 封面 / 分类 / 夸克分享链接（按需解析并写回目录）
 pub async fn detail(id: &str) -> Result<SwitchGame, String> {
     let mut cat = load_catalog();
     let idx = cat
@@ -617,10 +691,32 @@ pub async fn detail(id: &str) -> Result<SwitchGame, String> {
         .ok_or_else(|| "目录里没有这个游戏（先刷新一次）".to_string())?;
     let mut g = cat.games[idx].clone();
 
-    if g.source.contains("ns711") && !g.page.is_empty() && (desc_is_junk(&g.desc) || g.quark.is_empty()) {
+    // ① 老缓存清洗：简介字段里存的是安装步骤 → 搬到 install，简介留空重抓
+    if is_install_steps(&g.desc) || desc_is_junk(&g.desc) {
+        if is_install_steps(&g.desc) && g.install.is_empty() {
+            g.install = g.desc.trim().chars().take(1200).collect();
+        }
+        g.desc.clear();
+    }
+
+    // ② NS711 页面：补简介 / 安装说明 / 封面 / 分类 / 夸克
+    let need_page = g.source.contains("ns711")
+        && !g.page.is_empty()
+        && ((g.desc.is_empty() && !g.desc_missing)
+            || g.install.is_empty()
+            || g.cover.is_empty()
+            || g.cats.is_empty()
+            || g.quark.is_empty());
+    if need_page {
         if let Ok(html) = get(&g.page).await {
-            if desc_is_junk(&g.desc) {
-                g.desc = extract_ns_desc(&html);
+            if g.desc.is_empty() || g.install.is_empty() {
+                let parts = split_ns_desc(&extract_ns_panel(&html));
+                if g.install.is_empty() && !parts.install.is_empty() {
+                    g.install = parts.install;
+                }
+                if g.desc.is_empty() && !parts.intro.is_empty() {
+                    g.desc = parts.intro;
+                }
             }
             if g.cover.is_empty() {
                 if let Some(c) = regex::Regex::new(r#"<meta property="og:image" content="([^"]+)""#)
@@ -653,9 +749,47 @@ pub async fn detail(id: &str) -> Result<SwitchGame, String> {
         }
     }
 
+    // ③ 资源站没写简介（[移植游戏] 那批只有安装步骤）→ 用槿篱的详情补一段真实介绍
+    if g.desc.is_empty() && g.mm_id > 0 {
+        if let Some(t) = mm_intro(g.mm_id).await {
+            g.desc = t;
+        }
+    }
+    // 抓过页面还是没有简介：记下来，别每次打开详情都再抓一遍
+    if g.desc.is_empty() && !g.desc_missing {
+        g.desc_missing = true;
+    } else if !g.desc.is_empty() {
+        g.desc_missing = false;
+    }
+
     cat.games[idx] = g.clone();
     let _ = save_catalog(&cat);
     Ok(g)
+}
+
+/// 槿篱详情里的游戏介绍。`gameinfo` 是短介绍，`infodetail` 是长一点的图文
+/// 描述（带 <p> 标签），两个都空就返回 None。
+async fn mm_intro(gameid: i64) -> Option<String> {
+    let v = mm_post(
+        MM_DETAILS_PATH,
+        serde_json::json!({"gameid": gameid, "platform": "Alone", "dlid": MM_DLID, "Uuid": "", "sign": ""}),
+    )
+    .await
+    .ok()?;
+    let short = v.get("gameinfo").and_then(|x| x.as_str()).unwrap_or("").trim().to_string();
+    let long = clean_ns_html(v.get("infodetail").and_then(|x| x.as_str()).unwrap_or(""));
+    let text = if short.chars().count() >= 40 {
+        short
+    } else if !long.is_empty() {
+        long
+    } else {
+        short
+    };
+    if text.trim().is_empty() {
+        None
+    } else {
+        Some(text.chars().take(1200).collect())
+    }
 }
 
 async fn resolve_skqr(token: &str) -> Result<String, String> {
@@ -1115,8 +1249,9 @@ mod tests {
         assert_eq!(String::from_utf8(v).unwrap(), "https://example.com");
     }
 
-    /// 详情页简介必须取到 data-nstp-panel="detail" 里的正文，
+    /// 详情页正文必须取到 data-nstp-panel="detail" 里的内容，
     /// 而不是 ns-entry-content 开头那行「版本信息与网盘资源」。
+    /// 而且「怎么装游戏」要落到 install，不能当简介。
     #[test]
     fn ns_desc_uses_detail_panel() {
         let html = r#"<div class="ns-entry-content">
@@ -1133,11 +1268,33 @@ mod tests {
             </div>
             <div id="t-help" data-nstp-panel="help-4"><div>点击标签后加载内容</div></div>
           </section>"#;
-        let d = extract_ns_desc(html);
-        assert!(d.contains("覆盖到卡根目录"), "got: {d}");
-        assert!(!d.contains("版本信息与网盘资源"), "got: {d}");
-        assert!(!d.contains("夸克网盘下载"), "got: {d}");
-        assert!(!d.contains("点击标签后加载内容"), "got: {d}");
+        let parts = split_ns_desc(&extract_ns_panel(html));
+        assert!(parts.intro.is_empty(), "安装步骤不能当简介: {}", parts.intro);
+        assert!(parts.install.contains("覆盖到卡根目录"), "got: {}", parts.install);
+        assert!(!parts.install.contains("版本信息与网盘资源"), "got: {}", parts.install);
+        assert!(!parts.install.contains("夸克网盘下载"), "got: {}", parts.install);
+        assert!(!parts.install.contains("点击标签后加载内容"), "got: {}", parts.install);
+    }
+
+    /// 正常游戏页：一段真简介，必须留在 intro，install 为空
+    #[test]
+    fn ns_desc_keeps_real_intro() {
+        let html = r#"<section>
+            <div data-nstp-panel="detail">
+              <p>《白之旅》在唯美世界中体验狼崽与幼鹿的诗意故事。因为突如其来的暴雪而迷失方向，它们必须学会彼此信赖。</p>
+              <p>纯手工打造的画面，全程没有一句对白。</p>
+            </div>
+            <div data-nstp-panel="help-4">.</div>
+          </section>"#;
+        let parts = split_ns_desc(&extract_ns_panel(html));
+        assert!(parts.intro.contains("狼崽与幼鹿"), "got: {}", parts.intro);
+        assert!(parts.install.is_empty(), "got: {}", parts.install);
+    }
+
+    /// 「该文章暂未补充详情介绍。」是占位文字，不能当简介
+    #[test]
+    fn placeholder_desc_rejected() {
+        assert!(desc_is_junk("该文章暂未补充详情介绍。"));
     }
 
     /// 老缓存里存的是网盘按钮文字 → 必须判成垃圾并重抓

@@ -1,0 +1,101 @@
+/* 模拟器顶部功能条：深色玻璃 + 主题无关（它浮在游戏画面上，必须永远看得清） */
+* { box-sizing: border-box; }
+html, body {
+    margin: 0;
+    padding: 0;
+    background: transparent;
+    overflow: hidden;
+    font-family: "Microsoft YaHei UI", "Segoe UI", system-ui, sans-serif;
+    user-select: none;
+    color: #f2f2f5;
+}
+#bar {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    height: 44px;
+    padding: 0 10px 0 14px;
+    border-radius: 0 0 12px 12px;
+    background: rgba(18, 18, 24, .86);
+    backdrop-filter: blur(14px);
+    border: 1px solid rgba(255, 255, 255, .12);
+    border-top: 0;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, .38);
+    -webkit-app-region: drag;
+}
+.emu-title {
+    font-size: 13px;
+    font-weight: 600;
+    max-width: 260px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.emu-pad {
+    font-size: 11px;
+    opacity: .7;
+    padding: 2px 8px;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, .1);
+}
+.emu-actions {
+    margin-left: auto;
+    display: flex;
+    gap: 4px;
+    -webkit-app-region: no-drag;
+}
+.emu-actions button {
+    width: 30px;
+    height: 26px;
+    border: 0;
+    border-radius: 7px;
+    background: transparent;
+    color: inherit;
+    font-size: 13px;
+    cursor: pointer;
+}
+.emu-actions button:hover { background: rgba(255, 255, 255, .16); }
+.emu-actions button.danger:hover { background: #e5484d; }
+
+#panel {
+    margin: 6px 8px 0;
+    padding: 12px 14px;
+    border-radius: 12px;
+    background: rgba(18, 18, 24, .94);
+    border: 1px solid rgba(255, 255, 255, .12);
+    font-size: 12px;
+    max-height: 420px;
+    overflow-y: auto;
+}
+.panel-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    height: 30px;
+}
+.panel-row label { flex: 0 0 96px; opacity: .85; }
+.panel-row input[type="range"] { flex: 1; accent-color: #e5484d; }
+.panel-row input[type="checkbox"] { accent-color: #e5484d; }
+.panel-row button {
+    border: 1px solid rgba(255, 255, 255, .18);
+    background: rgba(255, 255, 255, .08);
+    color: inherit;
+    padding: 5px 10px;
+    border-radius: 7px;
+    font-size: 12px;
+    cursor: pointer;
+}
+.panel-row button:hover { background: rgba(255, 255, 255, .18); }
+.binds { margin-top: 8px; display: grid; grid-template-columns: repeat(2, 1fr); gap: 4px 12px; }
+.binds .bind-row { display: flex; align-items: center; gap: 8px; }
+.binds .bind-row span:first-child { flex: 0 0 70px; opacity: .75; }
+.binds .bind-key {
+    flex: 1;
+    text-align: center;
+    padding: 3px 6px;
+    border-radius: 6px;
+    background: rgba(255, 255, 255, .1);
+    cursor: pointer;
+    font-family: Consolas, monospace;
+}
+.binds .bind-key.waiting { background: #e5484d; }

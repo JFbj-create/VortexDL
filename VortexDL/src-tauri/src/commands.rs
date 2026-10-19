@@ -2893,3 +2893,15 @@ pub fn emu_ensure_bundled() -> Result<serde_json::Value, String> {
         "dir": dir.to_string_lossy(),
     }))
 }
+
+/// 「一键优化」：把中文/主题/画质预设写进内置模拟器的配置
+#[tauri::command]
+pub fn emu_apply_preset() -> Result<String, String> {
+    crate::emulator::apply_preset()
+}
+
+/// 打开内置模拟器的中文使用说明（含菜单中英对照）
+#[tauri::command]
+pub fn emu_open_guide() -> Result<(), String> {
+    crate::emulator::open_guide()
+}

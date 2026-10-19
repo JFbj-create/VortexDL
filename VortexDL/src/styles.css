@@ -1548,117 +1548,6 @@
     --theme-card-bg-active: rgba(67, 75, 86, 0.22);
 }
 
-/* 主题 - 纯白 */
-[data-theme="purewhite"] {
-    --theme-primary: #424242;
-    --theme-primary-hover: #2e2e2e;
-    --theme-primary-light: #545454;
-    --theme-accent: #a8a8a8;
-    /* 前景用强调色 (图标/小字): 已保证与主题背景对比度 >= 3.0 */
-    --theme-accent-text: #919191;
-    --theme-bg-start: #fcfcfc;
-    --theme-bg-mid1: #fafafa;
-    --theme-bg-mid2: #fbfbfb;
-    --theme-bg-mid3: #fcfcfc;
-    --theme-bg-mid4: #ffffff;
-    --theme-bg-end: #ffffff;
-    --theme-glow: rgba(66, 66, 66, 0.2);
-    --theme-glow-strong: rgba(66, 66, 66, 0.4);
-    --theme-logo-gradient: linear-gradient(135deg, #424242, #a8a8a8);
-    --theme-nav-active: linear-gradient(135deg, #424242, #a8a8a8);
-    --theme-on-primary: #ffffff;
-    --theme-card-shadow: rgba(66, 66, 66, 0.2);
-    --theme-card-shadow-hover: rgba(66, 66, 66, 0.3);
-    --theme-card-bg: rgba(255, 255, 255, 0.72);
-    --theme-card-border: rgba(66, 66, 66, 0.26);
-    --theme-sidebar-bg: rgba(255, 255, 255, 0.66);
-    --theme-surface: rgba(66, 66, 66, 0.08);
-    --theme-surface-alt: rgba(255, 255, 255, 0.9);
-    --theme-highlight-bg: rgba(66, 66, 66, 0.1);
-    --theme-card-bg-hover: rgba(66, 66, 66, 0.14);
-    --theme-card-bg-active: rgba(66, 66, 66, 0.22);
-}
-
-/* 主题 - 纯灰 */
-[data-theme="puregray"] {
-    --theme-primary: #6b6b6b;
-    --theme-primary-hover: #575757;
-    --theme-primary-light: #7d7d7d;
-    --theme-accent: #a8a8a8;
-    /* 前景用强调色 (图标/小字): 已保证与主题背景对比度 >= 3.0 */
-    --theme-accent-text: #737373;
-    --theme-bg-start: #e3e3e3;
-    --theme-bg-mid1: #d4d4d4;
-    --theme-bg-mid2: #d9d9d9;
-    --theme-bg-mid3: #e0e0e0;
-    --theme-bg-mid4: #e8e8e8;
-    --theme-bg-end: #e8e8e8;
-    --theme-glow: rgba(107, 107, 107, 0.2);
-    --theme-glow-strong: rgba(107, 107, 107, 0.4);
-    --theme-logo-gradient: linear-gradient(135deg, #6b6b6b, #a8a8a8);
-    --theme-nav-active: linear-gradient(135deg, #6b6b6b, #a8a8a8);
-    --theme-on-primary: #ffffff;
-    --theme-card-shadow: rgba(107, 107, 107, 0.2);
-    --theme-card-shadow-hover: rgba(107, 107, 107, 0.3);
-    --theme-card-bg: rgba(107, 107, 107, 0.08);
-    --theme-card-border: rgba(107, 107, 107, 0.2);
-    --theme-sidebar-bg: rgba(107, 107, 107, 0.12);
-    --theme-surface: rgba(107, 107, 107, 0.08);
-    --theme-surface-alt: rgba(255, 255, 255, 0.9);
-    --theme-highlight-bg: rgba(107, 107, 107, 0.15);
-    --theme-card-bg-hover: rgba(107, 107, 107, 0.14);
-    --theme-card-bg-active: rgba(107, 107, 107, 0.22);
-}
-
-/* 主题 - 纯黑 */
-[data-theme="pureblack"] {
-    --theme-primary: #c7c7c7;
-    --theme-primary-hover: #a8a8a8;
-    --theme-primary-light: #d9d9d9;
-    --theme-accent: #b3b3b3;
-    /* 前景用强调色 (图标/小字): 已保证与主题背景对比度 >= 3.0 */
-    --theme-accent-text: #b3b3b3;
-    --theme-bg-start: #171717;
-    --theme-bg-mid1: #1e2423;
-    --theme-bg-mid2: #352927;
-    --theme-bg-mid3: #202222;
-    --theme-bg-mid4: #131515;
-    --theme-bg-end: #030303;
-    --theme-glow: rgba(199, 199, 199, 0.22);
-    --theme-glow-strong: rgba(199, 199, 199, 0.4);
-    --theme-logo-gradient: linear-gradient(135deg, #c7c7c7, #b3b3b3);
-    --theme-nav-active: linear-gradient(135deg, #c7c7c7, #b3b3b3);
-    --theme-on-primary: #111827;
-    --theme-card-shadow: rgba(0, 0, 0, 0.45);
-    --theme-card-shadow-hover: rgba(199, 199, 199, 0.3);
-    --theme-card-bg: rgba(255, 255, 255, 0.06);
-    --theme-card-border: rgba(158, 158, 158, 0.22);
-    --theme-sidebar-bg: rgba(41, 15, 15, 0.55);
-    --theme-surface: rgba(255, 255, 255, 0.05);
-    --theme-surface-alt: rgba(62, 30, 30, 0.85);
-    --theme-highlight-bg: rgba(61, 122, 245, 0.16);
-    --theme-text-primary: #e9eef6;
-    --theme-text-secondary: #cbd5e1;
-    --theme-text-muted: #9aa8bc;
-    /* 深色主题: 玻璃控件底色改为"主题色相 + 朝白提亮", 避免死黑。
-       注意: 直接写在本块里, 不要再集中列一份"深色主题名单" —— 加新深色主题时
-       很容易漏改那份名单, 导致新主题退回浅色玻璃 (本项目踩过)。 */
-    --theme-glass-trigger-start: color-mix(in srgb,
-        var(--theme-primary) 30%, color-mix(in srgb, var(--theme-bg-start) 88%, white));
-    --theme-glass-trigger-end: color-mix(in srgb,
-        var(--theme-primary) 18%, color-mix(in srgb, var(--theme-bg-mid1) 88%, white));
-    --theme-glass-menu-start: color-mix(in srgb,
-        var(--theme-primary) 26%, color-mix(in srgb, var(--theme-bg-start) 90%, white));
-    --theme-glass-menu-end: color-mix(in srgb,
-        var(--theme-primary) 16%, color-mix(in srgb, var(--theme-bg-end) 88%, white));
-    --vx-text: #f2f6fc;
-    --vx-inset-hi: rgba(255, 255, 255, 0.07);
-    --vx-inset-hi-soft: rgba(0, 0, 0, 0.30);
-    --vx-menu-inset-hi: rgba(255, 255, 255, 0.06);
-    --theme-card-bg-hover: rgba(255, 255, 255, 0.10);
-    --theme-card-bg-active: rgba(255, 255, 255, 0.16);
-}
-
 /* 主题 - 撞色 */
 [data-theme="duotone"] {
     --theme-primary: #ec5f3c;
@@ -2932,6 +2821,23 @@ body::before {
     position: relative;
     z-index: 1;
     background: transparent;
+}
+
+/* ============================================================
+   主题装饰动效画布
+   ------------------------------------------------------------
+   部分主题（绯红=樱花、森林=落叶、深海=气泡…）的飘落素材画在这上面。
+   ★ z-index 0：#app 是 z-index 1，所以粒子在内容**后面**飘 ——
+     侧边栏/卡片本身是半透明的，能透出来，但不会糊住文字。
+   ★ 默认 display:none，由 app.js 的 ThemeFx 在有素材时才打开；
+     没有动效的主题（皇室/水墨/莫兰迪…）根本不会创建这个画布。
+   ============================================================ */
+#theme-fx {
+    position: fixed;
+    inset: 0;
+    z-index: 0;
+    pointer-events: none;
+    display: none;
 }
 
 /* ============================================================
@@ -4344,6 +4250,61 @@ body.glass-mode .page-tab.active {
     gap: 12px;
 }
 
+/* 网盘/直链入口：粘贴链接直接下。
+   ★ 只加在下载页顶部，不做成独立页面（用户要求：网盘要有"别的用处"而不是"做成页面"） */
+.dl-add-bar {
+    display: flex;
+    gap: 10px;
+    margin-bottom: 16px;
+}
+.dl-add-bar .setting-input {
+    flex: 1;
+    min-width: 0;
+}
+.dl-add-bar .btn {
+    flex: none;
+    white-space: nowrap;
+}
+
+/* 网盘分享的文件选择列表 */
+.pan-pick-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 12px;
+    border-radius: 10px;
+    background: var(--theme-card-bg);
+    border: 1px solid var(--theme-border);
+    margin-bottom: 8px;
+    cursor: pointer;
+}
+.pan-pick-row:hover {
+    background: var(--theme-card-bg-hover, var(--theme-card-bg));
+}
+.pan-pick-row input[type="checkbox"] {
+    flex: none;
+}
+.pan-pick-name {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--theme-text);
+}
+.pan-pick-size {
+    flex: none;
+    color: var(--theme-text-secondary, var(--theme-text));
+    font-size: 12px;
+    opacity: .75;
+}
+.pan-pick-hint {
+    color: var(--theme-text-secondary, var(--theme-text));
+    font-size: 13px;
+    margin-bottom: 10px;
+    opacity: .8;
+}
+
 .download-item {
     background: var(--theme-card-bg);
     /* ★ 性能 (2026-10-03): 移除这里的 backdrop-filter。
@@ -5302,6 +5263,80 @@ body.glass-mode .page-tab.active {
     padding: 12px 24px;
     border-top: 1px solid var(--theme-card-border);
     text-align: right;
+}
+
+/* ============================================================
+   自动更新弹窗（复用 changelog 的骨架，只加更新特有的几块）
+   ============================================================ */
+.update-modal .changelog-modal-body {
+    max-height: 52vh;
+    overflow-y: auto;
+}
+.upd-meta {
+    font-size: 13.5px;
+    color: var(--theme-text-secondary);
+    background: var(--theme-highlight-bg);
+    border: 1px solid var(--theme-card-border);
+    border-radius: 10px;
+    padding: 10px 14px;
+    margin-bottom: 14px;
+    line-height: 1.8;
+}
+.upd-meta b { color: var(--theme-primary); }
+.upd-meta .upd-sub {
+    display: block;
+    font-size: 12px;
+    color: var(--theme-text-muted);
+}
+.upd-notes {
+    font-size: 13.5px;
+    color: var(--theme-text-primary);
+    line-height: 1.85;
+}
+.upd-notes h4 {
+    font-size: 14px;
+    margin: 14px 0 6px;
+    color: var(--theme-primary);
+}
+.upd-notes h4:first-child { margin-top: 0; }
+.upd-notes p { margin: 6px 0; }
+.upd-notes ul { margin: 6px 0; padding-left: 20px; }
+.upd-notes li { margin: 4px 0; }
+.upd-notes code {
+    font-family: Consolas, "Courier New", monospace;
+    font-size: 12.5px;
+    background: var(--theme-card-bg);
+    border: 1px solid var(--theme-card-border);
+    border-radius: 5px;
+    padding: 1px 5px;
+}
+.upd-notes a { color: var(--theme-primary); }
+.upd-progress { margin-top: 16px; }
+.upd-bar {
+    height: 8px;
+    border-radius: 999px;
+    background: var(--theme-card-bg);
+    border: 1px solid var(--theme-card-border);
+    overflow: hidden;
+}
+.upd-bar > i {
+    display: block;
+    height: 100%;
+    width: 0%;
+    border-radius: 999px;
+    background: linear-gradient(90deg, var(--theme-primary), var(--theme-accent));
+    transition: width .25s ease;
+}
+.upd-pct {
+    margin-top: 6px;
+    font-size: 12.5px;
+    color: var(--theme-text-secondary);
+    text-align: right;
+}
+.upd-status {
+    margin-top: 12px;
+    font-size: 13px;
+    color: var(--theme-text-secondary);
 }
 
 @keyframes fadeIn {
@@ -12600,4 +12635,370 @@ body.lite-mode .modal-overlay { background: rgba(0, 0, 0, .6); }
     --theme-hover-bg: color-mix(in srgb, var(--theme-text-primary) 8%, transparent);
     --theme-input-bg: color-mix(in srgb, var(--theme-surface-alt) 60%, transparent);
     --theme-text: var(--theme-text-primary);
+}
+
+/* ============================================================
+   下载列表：新建任务高亮 + 「已删除」状态 (2026-10-18)
+   ------------------------------------------------------------
+   · .dl-item-new  —— 新建/重试后滚动定位的那一条，短暂描边+底色提示
+   · [data-canon-state="deleted"] —— 文件已删但记录保留：整卡降透明度，
+     操作按钮换成「重新下载 / 移除记录」
+   颜色全部走主题变量，浅色/深色主题都不会出现看不见的文字。
+   ============================================================ */
+@keyframes vxDlNewPulse {
+    0%   { box-shadow: 0 0 0 0 color-mix(in srgb, var(--theme-accent) 55%, transparent); }
+    60%  { box-shadow: 0 0 0 6px color-mix(in srgb, var(--theme-accent) 0%, transparent); }
+    100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--theme-accent) 0%, transparent); }
+}
+.download-item.dl-item-new {
+    border-color: var(--theme-accent) !important;
+    background: color-mix(in srgb, var(--theme-accent) 10%, var(--theme-card-bg, transparent)) !important;
+    animation: vxDlNewPulse 1.2s ease-out 2;
+    transition: background .25s ease, border-color .25s ease;
+}
+
+.download-item[data-canon-state="deleted"] {
+    opacity: .78;
+}
+.download-item[data-canon-state="deleted"] .download-item-name {
+    text-decoration: line-through;
+    text-decoration-color: color-mix(in srgb, var(--theme-text-primary) 45%, transparent);
+}
+.download-item[data-canon-state="deleted"] .dl-deleted-hint {
+    color: var(--theme-text-secondary, var(--theme-text-primary));
+    font-weight: 400;
+    opacity: .8;
+}
+/* ★ 2026-10-18 第二轮：已删除条目的进度条保持正常满格（原来这里强制 width:0% !important，
+   整条进度条变成空槽，用户要求「进度条正常，右边提示已删除就行」） */
+.dl-action-btn.redownload {
+    color: var(--theme-accent-text, var(--theme-accent));
+}
+.dl-action-btn.remove {
+    opacity: .85;
+}
+
+/* ★ 2026-10-18 第二轮（用户要求）：已删除条目不再画虚线空槽 + 居中「已删除」，
+   进度条保持正常满格，只在右侧状态文字提示「已删除」。
+   （旧规则：.download-item[data-canon-state="deleted"] .download-progress-bar 虚线 + ::after 文字，已删除） */
+
+/* ============================================================
+   v1.4 统一按钮质感 + 下载多选 (2026-10-18)
+   ------------------------------------------------------------
+   之前各模块按钮长得不一样：有的有渐变/阴影，有的就是一块纯色。
+   这里在文件末尾统一覆盖 .btn 系列（后写优先），全部走主题变量，
+   浅色/深色主题都跟得上；只动观感，不改任何行为。
+   ============================================================ */
+.btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    min-height: 34px;
+    padding: 8px 16px;
+    border-radius: 10px;
+    border: 1px solid transparent;
+    font-size: 13px;
+    font-weight: 600;
+    letter-spacing: .2px;
+    cursor: pointer;
+    user-select: none;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, .06), inset 0 1px 0 rgba(255, 255, 255, .35);
+    transition: transform .16s cubic-bezier(.34, 1.56, .64, 1),
+                background .18s ease, box-shadow .18s ease, border-color .18s ease;
+}
+.btn:hover:not(:disabled) {
+    transform: translateY(-1px);
+    box-shadow: 0 6px 18px var(--theme-glow, rgba(0, 0, 0, .12)), inset 0 1px 0 rgba(255, 255, 255, .45);
+}
+.btn:active:not(:disabled) { transform: translateY(0) scale(.98); }
+.btn:focus-visible { outline: 2px solid var(--theme-primary); outline-offset: 2px; }
+.btn:disabled { opacity: .5; cursor: not-allowed; transform: none; box-shadow: none; }
+
+.btn-primary {
+    background: linear-gradient(135deg,
+        var(--theme-primary),
+        color-mix(in srgb, var(--theme-primary) 76%, #000));
+    color: var(--theme-on-primary, #fff);
+}
+.btn-primary:hover:not(:disabled) {
+    background: linear-gradient(135deg,
+        color-mix(in srgb, var(--theme-primary) 92%, #fff),
+        var(--theme-primary));
+}
+.btn-secondary {
+    background: color-mix(in srgb, var(--theme-card-bg) 88%, transparent);
+    border-color: var(--theme-card-border);
+    color: var(--theme-text-primary);
+}
+.btn-secondary:hover:not(:disabled) {
+    background: color-mix(in srgb, var(--theme-primary) 14%, var(--theme-card-bg));
+    border-color: color-mix(in srgb, var(--theme-primary) 42%, transparent);
+    color: var(--theme-text-primary);
+}
+.btn-danger {
+    background: linear-gradient(135deg, #f05252, #dc2626);
+    color: #fff;
+}
+.btn-danger:hover:not(:disabled) { background: linear-gradient(135deg, #ef4444, #b91c1c); }
+.btn-warning {
+    background: linear-gradient(135deg, #fbbf24, #f59e0b);
+    color: #3b2600;
+}
+.btn-warning:hover:not(:disabled) { background: linear-gradient(135deg, #f59e0b, #d97706); }
+.btn-success {
+    background: linear-gradient(135deg, #34d399, #10b981);
+    color: #04291c;
+}
+.btn-success:hover:not(:disabled) { background: linear-gradient(135deg, #10b981, #059669); }
+.btn-small { min-height: 28px; padding: 4px 12px; font-size: 12px; border-radius: 8px; }
+
+/* 搜索框里的按钮也跟着统一（原来只有 .search-box button 的老规则） */
+.search-box button, .dl-add-bar button { min-height: 36px; }
+
+/* ---------------- 下载列表多选 ---------------- */
+.download-item { position: relative; }
+
+/* 进度条可点：给一个明确的“可选中”反馈 */
+.download-progress-bar,
+.bt-progress-bar {
+    cursor: pointer;
+    transition: outline-color .15s ease, filter .15s ease;
+    outline: 1px solid transparent;
+    outline-offset: 2px;
+    border-radius: 4px;
+}
+.download-progress-bar:hover,
+.bt-progress-bar:hover {
+    outline-color: color-mix(in srgb, var(--theme-primary) 55%, transparent);
+    filter: brightness(1.04);
+}
+
+/* 选中态：整卡描边 + 左上角对勾 */
+.download-item.is-selected {
+    border-color: var(--theme-primary) !important;
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--theme-primary) 26%, transparent),
+                0 6px 18px color-mix(in srgb, var(--theme-primary) 18%, transparent) !important;
+    background: color-mix(in srgb, var(--theme-primary) 7%, var(--theme-card-bg)) !important;
+}
+.download-item.is-selected::before {
+    content: "✓";
+    position: absolute;
+    top: -8px;
+    left: -8px;
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    background: var(--theme-primary);
+    color: var(--theme-on-primary, #fff);
+    font-size: 12px;
+    font-weight: 700;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-shadow: 0 2px 8px color-mix(in srgb, var(--theme-primary) 45%, transparent);
+    z-index: 2;
+}
+
+/* 批量操作栏 —— 底部停靠条，只在有选中项时出现。
+   ★ 2026-10-18 关键修复：原来它是文档流里的块，选中第一条后整张列表往下顶，
+     用户再点第二条时坐标已经变了 —— 表现就是"大部分条目勾不上"。
+     现在改成贴底的 fixed 条，不占布局；同时给下载页补 padding-bottom，
+     保证最后一条也能滚到条的上面（不会被永久挡住）。 */
+.dl-batch-bar {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 90;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 14px;
+    padding: 9px 22px;
+    border-top: 1px solid color-mix(in srgb, var(--theme-primary) 34%, transparent);
+    background: color-mix(in srgb, var(--theme-card-bg) 92%, transparent);
+    backdrop-filter: blur(18px) saturate(160%);
+    -webkit-backdrop-filter: blur(18px) saturate(160%);
+    box-shadow: 0 -8px 28px rgba(0, 0, 0, .16);
+    animation: dlBatchIn .18s ease-out;
+}
+@keyframes dlBatchIn {
+    from { opacity: 0; transform: translateY(14px); }
+    to   { opacity: 1; transform: translateY(0); }
+}
+.dl-batch-bar[hidden] { display: none !important; }
+/* 有选中项时给下载页留出底部空间，最后一条也能完整滚出来 */
+body.has-dl-selection #page-downloads { padding-bottom: 78px; }
+.dl-batch-count { font-size: 13px; font-weight: 600; color: var(--theme-text-primary); white-space: nowrap; }
+.dl-batch-count b { color: var(--theme-primary); font-size: 15px; }
+.dl-batch-actions { display: flex; gap: 8px; flex-wrap: nowrap; }
+
+/* 进度条加高点击热区（视觉仍是 8px 的细条，但上下各多 5px 可点）
+   —— 已删除条目的条只有 8px 高，原来很容易点空 */
+.download-progress-bar {
+    padding: 5px 0;
+    background-clip: content-box;
+    box-sizing: content-box;
+    /* 背景裁到 content-box 后圆角会被 padding 吃掉，这里补回来（9 - 5 = 4px） */
+    border-radius: 9px;
+}
+
+/* 选中批量条出现时，把 toast 抬到它上面，避免文字叠在一起 */
+body.has-dl-selection .vx-toast-host {
+    transform: translateY(-58px);
+    transition: transform .18s ease;
+}
+
+/* ============================================================
+   Switch 游戏库 (2026-10-18)
+   ============================================================ */
+.card-icon-switch {
+    /* ★ 2026-10-20: 原来写死 #e60012 红渐变 —— 和旁边两张卡（主题派生）放在一起
+       明显不是一个体系（用户两次说「switch 图标对比游戏/成人游戏错乱了」）。
+       统一改成主题派生，靠 primary+文字色区分，换任何一个主题都协调。 */
+    background: linear-gradient(135deg,
+        color-mix(in srgb, var(--theme-primary) 20%, transparent),
+        color-mix(in srgb, var(--theme-text-primary) 10%, transparent));
+    color: var(--theme-primary);
+}
+.sw-card { cursor: pointer; }
+.sw-size {
+    margin-top: 4px;
+    font-size: 12px;
+    opacity: .75;
+}
+.sw-cover-empty {
+    width: 100%;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 700;
+    letter-spacing: 2px;
+    opacity: .5;
+}
+.sw-play {
+    position: absolute;
+    left: 8px;
+    top: 8px;
+    width: 30px;
+    height: 30px;
+    border: 0;
+    border-radius: 50%;
+    background: rgba(0, 0, 0, .55);
+    color: #fff;
+    font-size: 12px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    opacity: 0;
+    transition: opacity .18s ease;
+}
+.sw-card:hover .sw-play { opacity: 1; }
+.sw-play:hover { background: var(--theme-accent, #e60012); }
+
+/* 模拟器页右键菜单 */
+.emu-ctx {
+    position: fixed;
+    z-index: 10000;
+    min-width: 150px;
+    padding: 6px;
+    border-radius: 10px;
+    background: var(--theme-card-bg, #1b1b22);
+    border: 1px solid var(--theme-card-border, rgba(255,255,255,.12));
+    box-shadow: 0 12px 32px rgba(0,0,0,.35);
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+.emu-ctx button {
+    border: 0;
+    background: transparent;
+    color: var(--theme-text-primary, #eee);
+    text-align: left;
+    padding: 8px 12px;
+    border-radius: 7px;
+    font-size: 13px;
+    cursor: pointer;
+}
+.emu-ctx button:hover { background: color-mix(in srgb, var(--theme-text-primary) 10%, transparent); }
+.emu-ctx button.danger { color: #e5484d; }
+
+/* Switch 搜索框拉长（原来的标签栏已按用户要求删除，只保留分类下拉） */
+.sw-search-box { flex: 1 1 420px; min-width: 260px; }
+
+/* Switch 卡片与游戏/成人游戏卡片对齐（badge 锚到卡片，不改 image 的 static） */
+.sw-play { position: absolute; left: 8px; top: 8px; z-index: 3; }
+
+/* 设置里的开关缩小 */
+.toggle-switch { width: 38px; height: 22px; }
+.toggle-slider:before { height: 16px; width: 16px; left: 3px; bottom: 3px; }
+.toggle-switch input:checked + .toggle-slider:before { transform: translateX(16px); }
+
+/* Switch 详情页：复用普通游戏详情页的 .detail-left / .detail-right 结构，
+   这里只补 Switch 特有的部分（封面比例 + 启动按钮）。 */
+.sw-detail-cover {
+    /* 通用详情页的封面是 3:4 竖版（Steam 海报）；NS 游戏的封面是 16:9 横版，
+       套 3:4 会把两侧裁掉一大半，所以这里单独给横版比例。 */
+    aspect-ratio: 16 / 9 !important;
+    background: color-mix(in srgb, var(--theme-text-primary) 6%, transparent);
+}
+.sw-detail-cover img { object-fit: contain !important; }
+.sw-launch-row { margin-top: 12px; }
+.sw-launch-btn { width: 100%; }
+.recommend-card-source.source-switch { background: var(--theme-primary); color: #fff; }
+
+/* Switch 详情：安装说明（资源站的 [移植游戏] 条目只给装法，没有简介） */
+.sw-desc-empty { color: var(--theme-text-secondary); font-size: 13px; }
+.sw-install-note {
+    margin-top: 16px;
+    padding: 14px 16px;
+    border-radius: 10px;
+    border: 1px solid color-mix(in srgb, var(--theme-primary) 32%, transparent);
+    background: color-mix(in srgb, var(--theme-primary) 8%, transparent);
+}
+.sw-install-head {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--theme-primary);
+    margin-bottom: 8px;
+    letter-spacing: .3px;
+}
+.sw-install-body {
+    font-size: 13px;
+    line-height: 1.75;
+    color: var(--theme-text-primary);
+    white-space: normal;
+}
+
+/* 模拟器页：本地图标（vxasset ?f= 返回的本地图片）填满封面区 */
+.emu-card .game-card-image { background: color-mix(in srgb, var(--theme-text-primary) 6%, transparent); }
+.emu-card .game-card-image img { width: 100%; height: 100%; object-fit: contain; }
+
+/* 模拟器页工具栏：状态两行（名称 + 路径），窄屏自动换行 */
+.emu-toolbar { flex-wrap: wrap; gap: 10px; }
+.emu-status-wrap {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+    margin-right: auto;
+}
+.emu-status-text {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--theme-text-primary);
+}
+.emu-status-sub {
+    font-size: 11px;
+    color: var(--theme-text-muted);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: min(62vw, 620px);
+}
+@media (max-width: 720px) {
+    .emu-status-sub { max-width: 92vw; }
 }

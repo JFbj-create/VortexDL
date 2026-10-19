@@ -55,24 +55,30 @@ pub fn emu_dir() -> PathBuf {
 ///
 /// 安装包把它释放到 `<软件目录>\resources_main\emulator\`，首次运行整目录复制到
 /// `D:\game\switch\emulator` —— 用户装完软件就能直接点游戏启动，不用自己去下模拟器。
-fn bundled_dir() -> Option<PathBuf> {
-    let base = std::env::current_exe().ok()?.parent().map(|d| d.to_path_buf())?;
-    for cand in [
-        base.join("resources_main").join("emulator"),
-        base.join("resources").join("emulator"),
-        base.join("emulator"),
-    ] {
-        if cand.join("citron.exe").exists() {
-            return Some(cand);
+fn bundled_dirs() -> Vec<PathBuf> {
+    let mut out = Vec::new();
+    if let Some(base) = std::env::current_exe().ok().and_then(|p| p.parent().map(|d| d.to_path_buf())) {
+        for cand in [
+            base.join("resources_main").join("emulator"),
+            base.join("resources").join("emulator"),
+            base.join("emulator"),
+        ] {
+            if cand.join("citron.exe").exists() {
+                out.push(cand);
+            }
         }
     }
     let dev = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("resources_main")
         .join("emulator");
     if dev.join("citron.exe").exists() {
-        return Some(dev);
+        out.push(dev);
     }
-    None
+    out
+}
+
+fn bundled_dir() -> Option<PathBuf> {
+    bundled_dirs().into_iter().next()
 }
 
 /// 把内置模拟器装到 `D:\game\switch\emulator`（幂等：已有 citron.exe 直接跳过）。
@@ -81,11 +87,14 @@ fn bundled_dir() -> Option<PathBuf> {
 /// 不删任何东西。
 pub fn ensure_bundled() -> Result<(bool, PathBuf), String> {
     let dest = emu_dir();
+    // 已经装过也要补一次「中文/主题」预设（老版本装的可能还没有 user 目录）
+    let _ = seed_config();
     if dest.join("citron.exe").exists() {
         return Ok((false, dest));
     }
     let src = bundled_dir().ok_or_else(|| "安装包里没有内置模拟器".to_string())?;
     copy_tree(&src, &dest)?;
+    let _ = seed_config();
     crate::app_logger::log_command(
         "emulator",
         &format!("内置模拟器已安装: {} -> {}", src.display(), dest.display()),
@@ -115,6 +124,227 @@ fn same_size(a: &Path, b: &Path) -> bool {
     }
 }
 
+// ============================================================
+// 模拟器「魔改」：中文环境 / 主题色 / 中文窗口标题
+// ============================================================
+//
+// # 能改到哪一步（说清楚，别吹）
+//
+// Citron 自己的菜单文字是**编译进 exe 的英文**，这个 nightly 构建没有附带
+// 任何 Qt 翻译（exe 里既没有 `.qm` 魔数，也没有 `:/languages/` 资源路径），
+// 所以外挂语言包做不到汉化，只能重编译上游（GPL-3.0 源码）。
+// 能做的、而且是用户真正感知得到的：
+//
+//   1. 把 Switch 主机语言 / 区域设成简体中文 + 中国（**游戏内显示中文**）
+//   2. 主题色改成和本软件一致的绯红，关掉控制台窗口、退出一律不弹确认
+//   3. 模拟器运行数据放进它自己的 `user/` 便携目录（不污染 %APPDATA%\citron）
+//   4. 启动后把窗口标题改成中文（`漩涡模拟器 · 游戏名`）
+//
+// 这几项都不改二进制，GPL 分发要求仍然满足（见同目录 README）。
+
+/// Citron 的便携数据目录（exe 同级 `user/`）。有这个目录它就不去碰
+/// `%APPDATA%\citron`，配置跟着软件走。
+fn citron_ini() -> PathBuf {
+    emu_dir().join("user").join("config").join("qt-config.ini")
+}
+
+/// 模拟器需要的 prod.keys 在哪儿（Switch 系统密钥，任天堂版权内容，软件不能自带）。
+///
+/// 找四个常见位置：我们的 `user/keys`、`user/keys` 上级、模拟器根目录、以及
+/// 用户以前自己装过 Citron 时留在 `%APPDATA%\citron\keys` 的那份。
+pub fn keys_path() -> Option<PathBuf> {
+    let mut cands = vec![
+        emu_dir().join("user").join("keys").join("prod.keys"),
+        emu_dir().join("keys").join("prod.keys"),
+    ];
+    if let Ok(app) = std::env::var("APPDATA") {
+        let base = PathBuf::from(app);
+        cands.push(base.join("citron").join("keys").join("prod.keys"));
+        cands.push(base.join("yuzu").join("keys").join("prod.keys"));
+    }
+    cands.into_iter().find(|p| p.exists())
+}
+
+/// 密钥放哪儿 —— 缺密钥时提示里用
+pub fn keys_dir() -> PathBuf {
+    emu_dir().join("user").join("keys")
+}
+
+/// 「魔改」预设。`language_index=15` = 简体中文（Switch 主机语言，决定游戏内
+/// 文字），`region_index=4` = 中国（Citron 的 Region 枚举顺序是
+/// Japan/Usa/Europe/Australia/China/Korea/Taiwan/Auto/Default）。
+const PRESET: &[(&str, &str, &str)] = &[
+    ("System", "language_index", "15"),
+    ("System", "region_index", "4"),
+    ("System", "use_docked_mode", "1"),
+    ("Core", "use_multi_core", "true"),
+    ("Renderer", "use_disk_shader_cache", "true"),
+    ("Renderer", "use_asynchronous_gpu_emulation", "true"),
+    ("UI", "theme", "colorful_dark"),
+    ("UI", "accent_color", "#eb3333"),
+    ("UI", "showConsole", "false"),
+    ("UI", "confirmStop", "0"),
+    ("UI", "pauseWhenInBackground", "false"),
+    ("UI", "UIGameList\\game_list_grid_view", "true"),
+    ("UI", "UIGameList\\game_icon_size", "64"),
+];
+
+/// 在 QSettings 的 INI 文本里改一条值，其余内容原样保留。
+///
+/// ★ 不用 `WritePrivateProfileStringW`：它按 ANSI 处理没有 BOM 的文件，
+///   而 Qt 6 的 INI 是 UTF-8 —— 里面的中文游戏目录会被写成乱码。
+fn upsert_ini(text: &str, section: &str, key: &str, value: &str) -> String {
+    let mut lines: Vec<String> = text.lines().map(|s| s.to_string()).collect();
+    let header = format!("[{}]", section);
+    let mut sec: Option<(usize, usize)> = None;
+    let mut cur: Option<usize> = None;
+    for (i, l) in lines.iter().enumerate() {
+        let t = l.trim();
+        if t.starts_with('[') && t.ends_with(']') {
+            if let Some(s) = cur {
+                if sec.is_none() {
+                    sec = Some((s, i));
+                }
+            }
+            if t.eq_ignore_ascii_case(&header) {
+                cur = Some(i);
+            } else {
+                cur = None;
+            }
+        }
+    }
+    if let Some(s) = cur {
+        if sec.is_none() {
+            sec = Some((s, lines.len()));
+        }
+    }
+
+    let (sec_start, end) = match sec {
+        Some(x) => x,
+        None => {
+            if !lines.is_empty() && !lines.last().map(|l| l.is_empty()).unwrap_or(true) {
+                lines.push(String::new());
+            }
+            lines.push(header);
+            lines.push(format!("{}={}", key, value));
+            return lines.join("\r\n") + "\r\n";
+        }
+    };
+
+    let vprefix = format!("{}=", key);
+    let dprefix = format!("{}\\default=", key);
+    let mut vline: Option<usize> = None;
+    let mut dline: Option<usize> = None;
+    for (i, line) in lines.iter().enumerate().take(end).skip(sec_start + 1) {
+        if line.starts_with(&vprefix) {
+            vline = Some(i);
+        } else if line.starts_with(&dprefix) {
+            dline = Some(i);
+        }
+    }
+    if let Some(i) = vline {
+        lines[i] = format!("{}={}", key, value);
+    } else {
+        let at = dline.map(|i| i + 1).unwrap_or(end);
+        lines.insert(at, format!("{}={}", key, value));
+    }
+    if let Some(i) = dline {
+        lines[i] = format!("{}\\default=false", key);
+    }
+    lines.join("\r\n") + "\r\n"
+}
+
+/// 首次释出内置模拟器时写一份中文预设；**已经有配置文件就不动**
+/// （用户可能自己调过手柄映射/画质）。
+pub fn seed_config() -> Result<bool, String> {
+    if !emu_dir().join("citron.exe").exists() {
+        return Ok(false);
+    }
+    let ini = citron_ini();
+    if ini.exists() {
+        return Ok(false);
+    }
+    apply_preset()?;
+    Ok(true)
+}
+
+/// 把「魔改」预设写进 Citron 配置（其他已有设置全部保留）。
+pub fn apply_preset() -> Result<String, String> {
+    if !emu_dir().join("citron.exe").exists() {
+        return Err("还没装内置模拟器（先点「重新安装模拟器」）".into());
+    }
+    let ini = citron_ini();
+    if let Some(d) = ini.parent() {
+        std::fs::create_dir_all(d).map_err(|e| format!("创建配置目录失败: {}", e))?;
+    }
+    let mut text = std::fs::read_to_string(&ini).unwrap_or_default();
+    for (sec, k, v) in PRESET {
+        text = upsert_ini(&text, sec, k, v);
+    }
+    std::fs::write(&ini, text).map_err(|e| format!("写配置失败: {}", e))?;
+    // 顺手补一份中文使用说明（老版本装的模拟器目录里没有）
+    let _ = ensure_guide();
+    crate::app_logger::log_command("emulator", &format!("中文预设已写入: {}", ini.display()));
+    Ok(ini.to_string_lossy().to_string())
+}
+
+/// 中文使用说明（菜单中英对照/密钥放哪/预设做了什么）。已有的不覆盖。
+fn ensure_guide() -> Result<PathBuf, String> {
+    let dst = emu_dir().join("使用说明.txt");
+    if !dst.exists() {
+        // ★ 软件目录下可能同时有旧版 resources_main（没有说明文件），
+        //   所以要把所有候选目录都找一遍，不能只信第一个。
+        for src in bundled_dirs() {
+            let s = src.join("使用说明.txt");
+            if s.exists() {
+                std::fs::create_dir_all(emu_dir()).map_err(|e| e.to_string())?;
+                std::fs::copy(&s, &dst).map_err(|e| format!("复制说明失败: {}", e))?;
+                break;
+            }
+        }
+    }
+    Ok(dst)
+}
+
+/// 打开中文使用说明
+pub fn open_guide() -> Result<(), String> {
+    let p = ensure_guide()?;
+    if !p.exists() {
+        return Err("说明文件不存在（内置模拟器还没释出？）".into());
+    }
+    std::process::Command::new("explorer")
+        .arg(&p)
+        .spawn()
+        .map_err(|e| format!("打开说明失败: {}", e))?;
+    Ok(())
+}
+
+#[cfg(windows)]
+unsafe extern "system" fn retitle_proc(hwnd: *mut std::ffi::c_void, lparam: isize) -> i32 {
+    use windows_sys::Win32::UI::WindowsAndMessaging::{
+        GetWindowTextLengthW, GetWindowThreadProcessId, IsWindowVisible, SetWindowTextW,
+    };
+    let ctx = &*(lparam as *const (u32, *const u16));
+    let mut pid: u32 = 0;
+    GetWindowThreadProcessId(hwnd, &mut pid);
+    if pid == ctx.0 && IsWindowVisible(hwnd) != 0 && GetWindowTextLengthW(hwnd) > 0 {
+        SetWindowTextW(hwnd, ctx.1);
+    }
+    1
+}
+
+/// 把模拟器主窗口标题改成中文。模拟器自己会在启动时反复改标题，所以多试几次。
+#[cfg(windows)]
+fn retitle_windows(pid: u32, game: &str) {
+    use windows_sys::Win32::UI::WindowsAndMessaging::EnumWindows;
+    let mut buf: Vec<u16> = format!("漩涡模拟器 · {}", game).encode_utf16().collect();
+    buf.push(0);
+    let ctx: (u32, *const u16) = (pid, buf.as_ptr());
+    unsafe {
+        EnumWindows(Some(retitle_proc), &ctx as *const _ as isize);
+    }
+}
+
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct EmuInfo {
     pub found: bool,
@@ -123,6 +353,9 @@ pub struct EmuInfo {
     /// 是否正在运行游戏
     pub running: bool,
     pub game: String,
+    /// 找到 prod.keys 没有（没有的话游戏起不来）
+    #[serde(default)]
+    pub keys: bool,
 }
 
 static RUNNING: Mutex<Option<(u32, String)>> = Mutex::new(None);
@@ -158,6 +391,7 @@ pub fn scan() -> Option<(PathBuf, &'static str)> {
 
 pub fn info() -> EmuInfo {
     let run = RUNNING.lock().map(|g| g.clone()).unwrap_or(None);
+    let keys = keys_path().is_some();
     match scan() {
         Some((p, name)) => EmuInfo {
             found: true,
@@ -165,6 +399,7 @@ pub fn info() -> EmuInfo {
             name: name.to_string(),
             running: run.is_some(),
             game: run.map(|(_, g)| g).unwrap_or_default(),
+            keys,
         },
         None => EmuInfo {
             found: false,
@@ -172,6 +407,7 @@ pub fn info() -> EmuInfo {
             name: String::new(),
             running: run.is_some(),
             game: run.map(|(_, g)| g).unwrap_or_default(),
+            keys,
         },
     }
 }
@@ -183,12 +419,28 @@ pub fn launch(game_path: &str) -> Result<String, String> {
     if !Path::new(game_path).exists() {
         return Err(format!("游戏文件不存在: {}", game_path));
     }
+    let _ = seed_config();
     let (exe, name) = scan().ok_or_else(|| {
         "没有找到 Switch 模拟器。\n\n请把模拟器解压到：\nD:\\game\\switch\\emulator\n\n\
          （支持 Ryujinx / Yuzu / Sudachi / Suyu / Citron / Eden）"
             .to_string()
     })?;
     let mut cmd = std::process::Command::new(&exe);
+    // ★ 内置 Citron 没有 prod.keys 时，游戏一定起不来；它自己只会弹一个英文
+    //   「The keys are missing…」。这里提前拦下来，用中文说清楚放哪儿。
+    if exe.file_name().and_then(|x| x.to_str()).map(|n| n.eq_ignore_ascii_case("citron.exe")) == Some(true)
+        && keys_path().is_none()
+    {
+        let dir = keys_dir();
+        let _ = std::fs::create_dir_all(&dir);
+        let _ = std::process::Command::new("explorer").arg(&dir).spawn();
+        return Err(format!(
+            "内置模拟器还缺 prod.keys（Switch 系统密钥，属任天堂版权内容，软件不能自带）。\n\n\
+             请把你自己导出的 prod.keys 放进这个目录（已帮你打开）：\n{}\n\n\
+             放好后重新点「启动游戏」。",
+            dir.display()
+        ));
+    }
     cmd.arg(game_path);
     if let Some(dir) = exe.parent() {
         cmd.current_dir(dir);
@@ -200,14 +452,26 @@ pub fn launch(game_path: &str) -> Result<String, String> {
         cmd.creation_flags(0x0000_0200);
     }
     let child = cmd.spawn().map_err(|e| format!("启动 {} 失败: {}", name, e))?;
+    let pid = child.id();
     if let Ok(mut g) = RUNNING.lock() {
-        *g = Some((child.id(), game_path.to_string()));
+        *g = Some((pid, game_path.to_string()));
     }
     let title = Path::new(game_path)
         .file_stem()
         .and_then(|x| x.to_str())
         .unwrap_or("游戏")
         .to_string();
+    // 窗口标题中文化（模拟器自己启动时会反复写标题，所以多试几次）
+    #[cfg(windows)]
+    {
+        let t = title.clone();
+        std::thread::spawn(move || {
+            for _ in 0..4 {
+                std::thread::sleep(std::time::Duration::from_millis(1600));
+                retitle_windows(pid, &t);
+            }
+        });
+    }
     crate::app_logger::log_command(
         "emulator",
         &format!("launch name={} exe={} game={}", name, exe.display(), game_path),
@@ -417,5 +681,31 @@ mod tests {
     fn info_does_not_panic_without_emulator() {
         let i = info();
         assert!(i.path.is_empty() || i.found);
+    }
+
+    #[test]
+    fn upsert_ini_edits_only_target_key() {
+        let t = "[System]\r\nlanguage_index\\default=true\r\nlanguage_index=1\r\nregion_index=1\r\n[UI]\r\ntheme=dark\r\n";
+        let o = upsert_ini(t, "System", "language_index", "15");
+        assert!(o.contains("language_index\\default=false"), "{o}");
+        assert!(o.contains("language_index=15"), "{o}");
+        assert!(o.contains("region_index=1"), "{o}");
+        assert!(o.contains("[UI]\r\ntheme=dark"), "{o}");
+        assert_eq!(o.matches("language_index=").count(), 1, "{o}");
+    }
+
+    #[test]
+    fn upsert_ini_appends_missing_section() {
+        let o = upsert_ini("[System]\r\nx=1\r\n", "UI", "theme", "colorful_dark");
+        assert!(o.contains("[UI]\r\ntheme=colorful_dark"), "{o}");
+        assert!(o.contains("x=1"), "{o}");
+    }
+
+    #[test]
+    fn preset_uses_simplified_chinese() {
+        let lang = PRESET.iter().find(|(s, k, _)| *s == "System" && *k == "language_index").unwrap();
+        assert_eq!(lang.2, "15");
+        let region = PRESET.iter().find(|(s, k, _)| *s == "System" && *k == "region_index").unwrap();
+        assert_eq!(region.2, "4");
     }
 }

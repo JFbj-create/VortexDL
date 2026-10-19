@@ -12917,7 +12917,16 @@ window.__vxSw = (function () {
             : '';
         const descHtml = g.desc
             ? esc(g.desc).replace(/\n/g, '<br>')
-            : '暂无介绍';
+            : '<span class="sw-desc-empty">资源站没有提供这款游戏的图文介绍'
+                + (g.install ? '，运行方式见下面的安装说明。' : '。')
+                + '</span>';
+        // 安装说明：资源站的 [移植游戏] 条目只有装法没有简介，单独成块
+        const installHtml = g.install
+            ? '<div class="sw-install-note">'
+                + '<div class="sw-install-head">📦 安装说明</div>'
+                + '<div class="sw-install-body">' + esc(g.install).replace(/\n/g, '<br>') + '</div>'
+              + '</div>'
+            : '';
         const facts = [g.size, g.date].filter(Boolean).map(esc).join(' · ');
 
         content.innerHTML = ''
@@ -12931,6 +12940,7 @@ window.__vxSw = (function () {
             +   tagsHtml
             +   '<div class="detail-image sw-detail-cover">' + (g.cover ? '<img src="' + esc(g.cover) + '" onerror="this.style.display=\'none\'">' : '') + '</div>'
             +   '<div class="detail-description">' + descHtml + '</div>'
+            +   installHtml
             +   '<div class="detail-meta" style="margin-top:14px"><span>下载目录: ' + esc(SW_DL_DIR) + '</span></div>'
             +   '<div class="detail-meta"><span>安装目录: ' + esc(SW_DIR) + '</span></div>'
             + '</div>'
@@ -13084,11 +13094,14 @@ window.__vxEmu = (function () {
         const sub = $('emu-status-sub');
         let emu = null;
         try { emu = await invoke('emu_info'); } catch (_) {}
-        if (st) st.textContent = (emu && emu.found) ? ('模拟器已就绪：' + (emu.name || 'Citron')) : '尚未找到模拟器';
+        if (st) st.textContent = (emu && emu.found) ? ('漩涡模拟器已就绪（' + (emu.name || 'Citron') + ' 内核）') : '尚未找到模拟器';
         if (sub) {
-            sub.textContent = (emu && emu.found)
-                ? emu.path
-                : '点右边「重新安装模拟器」从安装包释出（内置 Citron）';
+            if (emu && emu.found) {
+                sub.textContent = emu.path
+                    + (emu.keys ? ' · 密钥已就绪 · 主机语言 简体中文' : ' · 缺 prod.keys（放进 emulator\\user\\keys 后即可启动）');
+            } else {
+                sub.textContent = '点右边「重新安装模拟器」从安装包释出（内置 Citron，装完即可玩）';
+            }
         }
         let list = [];
         try { list = await invoke('switch_downloaded'); } catch (_) {}
@@ -13202,6 +13215,25 @@ window.__vxEmu = (function () {
                 b.disabled = false;
                 b.textContent = old;
             }
+        });
+        $('emu-preset-btn')?.addEventListener('click', async function (e) {
+            const b = e.currentTarget;
+            b.disabled = true;
+            const old = b.textContent;
+            b.textContent = '应用中…';
+            try {
+                const p = await invoke('emu_apply_preset');
+                try { showToast('已应用中文预设：主机语言 简体中文 / 区域 中国\n' + p, 'ok', 5000); } catch (_) {}
+            } catch (err) {
+                try { showToast('应用失败: ' + err, 'error', 6000); } catch (_) {}
+            } finally {
+                b.disabled = false;
+                b.textContent = old;
+            }
+        });
+        $('emu-guide-btn')?.addEventListener('click', async function () {
+            try { await invoke('emu_open_guide'); }
+            catch (err) { try { showToast('打开说明失败: ' + err, 'error', 5000); } catch (_) {} }
         });
     }
 
