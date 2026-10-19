@@ -887,6 +887,12 @@ pub fn downloaded() -> Vec<DownloadedGame> {
         Ok(r) => r,
         Err(_) => return out,
     };
+    // ★ 2026-10-20: 同一个游戏可能同时出现在「旧目录」和「新目录」里
+    //   （例如 超越2006 既在 `D:\game\switch\超越2006 海岸到海岸`，
+    //   又在下载解压出的 `D:\game\switch\[移植游戏]超越2006：海岸到海岸|OutRun...`）。
+    //   以前两个都会列出来 → 模拟器页出现两张一样的卡片。
+    //   这里按 ROM 文件名 + 体积去重，保留体积大的那份。
+    let mut seen: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
     for e in rd.flatten() {
         let p = e.path();
         if !p.is_dir() {
@@ -902,13 +908,33 @@ pub fn downloaded() -> Vec<DownloadedGame> {
                 Some(c) => c,
                 None => catalog_cover_for(&name),
             };
-            out.push(DownloadedGame {
+            let key = format!(
+                "{}|{}",
+                Path::new(&file)
+                    .file_name()
+                    .and_then(|x| x.to_str())
+                    .unwrap_or("")
+                    .to_lowercase(),
+                size
+            );
+            let item = DownloadedGame {
                 title: name,
                 dir: p.to_string_lossy().to_string(),
                 file,
                 size,
                 cover,
-            });
+            };
+            match seen.get(&key) {
+                Some(&i) => {
+                    if out[i].title.len() < item.title.len() {
+                        out[i] = item;
+                    }
+                }
+                None => {
+                    seen.insert(key, out.len());
+                    out.push(item);
+                }
+            }
         }
     }
     out.sort_by(|a, b| a.title.cmp(&b.title));

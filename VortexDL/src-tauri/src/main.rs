@@ -91,6 +91,7 @@ use crate::commands::{
 };
 
 
+
 use crate::books::{
     book_home, book_search, book_content, book_download, book_extra_downloads,
     book_local_dir, book_open_local_dir, book_import, book_probe, book_translate, book_covers,
@@ -553,6 +554,9 @@ fn main() {
             create_desktop_shortcut, list_exe_candidates,
             repair_runtime,
             restart_system,
+ dlss_save_settings, dlss_scan_games,
+ dlss_library_import, dlss_library_delete,
+ dlss_restore, dlss_pick_folder, dlss_pick_dll,
             // —— 修改器 ——
             tr_sync, tr_index, tr_detail, tr_download, tr_library,
             tr_import, tr_delete, tr_launch, tr_rename, tr_translate_names, tr_open_folder,
