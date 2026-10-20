@@ -369,6 +369,12 @@ function navigateToPage(page) {
     } else if (page === 'emulator') {
         if (window.__vxEmu && window.__vxEmu.onShow) window.__vxEmu.onShow();
         stopMonitor();
+    } else if (page === 'fps') {
+        if (window.__vxFps && window.__vxFps.onShow) window.__vxFps.onShow();
+        stopMonitor();
+    } else if (page === 'accel') {
+        if (window.__vxAccel && window.__vxAccel.onShow) window.__vxAccel.onShow();
+        stopMonitor();
     } else if (page === 'fav') {
         renderFavPage();
         stopMonitor();
@@ -13078,6 +13084,426 @@ window.__vxSw = (function () {
 // 模拟器页：管理 D:\game\switch 下已下载的 Switch 游戏 (2026-10-19)
 // 左键启动、右键菜单（启动 / 打开文件位置 / 删除游戏）
 // ============================================================
+// ============================================================
+// 帧率记录（2026-10-20）
+// ============================================================
+//
+// 列表页：一行一场，左边游戏图标 + 名字，右边平均帧率 + 1% low + 时长。
+// 点进去：曲线 + 各项参数 + CPU 每核。
+// ============================================================
+// 加速页（hosts，2026-10-20）
+// ============================================================
+//
+// 只做「域名 → 更快 IP」：公开 DoH 解析 + TCP 443 测速 + 写 hosts（标记块）。
+// 不装根证书、不做 MITM。
+window.__vxAccel = (function () {
+    let inited = false;
+    let items = [];
+    let st = null;
+    const $ = (id) => document.getElementById(id);
+    const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
+    async function onShow() {
+        if (!inited) { inited = true; bind(); }
+        await load();
+    }
+
+    function bind() {
+        $('accel-apply-btn')?.addEventListener('click', async (e) => {
+            const b = e.currentTarget;
+            const picked = [...document.querySelectorAll('.accel-item input:checked')].map((x) => x.dataset.id);
+            if (!picked.length) { showToast('先勾选要加速的项目', 'error', 3000); return; }
+            b.disabled = true;
+            const old = b.textContent;
+            b.textContent = '解析测速中…';
+            try {
+                const r = await invoke('accel_apply', { enabled: picked });
+                st = r;
+                showToast(r.message || '已应用', 'ok', 4000);
+            } catch (err) {
+                showToast(String(err), 'error', 8000);
+            } finally {
+                b.disabled = false;
+                b.textContent = old;
+                await load();
+            }
+        });
+        $('accel-clear-btn')?.addEventListener('click', async () => {
+            try {
+                await invoke('accel_clear');
+                showToast('hosts 已还原', 'ok', 3000);
+            } catch (err) { showToast(String(err), 'error', 6000); }
+            await load();
+        });
+        $('accel-hosts-btn')?.addEventListener('click', () => {
+            invoke('accel_open_hosts_dir').catch(() => {});
+        });
+    }
+
+    async function load() {
+        try { items = await invoke('accel_items'); } catch (_) { items = []; }
+        try { st = await invoke('accel_state'); } catch (_) { st = null; }
+        renderStatus();
+        renderList();
+    }
+
+    function renderStatus() {
+        // 冲突提醒优先显示（例如 Steam++ 正在加速，两套会互相覆盖）
+        const conflictBox = $('accel-conflicts');
+        if (conflictBox) {
+            const cs = (st && st.conflicts) || [];
+            conflictBox.innerHTML = cs.length
+                ? cs.map((c) => '<div class="accel-conflict">⚠ ' + esc(c) + '</div>').join('')
+                : '';
+            conflictBox.hidden = !cs.length;
+        }
+        const el = $('accel-status');
+        if (!el) return;
+        if (st && st.active) {
+            el.innerHTML = '<span class="accel-on">● 已启用</span> · 当前 hosts 里有 '
+                + (st.resolved ? st.resolved.length : 0) + ' 条本软件的记录';
+            el.classList.add('on');
+        } else {
+            el.innerHTML = '<span class="accel-off">○ 未启用</span> · hosts 保持原样';
+            el.classList.remove('on');
+        }
+    }
+
+    function renderList() {
+        const box = $('accel-list');
+        if (!box) return;
+        if (!items.length) {
+            box.innerHTML = '<div class="empty-state">没有可用的加速项目</div>';
+            return;
+        }
+        const enabled = (st && st.enabled) ? st.enabled : [];
+        const groups = {};
+        items.forEach((it) => {
+            (groups[it.group] = groups[it.group] || []).push(it);
+        });
+        box.innerHTML = Object.keys(groups).map((g) => {
+            return '<div class="accel-group">'
+                + '<div class="accel-group-head">' + esc(g) + '</div>'
+                + groups[g].map((it) =>
+                    '<label class="accel-item">'
+                    + '<input type="checkbox" data-id="' + esc(it.id) + '"'
+                    +   (enabled.indexOf(it.id) >= 0 ? ' checked' : '') + '>'
+                    + '<div class="accel-item-main">'
+                    +   '<div class="accel-item-name">' + esc(it.name) + '</div>'
+                    +   '<div class="accel-item-domains">' + esc(it.domains.join('  ')) + '</div>'
+                    +   (it.note ? '<div class="accel-item-note">' + esc(it.note) + '</div>' : '')
+                    + '</div>'
+                    + '<div class="accel-item-count">' + it.domains.length + ' 域名</div>'
+                    + '</label>').join('')
+                + '</div>';
+        }).join('');
+    }
+
+    return { onShow: onShow, refresh: load };
+})();
+
+window.__vxFps = (function () {
+    let inited = false;
+    let sessions = [];
+    let recSettings = null;
+    const $ = (id) => document.getElementById(id);
+    const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
+    function fmtTime(ms) {
+        const s = Math.max(0, Math.round(ms / 1000));
+        const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), ss = s % 60;
+        if (h > 0) return h + ':' + String(m).padStart(2, '0') + ':' + String(ss).padStart(2, '0');
+        return m + ':' + String(ss).padStart(2, '0');
+    }
+    function fmtDate(ms) {
+        if (!ms) return '';
+        const d = new Date(ms);
+        const p = (n) => String(n).padStart(2, '0');
+        return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate()) + ' ' + p(d.getHours()) + ':' + p(d.getMinutes());
+    }
+    function num(v, digits) {
+        if (v == null || !isFinite(v) || v === 0) return '—';
+        return digits ? v.toFixed(digits) : String(Math.round(v));
+    }
+
+    async function onShow() {
+        if (!inited) { inited = true; bind(); }
+        await loadAll();
+    }
+
+    function bind() {
+        document.querySelectorAll('#page-fps .mod-rail-btn').forEach((b) => {
+            b.addEventListener('click', () => {
+                document.querySelectorAll('#page-fps .mod-rail-btn').forEach((x) => x.classList.remove('active'));
+                document.querySelectorAll('#page-fps .mod-panel').forEach((x) => x.classList.remove('active'));
+                b.classList.add('active');
+                const p = document.querySelector('#page-fps .mod-panel[data-tab="' + b.dataset.tab + '"]');
+                if (p) p.classList.add('active');
+                if (b.dataset.tab === 'list') loadList();
+            });
+        });
+
+        $('fps-page-mode')?.addEventListener('change', async function () {
+            if (!recSettings) recSettings = {};
+            recSettings.mode = this.value;
+            try { await invoke('fps_settings_set', { s: recSettings }); } catch (_) {}
+            showToast('记录模式：' + this.options[this.selectedIndex].text, 'ok', 2200);
+        });
+        $('fps-page-inline')?.addEventListener('input', function () {
+            const el = $('fps-page-inline-v');
+            if (el) el.textContent = this.value + ' ms';
+            if (recSettings) recSettings.inline_ms = Number(this.value);
+        });
+        $('fps-page-inline')?.addEventListener('change', async function () {
+            if (recSettings) { try { await invoke('fps_settings_set', { s: recSettings }); } catch (_) {} }
+        });
+        $('fps-page-global')?.addEventListener('input', function () {
+            const el = $('fps-page-global-v');
+            if (el) el.textContent = this.value + ' ms';
+            if (recSettings) recSettings.global_ms = Number(this.value);
+        });
+        $('fps-page-global')?.addEventListener('change', async function () {
+            if (recSettings) { try { await invoke('fps_settings_set', { s: recSettings }); } catch (_) {} }
+        });
+        $('fps-page-percore')?.addEventListener('change', async function () {
+            if (recSettings) { recSettings.per_core = this.checked; try { await invoke('fps_settings_set', { s: recSettings }); } catch (_) {} }
+        });
+        $('fps-page-keep')?.addEventListener('change', async function () {
+            if (recSettings) { recSettings.keep = Number(this.value) || 100; try { await invoke('fps_settings_set', { s: recSettings }); } catch (_) {} }
+        });
+        $('fps-page-toggle')?.addEventListener('click', async () => {
+            try {
+                const active = await invoke('fps_active');
+                if (active) {
+                    const m = await invoke('fps_stop');
+                    showToast(m ? ('已保存：' + (m.sample_count || 0) + ' 个采样点') : '已停止', 'ok', 2500);
+                } else {
+                    let game = '', exe = '';
+                    try {
+                        const fg = await invoke('fps_foreground');
+                        if (fg) { game = fg.game || ''; exe = fg.exe || ''; }
+                    } catch (_) {}
+                    await invoke('fps_start', { game, exe, mode: 'inline' });
+                    showToast('开始记录' + (game ? '：' + game : ''), 'ok', 2500);
+                }
+            } catch (e) { showToast('操作失败: ' + e, 'error', 4000); }
+            await refreshState();
+            await loadList();
+        });
+    }
+
+    async function loadAll() {
+        try { recSettings = await invoke('fps_settings_get'); } catch (_) { recSettings = null; }
+        if (recSettings) {
+            const m = $('fps-page-mode'), ia = $('fps-page-inline'), ga = $('fps-page-global'),
+                pc = $('fps-page-percore'), k = $('fps-page-keep');
+            if (m) m.value = recSettings.mode || 'off';
+            if (ia) {
+                ia.value = recSettings.inline_ms;
+                const e = $('fps-page-inline-v');
+                if (e) e.textContent = recSettings.inline_ms + ' ms';
+            }
+            if (ga) {
+                ga.value = recSettings.global_ms;
+                const e = $('fps-page-global-v');
+                if (e) e.textContent = recSettings.global_ms + ' ms';
+            }
+            if (pc) pc.checked = !!recSettings.per_core;
+            if (k) k.value = recSettings.keep;
+        }
+        await refreshState();
+        await loadList();
+    }
+
+    async function refreshState() {
+        let active = null, fg = null;
+        try { active = await invoke('fps_active'); } catch (_) {}
+        try { fg = await invoke('fps_foreground'); } catch (_) {}
+        const st = $('fps-page-state'), btn = $('fps-page-toggle'), f = $('fps-page-fg');
+        if (st) {
+            st.textContent = active
+                ? ('正在记录 · ' + (active.game || '全局') + ' · ' + (active.mode === 'inline' ? '游戏内' : '全局'))
+                : '未在记录';
+            st.style.color = active ? '#3fb950' : '';
+        }
+        if (btn) btn.textContent = active ? '停止记录' : '开始记录';
+        if (f) f.textContent = fg ? (fg.game + '（' + fg.exe + '）') : '未检测到游戏在前台';
+    }
+
+    async function loadList() {
+        const box = $('fps-sessions');
+        if (!box) return;
+        try { sessions = await invoke('fps_sessions'); } catch (_) { sessions = []; }
+        if (!sessions.length) {
+            box.innerHTML = '<div class="empty-state">还没有记录。<br>'
+                + '开一局游戏，功能条上点 ⏺ 开始记录；'
+                + '或者在「记录设置」里打开游戏内模式，之后每次进游戏自动记录。</div>';
+            return;
+        }
+        box.innerHTML = sessions.map((m) => {
+            let icon;
+            if (m.icon) {
+                const src = m.icon.indexOf('http') === 0
+                    ? 'http://vxasset.localhost/img?u=' + encodeURIComponent(m.icon)
+                    : 'http://vxasset.localhost/img?f=' + encodeURIComponent(m.icon);
+                icon = '<img src="' + esc(src) + '" onerror="this.style.display=\'none\'">';
+            } else {
+                icon = '<div class="fps-icon-ph">' + esc((m.game || '?').slice(0, 1)) + '</div>';
+            }
+            return '<div class="fps-row" data-id="' + esc(m.id) + '">'
+                + '<div class="fps-icon">' + icon + '</div>'
+                + '<div class="fps-main">'
+                +   '<div class="fps-name">' + esc(m.game || '未命名')
+                +     (m.live ? '<span class="fps-live-tag">记录中</span>' : '') + '</div>'
+                +   '<div class="fps-sub">' + esc(fmtDate(m.started_at)) + ' · ' + fmtTime(m.duration_s * 1000)
+                +     (m.mode === 'inline' ? ' · 游戏内' : ' · 全局') + ' · ' + (m.sample_count || 0) + ' 采样点</div>'
+                + '</div>'
+                + '<div class="fps-stats">'
+                +   '<div class="fps-stat"><b>' + num(m.fps_avg, 1) + '</b><span>平均 FPS</span></div>'
+                +   '<div class="fps-stat"><b>' + num(m.fps_low1, 1) + '</b><span>1% Low</span></div>'
+                +   '<div class="fps-stat"><b>' + num(m.fps_low01, 1) + '</b><span>0.1% Low</span></div>'
+                + '</div>'
+                + '<button class="fps-del" data-del="' + esc(m.id) + '" title="删除这条记录">✕</button>'
+                + '</div>';
+        }).join('');
+
+        box.querySelectorAll('.fps-row').forEach((r) => {
+            r.addEventListener('click', (e) => {
+                if (e.target.closest('[data-del]')) return;
+                openDetail(r.dataset.id);
+            });
+        });
+        box.querySelectorAll('[data-del]').forEach((b) => {
+            b.addEventListener('click', async (e) => {
+                e.stopPropagation();
+                const ok = await vxConfirm('删除这条记录？');
+                if (!ok) return;
+                try { await invoke('fps_delete', { id: b.dataset.del }); } catch (_) {}
+                await loadList();
+            });
+        });
+    }
+
+    // ---- 详情页 ----
+    function kpi(label, val, unit) {
+        return '<div class="fps-kpi"><div class="k-label">' + esc(label) + '</div>'
+            + '<div class="k-val">' + esc(val) + '<small>' + esc(unit) + '</small></div></div>';
+    }
+
+    function chartBlock(title, series, color, unit) {
+        const valid = series.filter((v) => v > 0);
+        if (!valid.length) {
+            return '<div class="fps-block"><h3>' + esc(title) + '</h3>'
+                + '<div class="fps-nodata">没有数据（这次记录里该指标一直取不到值）</div></div>';
+        }
+        const max = Math.max.apply(null, valid);
+        const n = series.length;
+        const pts = series.map((v, i) => {
+            const x = n > 1 ? (i / (n - 1)) * 1000 : 0;
+            const y = 200 - (v / (max || 1)) * 190;
+            return x.toFixed(1) + ',' + y.toFixed(1);
+        }).join(' ');
+        return '<div class="fps-block"><h3>' + esc(title)
+            + '<span class="fps-block-sub">峰值 ' + num(max, 1) + ' ' + esc(unit) + '</span></h3>'
+            + '<svg class="fps-chart" viewBox="0 0 1000 200" preserveAspectRatio="none">'
+            +   '<polyline points="' + pts + '" fill="none" stroke="' + color
+            +     '" stroke-width="2" vector-effect="non-scaling-stroke"/>'
+            + '</svg></div>';
+    }
+
+    function statTable(samples) {
+        const fields = [
+            ['cpu_total', 'CPU 总占用', '%'],
+            ['gpu_usage', 'GPU 3D 占用', '%'],
+            ['ram_used', '内存占用', 'MB'],
+            ['proc_cpu', '游戏进程 CPU', '%'],
+            ['proc_ram', '游戏进程内存', 'MB'],
+            ['disk_read', '磁盘读', 'MB/s'],
+            ['disk_write', '磁盘写', 'MB/s'],
+            ['net_down', '网络下行', 'KB/s'],
+            ['net_up', '网络上行', 'KB/s'],
+        ];
+        const rows = fields.map((f) => {
+            const k = f[0], label = f[1], unit = f[2];
+            const vals = samples.map((s) => s[k]).filter((v) => typeof v === 'number' && v > 0);
+            if (!vals.length) return null;
+            const avg = vals.reduce((a, b) => a + b, 0) / vals.length;
+            const peak = Math.max.apply(null, vals);
+            return '<tr><td>' + esc(label) + '</td><td>' + avg.toFixed(1) + ' ' + esc(unit)
+                + '</td><td>' + peak.toFixed(1) + ' ' + esc(unit) + '</td></tr>';
+        }).filter(Boolean);
+        if (!rows.length) return '<div class="fps-nodata">没有可显示的参数</div>';
+        return '<table class="fps-table"><thead><tr><th>指标</th><th>平均</th><th>峰值</th></tr></thead>'
+            + '<tbody>' + rows.join('') + '</tbody></table>';
+    }
+
+    async function openDetail(id) {
+        let f = null;
+        try { f = await invoke('fps_session', { id }); }
+        catch (e) { showToast('读取失败: ' + e, 'error', 4000); return; }
+        const m = f.meta || {};
+        const samples = f.samples || [];
+        const content = document.getElementById('detail-content');
+        const dp = document.getElementById('page-detail');
+        if (!content || !dp) return;
+        document.querySelectorAll('.page').forEach((p) => p.classList.remove('active'));
+        dp.classList.add('active');
+        try { state.detailFromPage = 'fps'; } catch (_) {}
+
+        const fpsSeries = samples.map((s) => s.fps || 0);
+        const cpuSeries = samples.map((s) => s.cpu_total || 0);
+        const gpuSeries = samples.map((s) => s.gpu_usage || 0);
+        let maxCores = 0;
+        samples.forEach((s) => { maxCores = Math.max(maxCores, (s.cpu_cores || []).length); });
+        const coreAvg = [];
+        for (let i = 0; i < maxCores; i++) {
+            let sum = 0, n = 0;
+            for (const s of samples) {
+                const v = (s.cpu_cores || [])[i];
+                if (typeof v === 'number') { sum += v; n++; }
+            }
+            coreAvg.push(n ? sum / n : 0);
+        }
+
+        content.innerHTML = ''
+            + '<div class="fps-detail">'
+            +   '<div class="fps-detail-head">'
+            +     '<button class="btn btn-secondary" id="fps-back">← 返回</button>'
+            +     '<div class="fps-detail-title">' + esc(m.game || '未命名') + '</div>'
+            +     '<div class="fps-detail-meta">' + esc(fmtDate(m.started_at))
+            +       ' · ' + fmtTime(m.duration_s * 1000)
+            +       ' · ' + (m.mode === 'inline' ? '游戏内模式' : '全局模式')
+            +       ' · 采样间隔 ' + (m.sample_ms || 0) + ' ms</div>'
+            +   '</div>'
+            +   '<div class="fps-kpis">'
+            +     kpi('平均帧率', num(m.fps_avg, 1), 'FPS')
+            +     kpi('1% Low', num(m.fps_low1, 1), 'FPS')
+            +     kpi('0.1% Low', num(m.fps_low01, 1), 'FPS')
+            +     kpi('最高帧率', num(m.fps_max, 0), 'FPS')
+            +     kpi('采样点', String(samples.length), '个')
+            +   '</div>'
+            +   chartBlock('帧率曲线', fpsSeries, '#eb3333', 'FPS')
+            +   chartBlock('CPU 总占用', cpuSeries, '#4a9eff', '%')
+            +   chartBlock('GPU 3D 占用', gpuSeries, '#3fb950', '%')
+            +   (coreAvg.length
+                    ? '<div class="fps-block"><h3>CPU 各核心（平均占用）</h3><div class="fps-cores">'
+                        + coreAvg.map((v, i) =>
+                            '<div class="fps-core"><div class="fps-core-bar"><i style="height:'
+                            + Math.max(2, Math.min(100, v)) + '%"></i></div>'
+                            + '<span>#' + i + ' ' + Math.round(v) + '%</span></div>').join('')
+                        + '</div></div>'
+                    : '')
+            +   '<div class="fps-block"><h3>各项参数（峰值 / 平均）</h3>' + statTable(samples) + '</div>'
+            + '</div>';
+
+        document.querySelectorAll('.nav-btn').forEach((b) => b.classList.remove('active'));
+        const back = document.getElementById('fps-back');
+        if (back) back.addEventListener('click', () => { navigateToPage('fps'); });
+    }
+
+    return { onShow: onShow, refresh: loadList };
+})();
+
 window.__vxEmu = (function () {
     let inited = false;
     const $ = (id) => document.getElementById(id);
@@ -13090,24 +13516,16 @@ window.__vxEmu = (function () {
 
     async function render() {
         const grid = $('emu-grid');
-        const st = $('emu-status');
-        const sub = $('emu-status-sub');
+        // 顶部那一排按钮已按用户要求删除，功能都在游戏内的悬浮窗里。
+        // 这里只在"没装模拟器"时给一句可点的提示。
         let emu = null;
         try { emu = await invoke('emu_info'); } catch (_) {}
-        if (st) st.textContent = (emu && emu.found) ? ('漩涡模拟器已就绪（' + (emu.name || 'Citron') + ' 内核）') : '尚未找到模拟器';
-        if (sub) {
-            if (emu && emu.found) {
-                sub.textContent = emu.path
-                    + (emu.keys ? ' · 密钥已就绪 · 主机语言 简体中文' : ' · 官方游戏需要 prod.keys（点「导入密钥」）；自制 .nro 可直接玩');
-            } else {
-                sub.textContent = '点右边「重新安装模拟器」从安装包释出（内置 Citron，装完即可玩）';
-            }
-        }
         let list = [];
         try { list = await invoke('switch_downloaded'); } catch (_) {}
         if (!grid) return;
         if (!list || !list.length) {
-            grid.innerHTML = '<div class="empty-state">还没有下载 Switch 游戏 —— 去「游戏 → Switch 游戏」里下载<br>下载完成后会自动解压到模拟器目录</div>';
+            grid.innerHTML = '<div class="empty-state">还没有下载 Switch 游戏 —— 去「游戏 → Switch 游戏」里下载<br>'
+                + '下载完成后会自动解压到游戏目录</div>';
             return;
         }
         grid.innerHTML = list.map((g) => {
@@ -13179,6 +13597,13 @@ window.__vxEmu = (function () {
                 try {
                     await invoke('emu_launch', { path: card.dataset.emuFile });
                     setTimeout(function () { invoke('emu_overlay_open').catch(function () {}); }, 2500);
+                    // 包本身有问题（例如移植游戏缺可用的原版 exe）→ 用中文说清楚
+                    setTimeout(async function () {
+                        try {
+                            const w = await invoke('emu_take_warning');
+                            if (w) showToast(w, 'error', 12000);
+                        } catch (_) {}
+                    }, 3200);
                 } catch (err) { try { showToast('启动失败: ' + err, 'error', 5000); } catch (_) {} }
             });
             grid.addEventListener('contextmenu', function (e) {
@@ -13191,71 +13616,7 @@ window.__vxEmu = (function () {
         document.addEventListener('click', function (e) {
             if (!e.target.closest('#emu-ctx')) closeMenu();
         });
-        $('emu-refresh-btn')?.addEventListener('click', render);
-        $('emu-folder-btn')?.addEventListener('click', function () {
-            invoke('open_folder', { path: 'D:\\game\\switch' }).catch(function () {});
-        });
-        $('emu-emu-folder-btn')?.addEventListener('click', function () {
-            invoke('open_folder', { path: 'D:\\game\\switch\\emulator' }).catch(function () {});
-        });
-        $('emu-install-btn')?.addEventListener('click', async function (e) {
-            const b = e.currentTarget;
-            b.disabled = true;
-            const old = b.textContent;
-            b.textContent = '安装中…';
-            try {
-                const r = await invoke('emu_ensure_bundled');
-                try {
-                    showToast(r && r.installed ? '内置模拟器已安装到 ' + r.dir : '内置模拟器已就绪', 'ok', 4000);
-                } catch (_) {}
-                await render();
-            } catch (err) {
-                try { showToast('安装失败: ' + err, 'error', 6000); } catch (_) {}
-            } finally {
-                b.disabled = false;
-                b.textContent = old;
-            }
-        });
-        $('emu-preset-btn')?.addEventListener('click', async function (e) {
-            const b = e.currentTarget;
-            b.disabled = true;
-            const old = b.textContent;
-            b.textContent = '应用中…';
-            try {
-                const p = await invoke('emu_apply_preset');
-                try { showToast('已应用中文预设：主机语言 简体中文 / 区域 中国\n' + p, 'ok', 5000); } catch (_) {}
-            } catch (err) {
-                try { showToast('应用失败: ' + err, 'error', 6000); } catch (_) {}
-            } finally {
-                b.disabled = false;
-                b.textContent = old;
-            }
-        });
-        $('emu-guide-btn')?.addEventListener('click', async function () {
-            try { await invoke('emu_open_guide'); }
-            catch (err) { try { showToast('打开说明失败: ' + err, 'error', 5000); } catch (_) {} }
-        });
-        $('emu-keys-btn')?.addEventListener('click', async function (e) {
-            const b = e.currentTarget;
-            b.disabled = true;
-            const old = b.textContent;
-            b.textContent = '选择文件…';
-            try {
-                const dst = await invoke('emu_pick_and_import_keys');
-                try {
-                    showToast('密钥已导入：' + dst + '\n现在可以直接点游戏卡片启动了', 'ok', 6000);
-                } catch (_) {}
-                await render();
-            } catch (err) {
-                const msg = String(err || '');
-                if (msg.indexOf('已取消') < 0) {
-                    try { showToast('导入失败: ' + msg, 'error', 7000); } catch (_) {}
-                }
-            } finally {
-                b.disabled = false;
-                b.textContent = old;
-            }
-        });
+        // ★ 2026-10-20: 顶部工具条整排按钮已删，功能搬到模拟器悬浮窗
     }
 
     return { onShow: onShow, refresh: render };

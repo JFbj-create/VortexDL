@@ -2906,6 +2906,12 @@ pub fn emu_open_guide() -> Result<(), String> {
     crate::emulator::open_guide()
 }
 
+/// 取走「上次启动发现的问题」（游戏包本身有问题时会中文说明原因）
+#[tauri::command]
+pub fn emu_take_warning() -> String {
+    crate::emulator::take_warning()
+}
+
 /// 导入用户自己的 prod.keys（只会复制用户选定的本地文件，不下载不生成）
 #[tauri::command]
 pub fn emu_import_keys(path: String) -> Result<String, String> {
@@ -2921,4 +2927,135 @@ pub async fn emu_pick_and_import_keys() -> Result<String, String> {
     tauri::async_runtime::spawn_blocking(crate::emulator::pick_and_import_keys)
         .await
         .map_err(|e| format!("打开文件选择框失败: {}", e))?
+}
+
+// ============================================================
+// 帧率记录
+// ============================================================
+
+/// 读取/保存记录器设置
+#[tauri::command]
+pub fn fps_settings_get() -> crate::fps_recorder::RecorderSettings {
+    crate::fps_recorder::ensure_loop();
+    crate::fps_recorder::load_settings()
+}
+
+#[tauri::command]
+pub fn fps_settings_set(s: crate::fps_recorder::RecorderSettings) -> Result<(), String> {
+    crate::fps_recorder::save_settings(&s)?;
+    crate::fps_recorder::ensure_loop();
+    // 关闭时立即收尾当前会话
+    if s.mode == "off" && crate::fps_recorder::is_recording() {
+        let _ = crate::fps_recorder::stop();
+    }
+    Ok(())
+}
+
+/// 手动开始一次记录（游戏名/进程名；空 = 全局）
+#[tauri::command]
+pub fn fps_start(game: Option<String>, exe: Option<String>, mode: Option<String>) -> Result<serde_json::Value, String> {
+    crate::fps_recorder::ensure_loop();
+    let m = crate::fps_recorder::start(
+        &game.unwrap_or_default(),
+        &exe.unwrap_or_default(),
+        "",
+        &mode.unwrap_or_else(|| "global".to_string()),
+    )?;
+    Ok(serde_json::to_value(m).unwrap_or_default())
+}
+
+#[tauri::command]
+pub fn fps_stop() -> Result<serde_json::Value, String> {
+    Ok(serde_json::to_value(crate::fps_recorder::stop()?).unwrap_or(serde_json::Value::Null))
+}
+
+/// 正在进行中的会话（没有就是 null）
+#[tauri::command]
+pub fn fps_active() -> serde_json::Value {
+    crate::fps_recorder::ensure_loop();
+    serde_json::to_value(crate::fps_recorder::active_meta()).unwrap_or(serde_json::Value::Null)
+}
+
+/// 最近一拍（悬浮窗用：实时 fps / 占用）
+#[tauri::command]
+pub fn fps_live() -> serde_json::Value {
+    crate::fps_recorder::ensure_loop();
+    serde_json::to_value(crate::fps_recorder::last_sample()).unwrap_or(serde_json::Value::Null)
+}
+
+/// 会话列表（列表页）
+#[tauri::command]
+pub fn fps_sessions() -> Vec<crate::fps_recorder::SessionMeta> {
+    crate::fps_recorder::load_index()
+}
+
+/// 单场会话详情（含全部采样点）
+#[tauri::command]
+pub fn fps_session(id: String) -> Result<crate::fps_recorder::SessionFile, String> {
+    crate::fps_recorder::read_session(&id)
+}
+
+#[tauri::command]
+pub fn fps_delete(id: String) -> Result<(), String> {
+    crate::fps_recorder::delete_session(&id)
+}
+
+/// 当前前台是不是游戏（帧率记录页用来显示"检测到 XXX"）
+#[tauri::command]
+pub fn fps_foreground() -> serde_json::Value {
+    #[cfg(windows)]
+    {
+        if let Some((g, e, i)) = crate::fps_recorder::frame_source::foreground_game() {
+            return serde_json::json!({ "game": g, "exe": e, "icon": i });
+        }
+    }
+    serde_json::Value::Null
+}
+
+// ============================================================
+// hosts 加速
+// ============================================================
+
+#[tauri::command]
+pub fn accel_items() -> Vec<crate::accel::AccelItem> {
+    crate::accel::builtin_items()
+}
+
+#[tauri::command]
+pub fn accel_state() -> serde_json::Value {
+    let mut st = crate::accel::load_state();
+    // 以 hosts 实际情况为准（用户可能手动改过或重装过系统）
+    st.active = crate::accel::is_active();
+    let mut v = serde_json::to_value(st).unwrap_or_default();
+    if let Some(o) = v.as_object_mut() {
+        o.insert(
+            "conflicts".into(),
+            serde_json::json!(crate::accel::detect_conflicts()),
+        );
+    }
+    v
+}
+
+#[tauri::command]
+pub async fn accel_apply(enabled: Vec<String>) -> Result<serde_json::Value, String> {
+    let st = crate::accel::apply(enabled).await?;
+    Ok(serde_json::to_value(st).unwrap_or_default())
+}
+
+#[tauri::command]
+pub fn accel_clear() -> Result<serde_json::Value, String> {
+    let st = crate::accel::clear()?;
+    Ok(serde_json::to_value(st).unwrap_or_default())
+}
+
+#[tauri::command]
+pub async fn accel_test(enabled: Vec<String>) -> Result<Vec<(String, String)>, String> {
+    crate::accel::test(enabled).await
+}
+
+/// 打开 hosts 所在目录（用户想自己看一眼时）
+#[tauri::command]
+pub fn accel_open_hosts_dir() -> Result<(), String> {
+    let dir = std::env::var("SystemRoot").unwrap_or_else(|_| r"C:\Windows".into());
+    open_folder(format!(r"{}\System32\drivers\etc", dir))
 }

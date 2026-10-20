@@ -212,6 +212,147 @@ fn cached_gpus() -> Vec<(String, Option<u64>, Option<String>)> {
     fresh
 }
 
+/// 帧率记录用的轻量快照：只取 CPU/内存/GPU 三样，不碰磁盘枚举和 WMI。
+///
+/// ★ 与 `get_system_status()` 的区别：那个每 2 秒被前端拉一次、还要 sleep 50ms
+///   采第二次，给记录器（可能 700ms 一拍）用太重。这里用**进程级常驻 System**
+///   复用 CPU 采样历史，不做 sleep。
+pub fn snapshot_status() -> SystemStatus {
+    use std::sync::Mutex;
+    use sysinfo::System;
+    static SYS: Mutex<Option<System>> = Mutex::new(None);
+
+    let (cpu_usage, cores, per_core) = {
+        let mut g = match SYS.lock() {
+            Ok(g) => g,
+            Err(_) => return empty_status(),
+        };
+        let sys = g.get_or_insert_with(|| {
+            let mut s = System::new();
+            s.refresh_cpu();
+            std::thread::sleep(std::time::Duration::from_millis(200));
+            s.refresh_cpu();
+            s
+        });
+        sys.refresh_cpu();
+        sys.refresh_memory();
+        let cpus = sys.cpus();
+        let n = cpus.len().max(1) as f64;
+        let sum: f32 = cpus.iter().map(|c| c.cpu_usage()).sum();
+        (
+            (sum as f64 / n).clamp(0.0, 100.0),
+            cpus.len() as u32,
+            cpus.iter().map(|c| c.cpu_usage() as f64).collect::<Vec<f64>>(),
+        )
+    };
+    let _ = per_core;
+
+    let (used, total) = {
+        if let Ok(g) = SYS.lock() {
+            if let Some(sys) = g.as_ref() {
+                (sys.used_memory(), sys.total_memory())
+            } else {
+                (0, 0)
+            }
+        } else {
+            (0, 0)
+        }
+    };
+    let pct = if total > 0 {
+        (used as f64 / total as f64 * 100.0).clamp(0.0, 100.0)
+    } else {
+        0.0
+    };
+
+    let gpu = cached_gpus().into_iter().next().map(|(name, mb, dr)| GpuInfo {
+        model: name,
+        memory_mb: mb,
+        driver: dr,
+        usage: gpu_pdh::usage_3d(),
+    });
+
+    SystemStatus {
+        cpu: CpuInfo {
+            model: String::new(),
+            usage: cpu_usage,
+            cores: cores.max(1),
+        },
+        gpu,
+        memory: MemoryInfo {
+            used,
+            total,
+            used_percent: pct,
+        },
+        disks: Vec::new(),
+    }
+}
+
+fn empty_status() -> SystemStatus {
+    SystemStatus {
+        cpu: CpuInfo { model: String::new(), usage: 0.0, cores: 1 },
+        gpu: None,
+        memory: MemoryInfo { used: 0, total: 0, used_percent: 0.0 },
+        disks: Vec::new(),
+    }
+}
+
+/// 每个逻辑核心的占用率（0~100）。帧率记录的「CPU 各核心」那一栏用。
+///
+/// ★ sysinfo 的 cpu_usage() 是「上次 refresh 到这次 refresh 之间」的占用，
+///   所以必须**隔一段时间**采两次才有值。这里用常驻 System + 记录上次刷新时刻，
+///   距上次不足 200ms 就直接返回上一次的结果（否则刚建 System 那拍全是 0）。
+pub fn per_core_usage() -> Vec<f64> {
+    use std::sync::Mutex;
+    use std::time::Instant;
+    use sysinfo::System;
+
+    static SYS: Mutex<Option<(System, Instant, Vec<f64>)>> = Mutex::new(None);
+
+    let mut g = match SYS.lock() {
+        Ok(g) => g,
+        Err(_) => return Vec::new(),
+    };
+    if g.is_none() {
+        let mut s = System::new();
+        s.refresh_cpu();
+        *g = Some((s, Instant::now(), Vec::new()));
+        return Vec::new();
+    }
+    let (sys, last, cache) = g.as_mut().unwrap();
+    if last.elapsed().as_millis() < 200 && !cache.is_empty() {
+        return cache.clone();
+    }
+    sys.refresh_cpu();
+    let v: Vec<f64> = sys.cpus().iter().map(|c| c.cpu_usage() as f64).collect();
+    *last = Instant::now();
+    *cache = v.clone();
+    v
+}
+
+/// 某个进程的 (CPU %, 内存字节)。按 exe 文件名匹配。
+pub fn process_usage(exe_name: &str) -> Option<(f64, u64)> {
+    use std::sync::Mutex;
+    use sysinfo::{ProcessRefreshKind, RefreshKind, System};
+    static SYS: Mutex<Option<System>> = Mutex::new(None);
+    let mut g = SYS.lock().ok()?;
+    let sys = g.get_or_insert_with(|| {
+        let mut s = System::new_with_specifics(
+            RefreshKind::new().with_processes(ProcessRefreshKind::new().with_cpu().with_memory()),
+        );
+        s.refresh_processes();
+        s
+    });
+    sys.refresh_processes();
+    let want = exe_name.to_lowercase();
+    for (_, p) in sys.processes() {
+        let n = p.name().to_lowercase();
+        if n == want || n == want.trim_end_matches(".exe") {
+            return Some((p.cpu_usage() as f64, p.memory()));
+        }
+    }
+    None
+}
+
 /// ★ 性能修复 (2026-09-08): 把 sysinfo + WMI 的同步重活挪到 spawn_blocking,
 ///   避免阻塞 tokio 异步 executor (此前 std::thread::sleep(150ms) 直接卡住整个 runtime,
 ///   导致 download 轮询/搜索 invoke 全部排队 → UI 卡顿/崩溃).

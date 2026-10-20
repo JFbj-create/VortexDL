@@ -29,6 +29,8 @@ mod search_engine;
 mod snapshot;
 mod switch_games;
 mod system_monitor;
+mod fps_recorder;
+mod accel;
 mod trainer;
 mod translator;
 mod updater;
@@ -80,7 +82,10 @@ use crate::commands::{
     emu_info, emu_launch, emu_stop, emu_alive, emu_input,
     emu_binds_get, emu_binds_set, emu_binds_reset,
     emu_settings_get, emu_settings_set, emu_ensure_bundled, emu_apply_preset, emu_open_guide,
-    emu_import_keys, emu_pick_and_import_keys,
+    emu_import_keys, emu_pick_and_import_keys, emu_take_warning,
+    fps_settings_get, fps_settings_set, fps_start, fps_stop, fps_active, fps_live,
+    fps_sessions, fps_session, fps_delete, fps_foreground,
+    accel_items, accel_state, accel_apply, accel_clear, accel_test, accel_open_hosts_dir,
     emu_toggle_max, emu_toggle_fullscreen, emu_overlay_open, emu_overlay_close, emu_overlay_resize,
     emu_register_game,
     open_player_window, player_take_payload, focus_main_and_open, raise_main_window, main_sync_subject,
@@ -518,7 +523,10 @@ fn main() {
             emu_info, emu_launch, emu_stop, emu_alive, emu_input,
     emu_binds_get, emu_binds_set, emu_binds_reset,
     emu_settings_get, emu_settings_set, emu_ensure_bundled, emu_apply_preset, emu_open_guide,
-    emu_import_keys, emu_pick_and_import_keys,
+    emu_import_keys, emu_pick_and_import_keys, emu_take_warning,
+    fps_settings_get, fps_settings_set, fps_start, fps_stop, fps_active, fps_live,
+    fps_sessions, fps_session, fps_delete, fps_foreground,
+    accel_items, accel_state, accel_apply, accel_clear, accel_test, accel_open_hosts_dir,
     emu_toggle_max, emu_toggle_fullscreen, emu_overlay_open, emu_overlay_close, emu_overlay_resize,
     emu_register_game,
             open_player_window, player_take_payload, focus_main_and_open, raise_main_window, main_sync_subject,

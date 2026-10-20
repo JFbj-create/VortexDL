@@ -20,7 +20,7 @@
 //! # 模拟器
 //!
 //! 不内置、不打包模拟器（Switch 模拟器的授权与分发风险很高，且需要用户自己的密钥）。
-//! 这里只做：扫描 `D:\game\switch\emulator` 下已安装的模拟器 → 用游戏文件一键启动。
+//! 这里只做：扫描软件目录下的 `emulator` 里已安装的模拟器 → 用游戏文件一键启动。
 //! 没有模拟器时给 NS711 的「模拟器」分类页链接，让用户自己装。
 
 use serde::{Deserialize, Serialize};
@@ -458,32 +458,92 @@ fn parse_ns_cards(html: &str) -> Vec<SwitchGame> {
     out
 }
 
+/// NS711 列表全量抓取。
+///
+/// ★★ 2026-10-20 提速：原来是**一页一页串行**等（300 页 ≈ 好几分钟）。
+///   改成「先并发探到底有多少页，再分批并发抓」：
+///     1. 并发抓前 24 页，看哪一页开始空（正常站点的页数远少于 300）；
+///     2. 剩下的页按 8 路并发抓完。
+///   同样是真实请求，只是不再一条一条排队。
 async fn crawl_ns711(progress: &(dyn Fn(&str, usize, usize) + Send + Sync)) -> Result<Vec<SwitchGame>, String> {
-    let mut all = Vec::new();
-    for page in 1..=300 {
-        progress(&format!("NS711 第 {} 页", page), all.len(), 0);
-        let url = if page == 1 {
+    use futures::stream::{self, StreamExt};
+
+    const BURST: usize = 24;   // 先并发探这么多页
+    const CONC: usize = 8;     // 后续并发度
+
+    fn page_url(page: usize) -> String {
+        if page == 1 {
             format!("{}/", NS_BASE)
         } else {
             format!("{}/page/{}", NS_BASE, page)
-        };
-        let html = match get(&url).await {
-            Ok(h) => h,
-            Err(e) => {
-                if page == 1 {
-                    return Err(e);
-                }
-                break;
+        }
+    }
+
+    progress("NS711 探测页数", 0, 0);
+    let first: Vec<(usize, Option<String>)> = stream::iter(1..=BURST)
+        .map(|p| async move {
+            let r = get(&page_url(p)).await.ok();
+            (p, r)
+        })
+        .buffer_unordered(6)
+        .collect()
+        .await;
+
+    let mut pages: Vec<(usize, String)> = first
+        .into_iter()
+        .filter_map(|(p, h)| h.map(|h| (p, h)))
+        .filter(|(p, h)| !parse_ns_cards(h).is_empty())
+        .collect();
+    pages.sort_by_key(|(p, _)| *p);
+
+    // 第 1 页都抓不到 = 站点不通
+    if pages.is_empty() {
+        return Err("连不上 NS711（第 1 页没拿到内容）".to_string());
+    }
+
+    let mut all: Vec<SwitchGame> = Vec::new();
+    for (_, html) in &pages {
+        all.extend(parse_ns_cards(html));
+    }
+    progress(
+        &format!("NS711 已抓 {} 页", pages.len()),
+        all.len(),
+        0,
+    );
+
+    // 后面的页继续并发抓，直到连续两页都空
+    let mut next = BURST + 1;
+    let mut empty_streak = 0usize;
+    while next <= 300 && empty_streak < 2 && all.len() <= 20000 {
+        let batch: Vec<usize> = (next..(next + CONC).min(301)).collect();
+        let got: Vec<(usize, Option<String>)> = stream::iter(batch.clone())
+            .map(|p| async move {
+                let r = get(&page_url(p)).await.ok();
+                (p, r)
+            })
+            .buffer_unordered(CONC)
+            .collect()
+            .await;
+        let mut batch_pages: Vec<(usize, String)> = got
+            .into_iter()
+            .filter_map(|(p, h)| h.map(|h| (p, h)))
+            .filter(|(_, h)| !parse_ns_cards(h).is_empty())
+            .collect();
+        batch_pages.sort_by_key(|(p, _)| *p);
+        if batch_pages.is_empty() {
+            empty_streak += 1;
+        } else {
+            empty_streak = 0;
+            for (_, html) in &batch_pages {
+                all.extend(parse_ns_cards(html));
             }
-        };
-        let cards = parse_ns_cards(&html);
-        if cards.is_empty() {
-            break;
         }
-        all.extend(cards);
-        if all.len() > 20000 {
-            break;
-        }
+        progress(
+            &format!("NS711 第 {} 页", next),
+            all.len(),
+            0,
+        );
+        next += CONC;
     }
     Ok(all)
 }
@@ -635,12 +695,59 @@ fn merge(mut ns: Vec<SwitchGame>, mm: Vec<SwitchGame>) -> Vec<SwitchGame> {
     ns
 }
 
+/// 刷新目录。
+///
+/// ★★ 2026-10-20 改成**增量合并**：
+///   老实现每次都从零重建目录，于是「已经花时间抓到的简介/封面/分类/夸克链接」
+///   全部被清空，下次打开详情又要重新抓一遍 —— 这正是用户说的「游戏资源就不做
+///   缓存了吗」。现在按 id 继承旧条目上的这些字段。
 pub async fn refresh(progress: &(dyn Fn(&str, usize, usize) + Send + Sync)) -> Result<CatalogStats, String> {
+    let old = load_catalog();
+    let old_by_id: std::collections::HashMap<String, SwitchGame> = old
+        .games
+        .into_iter()
+        .map(|g| (g.id.clone(), g))
+        .collect();
+
     let ns = crawl_ns711(progress).await?;
     let ns_count = ns.len();
     let mm = crawl_mm(progress).await.unwrap_or_default();
     let mm_count = mm.len();
-    let games = merge(ns, mm);
+    let mut games = merge(ns, mm);
+
+    // 把旧条目上「花时间抓来的」字段搬回来（列表页本身没有这些数据）
+    let mut kept = 0usize;
+    for g in games.iter_mut() {
+        if let Some(o) = old_by_id.get(&g.id) {
+            if g.desc.is_empty() && !o.desc.is_empty() {
+                g.desc = o.desc.clone();
+                kept += 1;
+            }
+            if g.install.is_empty() {
+                g.install = o.install.clone();
+            }
+            if g.cover.is_empty() {
+                g.cover = o.cover.clone();
+            }
+            if g.cats.is_empty() {
+                g.cats = o.cats.clone();
+            }
+            if g.quark.is_empty() {
+                g.quark = o.quark.clone();
+            }
+            if g.dirid.is_empty() {
+                g.dirid = o.dirid.clone();
+            }
+            g.desc_missing = o.desc_missing;
+        }
+    }
+    if kept > 0 {
+        crate::app_logger::log_command(
+            "switch",
+            &format!("refresh 继承旧详情字段 {} 条（不重复抓）", kept),
+        );
+    }
+
     let c = Catalog {
         updated_at: crate::paths::now_ms(),
         ns_count,

@@ -1,4 +1,6 @@
-/* 模拟器顶部功能条：深色玻璃 + 主题无关（它浮在游戏画面上，必须永远看得清） */
+/* 模拟器悬浮功能条
+   ★ 它浮在游戏画面上，所以配色**故意不跟随软件主题**（否则浅色主题下
+     白底白字直接看不见）。固定深色玻璃 + 绯红强调色。 */
 * { box-sizing: border-box; }
 html, body {
     margin: 0;
@@ -9,83 +11,216 @@ html, body {
     user-select: none;
     color: #f2f2f5;
 }
+:root {
+    --ov-bg: rgba(16, 16, 22, .82);
+    --ov-bg-strong: rgba(16, 16, 22, .95);
+    --ov-line: rgba(255, 255, 255, .13);
+    --ov-accent: #eb3333;
+    --ov-dim: rgba(255, 255, 255, .58);
+}
+
+/* ---------------- 顶部条 ---------------- */
 #bar {
     display: flex;
     align-items: center;
-    gap: 10px;
-    height: 44px;
-    padding: 0 10px 0 14px;
+    gap: 8px;
+    height: 40px;
+    padding: 0 8px 0 12px;
     border-radius: 0 0 12px 12px;
-    background: rgba(18, 18, 24, .86);
-    backdrop-filter: blur(14px);
-    border: 1px solid rgba(255, 255, 255, .12);
+    background: var(--ov-bg);
+    backdrop-filter: blur(16px) saturate(140%);
+    border: 1px solid var(--ov-line);
     border-top: 0;
-    box-shadow: 0 8px 24px rgba(0, 0, 0, .38);
+    box-shadow: 0 10px 28px rgba(0, 0, 0, .45);
     -webkit-app-region: drag;
+    /* 不做整条拖拽时用 ov-drag 当把手 */
 }
-.emu-title {
-    font-size: 13px;
+/* ★ 所有子元素默认不拖拽，只有明确声明的地方可拖 —— 否则按钮点不动 */
+#bar > * { -webkit-app-region: no-drag; }
+#ov-drag { -webkit-app-region: drag; cursor: grab; opacity: .45; font-size: 12px; letter-spacing: -2px; }
+#ov-drag:active { cursor: grabbing; }
+
+.ov-live {
+    font-family: Consolas, "Cascadia Mono", monospace;
+    font-size: 12px;
+    font-weight: 700;
+    min-width: 76px;
+    padding: 3px 8px;
+    border-radius: 6px;
+    background: rgba(235, 51, 51, .16);
+    color: #ff8080;
+    text-align: center;
+}
+.ov-live.ok { color: #7ee787; background: rgba(63, 185, 80, .16); }
+
+.ov-title {
+    font-size: 12px;
     font-weight: 600;
-    max-width: 260px;
+    max-width: 240px;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-}
-.emu-pad {
-    font-size: 11px;
-    opacity: .7;
-    padding: 2px 8px;
-    border-radius: 999px;
-    background: rgba(255, 255, 255, .1);
+    opacity: .9;
 }
 .emu-actions {
     margin-left: auto;
     display: flex;
-    gap: 4px;
-    -webkit-app-region: no-drag;
+    gap: 3px;
 }
 .emu-actions button {
-    width: 30px;
-    height: 26px;
+    width: 28px;
+    height: 24px;
     border: 0;
-    border-radius: 7px;
+    border-radius: 6px;
     background: transparent;
     color: inherit;
-    font-size: 13px;
+    font-size: 12px;
     cursor: pointer;
+    line-height: 1;
 }
 .emu-actions button:hover { background: rgba(255, 255, 255, .16); }
 .emu-actions button.danger:hover { background: #e5484d; }
+.emu-actions button.recording { color: #ff5f5f; animation: pulse 1.4s infinite; }
+@keyframes pulse { 50% { opacity: .35; } }
 
+/* ---------------- 展开面板 ---------------- */
 #panel {
     margin: 6px 8px 0;
-    padding: 12px 14px;
     border-radius: 12px;
-    background: rgba(18, 18, 24, .94);
-    border: 1px solid rgba(255, 255, 255, .12);
+    background: var(--ov-bg-strong);
+    border: 1px solid var(--ov-line);
     font-size: 12px;
-    max-height: 420px;
+    max-height: 460px;
     overflow-y: auto;
+    box-shadow: 0 12px 32px rgba(0, 0, 0, .5);
 }
+#panel::-webkit-scrollbar { width: 8px; }
+#panel::-webkit-scrollbar-thumb { background: rgba(255,255,255,.18); border-radius: 4px; }
+
+.panel-tabs {
+    display: flex;
+    gap: 2px;
+    padding: 8px 10px 0;
+    position: sticky;
+    top: 0;
+    background: var(--ov-bg-strong);
+    z-index: 2;
+}
+.ptab {
+    border: 0;
+    background: transparent;
+    color: var(--ov-dim);
+    padding: 6px 12px;
+    border-radius: 8px 8px 0 0;
+    font-size: 12px;
+    cursor: pointer;
+}
+.ptab:hover { color: #fff; background: rgba(255,255,255,.06); }
+.ptab.active {
+    color: #fff;
+    background: rgba(235, 51, 51, .22);
+    box-shadow: inset 0 -2px 0 var(--ov-accent);
+}
+.ppanel { display: none; padding: 10px 14px 14px; }
+.ppanel.active { display: block; }
+
+/* 指标卡 */
+.metric-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 8px;
+    margin-bottom: 12px;
+}
+.metric {
+    background: rgba(255,255,255,.05);
+    border: 1px solid rgba(255,255,255,.07);
+    border-radius: 9px;
+    padding: 8px 10px;
+}
+.m-label { font-size: 10px; color: var(--ov-dim); margin-bottom: 3px; }
+.m-val {
+    font-family: Consolas, monospace;
+    font-size: 15px;
+    font-weight: 700;
+    letter-spacing: .3px;
+}
+
+/* 每核 */
+.cores-wrap { margin-bottom: 10px; }
+.cores-head { font-size: 10px; color: var(--ov-dim); margin-bottom: 5px; }
+.cores {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(26px, 1fr));
+    gap: 4px;
+}
+.core-bar {
+    height: 30px;
+    border-radius: 4px;
+    background: rgba(255,255,255,.07);
+    position: relative;
+    overflow: hidden;
+}
+.core-bar i {
+    position: absolute;
+    bottom: 0; left: 0; right: 0;
+    background: linear-gradient(180deg, #eb3333, #8c1f1f);
+    transition: height .18s ease-out;
+}
+.core-bar b {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 9px;
+    font-weight: 600;
+    color: #fff;
+    text-shadow: 0 1px 2px #000;
+}
+
+.panel-note {
+    font-size: 10.5px;
+    line-height: 1.6;
+    color: var(--ov-dim);
+    padding: 7px 9px;
+    border-radius: 7px;
+    background: rgba(255, 190, 60, .09);
+    border: 1px solid rgba(255, 190, 60, .22);
+}
+
+/* 通用行 */
 .panel-row {
     display: flex;
     align-items: center;
     gap: 10px;
-    height: 30px;
+    min-height: 32px;
 }
-.panel-row label { flex: 0 0 96px; opacity: .85; }
-.panel-row input[type="range"] { flex: 1; accent-color: #e5484d; }
-.panel-row input[type="checkbox"] { accent-color: #e5484d; }
+.panel-row label { flex: 0 0 104px; color: var(--ov-dim); }
+.panel-row input[type="range"] { flex: 1; accent-color: var(--ov-accent); }
+.panel-row input[type="checkbox"] { accent-color: var(--ov-accent); }
+.panel-row select {
+    flex: 1;
+    background: rgba(255,255,255,.08);
+    color: #fff;
+    border: 1px solid rgba(255,255,255,.16);
+    border-radius: 7px;
+    padding: 5px 8px;
+    font-size: 12px;
+}
+.panel-row select option { background: #1a1a20; }
 .panel-row button {
     border: 1px solid rgba(255, 255, 255, .18);
     background: rgba(255, 255, 255, .08);
     color: inherit;
-    padding: 5px 10px;
+    padding: 5px 11px;
     border-radius: 7px;
     font-size: 12px;
     cursor: pointer;
 }
 .panel-row button:hover { background: rgba(255, 255, 255, .18); }
+.panel-row .ro { color: var(--ov-dim); font-size: 11.5px; }
+
+/* 键位 */
 .binds { margin-top: 8px; display: grid; grid-template-columns: repeat(2, 1fr); gap: 4px 12px; }
 .binds .bind-row { display: flex; align-items: center; gap: 8px; }
 .binds .bind-row span:first-child { flex: 0 0 70px; opacity: .75; }
@@ -98,4 +233,5 @@ html, body {
     cursor: pointer;
     font-family: Consolas, monospace;
 }
-.binds .bind-key.waiting { background: #e5484d; }
+.binds .bind-key:hover { background: rgba(255,255,255,.18); }
+.binds .bind-key.waiting { background: var(--ov-accent); }

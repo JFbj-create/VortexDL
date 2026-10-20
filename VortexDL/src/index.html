@@ -42,6 +42,11 @@
                     <span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="7" width="20" height="11" rx="5.5"/><path d="M7 12.5h3"/><path d="M8.5 11v3"/><circle cx="15.5" cy="11.5" r="1"/><circle cx="17.5" cy="13.5" r="1"/></svg></span>
                     <span class="nav-label">模拟器</span>
                 </button>
+                <!-- 帧率记录（2026-10-20）：放在「下载」上方 -->
+                <button class="nav-btn" data-page="fps">
+                    <span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 17l4-6 3 4 4-8 3 5 4-3"/><path d="M3 21h18"/><circle cx="20" cy="6" r="1.4"/></svg></span>
+                    <span class="nav-label">帧率记录</span>
+                </button>
                 <button class="nav-btn" data-page="downloads">
                     <span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg></span>
                     <span class="nav-label">下载</span>
@@ -71,6 +76,11 @@
                 <button class="nav-btn" data-page="resources">
                     <span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polygon points="16.24 7.76 14.12 14.12 7.76 16.24 9.88 9.88 16.24 7.76"/></svg></span>
                     <span class="nav-label">资源导航</span>
+                </button>
+                <!-- 加速（2026-10-20）：按用户要求放在左侧最下面 -->
+                <button class="nav-btn" data-page="accel">
+                    <span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2 4.5 13.5H11l-1 8.5 8.5-11.5H12l1-8.5Z"/></svg></span>
+                    <span class="nav-label">加速</span>
                 </button>
             </nav>
             <div class="sidebar-footer">
@@ -175,7 +185,7 @@
                             <div class="card-arrow">→</div>
                         </div>
                         <div class="section-card" data-view="switch">
-                            <div class="card-icon card-icon-switch"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8.6 3.6h-1A4.1 4.1 0 0 0 3.5 7.7v8.6a4.1 4.1 0 0 0 4.1 4.1h1a1.2 1.2 0 0 0 1.2-1.2V4.8a1.2 1.2 0 0 0-1.2-1.2z"/><path d="M15.4 3.6h1a4.1 4.1 0 0 1 4.1 4.1v8.6a4.1 4.1 0 0 1-4.1 4.1h-1a1.2 1.2 0 0 1-1.2-1.2V4.8a1.2 1.2 0 0 1 1.2-1.2z"/><circle cx="6.9" cy="8.6" r="1.5" fill="currentColor" stroke="none"/><circle cx="17.1" cy="15.4" r="1.5" fill="currentColor" stroke="none"/><path d="M16.2 7.4h1.8M17.1 6.5v1.8"/></svg></div>
+                            <div class="card-icon card-icon-switch"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M9.2 3.2H7.6A4.4 4.4 0 0 0 3.2 7.6v8.8a4.4 4.4 0 0 0 4.4 4.4h1.6a1.4 1.4 0 0 0 1.4-1.4V4.6a1.4 1.4 0 0 0-1.4-1.4Z"/><path d="M14.8 3.2h1.6a4.4 4.4 0 0 1 4.4 4.4v8.8a4.4 4.4 0 0 1-4.4 4.4h-1.6a1.4 1.4 0 0 1-1.4-1.4V4.6a1.4 1.4 0 0 1 1.4-1.4Z"/><circle cx="7" cy="7.6" r="1.35"/><path d="M6.2 14.4h1.6M7 13.6v1.6"/><circle cx="17" cy="16.4" r="1.35"/><path d="M15.8 7.2h1.1M17.5 7.2h1.1M17.2 6.1h.1M17.2 8.3h.1"/></svg></div>
                             <div class="card-content">
                                 <h3>Switch 游戏</h3>
                                 <p>NS 游戏库 · 图标分类 · 一键下载与启动</p>
@@ -357,22 +367,85 @@
                 </div>
             </section>
 
-            <!-- 模拟器 / 已下载 Switch 游戏管理 (2026-10-19) -->
+            <!-- 帧率记录 -->
+            <section id="page-fps" class="page">
+                <h2 class="page-title"><span class="inline-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 17l4-6 3 4 4-8 3 5 4-3"/><path d="M3 21h18"/></svg></span>帧率记录</h2>
+                <div class="mod-shell">
+                    <nav class="mod-rail" data-rail="fps">
+                        <button class="mod-rail-btn active" data-tab="list">记录列表</button>
+                        <button class="mod-rail-btn" data-tab="settings">记录设置</button>
+                    </nav>
+                    <div class="mod-body">
+                        <div class="mod-panel active" data-tab="list">
+                            <div id="fps-sessions" class="fps-sessions">
+                                <div class="loading">加载中...</div>
+                            </div>
+                        </div>
+                        <div class="mod-panel" data-tab="settings">
+                            <div class="fps-settings">
+                                <div class="setting-group">
+                                    <h3>记录模式</h3>
+                                    <div class="setting-row">
+                                        <label>启用方式</label>
+                                        <select id="fps-page-mode" class="setting-input">
+                                            <option value="off">关闭</option>
+                                            <option value="inline">游戏内（只在游戏前台时记录）</option>
+                                            <option value="global">全局（一直记录）</option>
+                                        </select>
+                                    </div>
+                                    <div class="setting-row">
+                                        <label>游戏内采样间隔</label>
+                                        <div class="fps-slider-wrap">
+                                            <input type="range" id="fps-page-inline" min="200" max="2000" step="100">
+                                            <span id="fps-page-inline-v" class="fps-slider-val"></span>
+                                        </div>
+                                    </div>
+                                    <div class="setting-row">
+                                        <label>全局采样间隔</label>
+                                        <div class="fps-slider-wrap">
+                                            <input type="range" id="fps-page-global" min="500" max="5000" step="100">
+                                            <span id="fps-page-global-v" class="fps-slider-val"></span>
+                                        </div>
+                                    </div>
+                                    <div class="setting-row">
+                                        <label>记录 CPU 每核心</label>
+                                        <input type="checkbox" id="fps-page-percore">
+                                    </div>
+                                    <div class="setting-row">
+                                        <label>最多保留场次</label>
+                                        <input type="number" id="fps-page-keep" class="setting-input" min="5" max="1000" step="5">
+                                    </div>
+                                </div>
+                                <div class="setting-group">
+                                    <h3>当前状态</h3>
+                                    <div class="setting-row">
+                                        <label>检测到的游戏</label>
+                                        <span id="fps-page-fg" class="fps-ro">未检测</span>
+                                    </div>
+                                    <div class="setting-row">
+                                        <label>记录状态</label>
+                                        <span id="fps-page-state" class="fps-ro">未在记录</span>
+                                    </div>
+                                    <div class="setting-row">
+                                        <button class="btn btn-primary" id="fps-page-toggle">开始记录</button>
+                                    </div>
+                                </div>
+                                <p class="fps-hint">
+                                    帧率只记录<strong>能实测到</strong>的值。模拟器若写性能日志，取其逐帧真值；
+                                    取不到时该字段留空（显示「—」），不会编造数字。
+                                    CPU / GPU / 内存 / 每核占用 / 磁盘 / 网络始终是实时实测采样。
+                                </p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- 模拟器 / 已下载 Switch 游戏管理 (2026-10-19)
+                 ★ 2026-10-20 用户要求：顶部那一排按钮全部删掉，功能移到
+                   游戏运行时的悬浮窗（emu-overlay）里。这一页只留游戏网格。 -->
             <section id="page-emulator" class="page">
                 <h2 class="page-title"><span class="inline-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="7" width="20" height="11" rx="5.5"/><path d="M7 12.5h3"/><path d="M8.5 11v3"/><circle cx="15.5" cy="11.5" r="1"/><circle cx="17.5" cy="13.5" r="1"/></svg></span>模拟器</h2>
-                <div class="toolbar emu-toolbar">
-                    <div class="emu-status-wrap">
-                        <span id="emu-status" class="emu-status-text">检测中…</span>
-                        <span id="emu-status-sub" class="emu-status-sub"></span>
-                    </div>
-                    <button class="btn btn-secondary" id="emu-refresh-btn">刷新</button>
-                    <button class="btn btn-secondary" id="emu-install-btn" title="从安装包重新释出内置模拟器">重新安装模拟器</button>
-                    <button class="btn btn-secondary" id="emu-preset-btn" title="主机语言设为简体中文、区域中国、主题换成绯红、打开多核与磁盘着色器缓存">一键优化</button>
-                    <button class="btn btn-secondary" id="emu-keys-btn" title="选择你自己导出的 prod.keys 并放到模拟器里（软件不能自带密钥）">导入密钥</button>
-                    <button class="btn btn-secondary" id="emu-guide-btn" title="打开中文使用说明（菜单中英对照 / 密钥放哪）">使用说明</button>
-                    <button class="btn btn-secondary" id="emu-folder-btn">打开游戏目录</button>
-                    <button class="btn btn-secondary" id="emu-emu-folder-btn">打开模拟器目录</button>
-                </div>
                 <div id="emu-grid" class="game-grid">
                     <div class="loading">加载中...</div>
                 </div>
@@ -576,6 +649,30 @@
             <section id="page-resources" class="page">
                 <h2 class="page-title"><span class="inline-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polygon points="16.24 7.76 14.12 14.12 7.76 16.24 9.88 9.88 16.24 7.76"/></svg></span>资源导航</h2>
                 <div id="resources-grid" class="nav-grid" style="grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 12px;"></div>
+            </section>
+
+            <!-- 加速（hosts）-->
+            <section id="page-accel" class="page">
+                <h2 class="page-title"><span class="inline-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2 4.5 13.5H11l-1 8.5 8.5-11.5H12l1-8.5Z"/></svg></span>加速</h2>
+                <div class="accel-head">
+                    <div class="accel-status" id="accel-status">读取中…</div>
+                    <div class="accel-actions">
+                        <button class="btn btn-primary" id="accel-apply-btn">应用加速</button>
+                        <button class="btn btn-secondary" id="accel-clear-btn">还原 hosts</button>
+                        <button class="btn btn-secondary" id="accel-hosts-btn" title="打开 hosts 所在目录">查看 hosts</button>
+                    </div>
+                </div>
+                <p class="accel-note">
+                    只做「域名 → 更快 IP」这一半：用公开 DoH 解析，测 TCP 443 延迟，写进
+                    <code>hosts</code> 并用标记块包裹，随时可一键还原。需要管理员权限。
+                    <br>
+                    <strong>不安装任何根证书、不做 HTTPS 中间人</strong> —— 那种做法要拦截并解密你的
+                    Cookie 和登录态，本软件不做。
+                </p>
+                <div id="accel-conflicts" class="accel-conflicts" hidden></div>
+                <div id="accel-list" class="accel-list">
+                    <div class="loading">加载中...</div>
+                </div>
             </section>
 
             <!-- 喜欢 (收藏) 页: 不区分成人/普通, 点开即进游戏介绍页 -->
