@@ -170,6 +170,116 @@ pub fn keys_dir() -> PathBuf {
     emu_dir().join("user").join("keys")
 }
 
+/// 这是不是一份真的 prod.keys？
+///
+/// Switch 的密钥文件是纯文本，每行形如 `master_key_00 = 00112233...`。
+/// 只做**格式校验**，不校验内容对不对（内容对不对要等模拟器自己去验）。
+fn looks_like_prod_keys(text: &str) -> bool {
+    let mut has_master = false;
+    let mut pairs = 0;
+    for line in text.lines() {
+        let l = line.trim();
+        if l.is_empty() || l.starts_with('#') || l.starts_with(';') {
+            continue;
+        }
+        let (k, v) = match l.split_once('=') {
+            Some(x) => x,
+            None => continue,
+        };
+        let k = k.trim();
+        let v = v.trim();
+        if k.is_empty() || v.len() < 16 {
+            continue;
+        }
+        if !v.chars().all(|c| c.is_ascii_hexdigit()) {
+            continue;
+        }
+        pairs += 1;
+        if k.eq_ignore_ascii_case("master_key_00") {
+            has_master = true;
+        }
+    }
+    has_master && pairs >= 5
+}
+
+/// 在某个目录里找可能的密钥文件（给"一键导入"做候选）。
+///
+/// 只看两层：用户多半是把 keys 解压在下载目录或桌面。
+pub fn find_key_files(dir: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    let root = Path::new(dir);
+    if !root.is_dir() {
+        return out;
+    }
+    let mut stack = vec![(root.to_path_buf(), 0usize)];
+    while let Some((d, depth)) = stack.pop() {
+        let rd = match std::fs::read_dir(&d) {
+            Ok(r) => r,
+            Err(_) => continue,
+        };
+        for e in rd.flatten() {
+            let p = e.path();
+            if p.is_dir() {
+                if depth < 2 {
+                    stack.push((p, depth + 1));
+                }
+                continue;
+            }
+            let n = p.file_name().and_then(|x| x.to_str()).unwrap_or("").to_lowercase();
+            if n == "prod.keys" || n == "prod.keys.txt" {
+                out.push(p.to_string_lossy().to_string());
+            } else if n.ends_with(".keys") {
+                // 别的 .keys 也可能是（有些教程把它改名），一并列出来让用户自己认
+                if let Ok(t) = std::fs::read_to_string(&p) {
+                    if looks_like_prod_keys(&t) {
+                        out.push(p.to_string_lossy().to_string());
+                    }
+                }
+            }
+        }
+    }
+    out
+}
+
+/// 导入用户自己的 prod.keys（用户明确知道这是什么、从哪儿来的）。
+///
+/// ★ 只搬用户**已经拥有的**文件：这里既不生成也不下载密钥（那属于任天堂版权
+///   内容）。做法是把选定文件复制成 `user/keys/prod.keys`，并校验格式 ——
+///   选错文件时直接说清楚，而不是让模拟器过一会儿用英文报错。
+pub fn import_keys(src: &str) -> Result<String, String> {
+    let from = Path::new(src);
+    if !from.is_file() {
+        return Err(format!("找不到这个文件: {}", src));
+    }
+    let raw = std::fs::read_to_string(from)
+        .map_err(|_| "这个文件不是文本格式（密钥文件应该是纯文本）".to_string())?;
+    if !looks_like_prod_keys(&raw) {
+        return Err(
+            "这个文件不像是 prod.keys。\n\n\
+             正确的内容长这样（每行一条，必须包含 master_key_00）：\n\
+             master_key_00 = 00000000000000000000000000000000\n\
+             ..."
+                .to_string(),
+        );
+    }
+    let dst_dir = keys_dir();
+    std::fs::create_dir_all(&dst_dir).map_err(|e| format!("创建密钥目录失败: {}", e))?;
+    let dst = dst_dir.join("prod.keys");
+    std::fs::copy(from, &dst).map_err(|e| format!("复制密钥失败: {}", e))?;
+    // title.keys 有就一起带上（部分游戏需要，没有也能跑）
+    if let Some(parent) = from.parent() {
+        let t = parent.join("title.keys");
+        if t.is_file() {
+            let _ = std::fs::copy(&t, dst_dir.join("title.keys"));
+        }
+    }
+    crate::app_logger::log_command(
+        "emulator",
+        &format!("已导入 prod.keys: {} -> {}", from.display(), dst.display()),
+    );
+    Ok(dst.to_string_lossy().to_string())
+}
+
 /// 「魔改」预设。`language_index=15` = 简体中文（Switch 主机语言，决定游戏内
 /// 文字），`region_index=4` = 中国（Citron 的 Region 枚举顺序是
 /// Japan/Usa/Europe/Australia/China/Korea/Taiwan/Auto/Default）。
@@ -185,6 +295,9 @@ const PRESET: &[(&str, &str, &str)] = &[
     ("UI", "showConsole", "false"),
     ("UI", "confirmStop", "0"),
     ("UI", "pauseWhenInBackground", "false"),
+    // 关掉启动时的「有新版本」弹框（它会在游戏画面前盖一层英文框）
+    ("UI", "check_for_updates_on_start", "false"),
+    ("WebService", "enable_auto_update_check", "false"),
     ("UI", "UIGameList\\game_list_grid_view", "true"),
     ("UI", "UIGameList\\game_icon_size", "64"),
 ];
@@ -361,6 +474,56 @@ fn retitle_windows(pid: u32, game: &str) {
     }
 }
 
+/// 关掉模拟器自己弹的**英文**提示框（密钥提示 / 有新版本）。
+///
+/// ★ 2026-10-20 实测：那两个框都只是**警告**，点掉之后游戏照常跑
+///   （`.nro` 自制程序根本不需要 prod.keys）。所以不能因为「没有密钥」
+///   就不让用户启动 —— 该做的是把这两个挡路的框自动关掉。
+#[cfg(windows)]
+unsafe extern "system" fn dismiss_proc(hwnd: *mut std::ffi::c_void, lparam: isize) -> i32 {
+    use windows_sys::Win32::UI::WindowsAndMessaging::{
+        GetWindowTextLengthW, GetWindowTextW, GetWindowThreadProcessId, IsWindowVisible,
+        PostMessageW,
+    };
+    const WM_CLOSE: u32 = 0x0010;
+    let ctx = &*(lparam as *const u32);
+    let mut pid: u32 = 0;
+    GetWindowThreadProcessId(hwnd, &mut pid);
+    if pid != *ctx || IsWindowVisible(hwnd) == 0 || GetWindowTextLengthW(hwnd) == 0 {
+        return 1;
+    }
+    let mut buf = [0u16; 256];
+    let n = GetWindowTextW(hwnd, buf.as_mut_ptr(), buf.len() as i32);
+    if n <= 0 {
+        return 1;
+    }
+    let title = String::from_utf16_lossy(&buf[..n as usize]);
+    const NOISE: &[&str] = &[
+        "Derivation Components Missing",
+        "Update Available",
+        "Encryption keys are missing",
+    ];
+    if NOISE.iter().any(|t| title.contains(t)) {
+        PostMessageW(hwnd, WM_CLOSE, 0, 0);
+    }
+    1
+}
+
+/// 启动后的一小段时间里反复关掉那些英文提示框（它们出现的时间不固定）
+#[cfg(windows)]
+fn dismiss_noise(pid: u32) {
+    use windows_sys::Win32::UI::WindowsAndMessaging::EnumWindows;
+    std::thread::spawn(move || {
+        for _ in 0..14 {
+            std::thread::sleep(std::time::Duration::from_millis(900));
+            let ctx: u32 = pid;
+            unsafe {
+                EnumWindows(Some(dismiss_proc), &ctx as *const u32 as isize);
+            }
+        }
+    });
+}
+
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct EmuInfo {
     pub found: bool,
@@ -372,6 +535,65 @@ pub struct EmuInfo {
     /// 找到 prod.keys 没有（没有的话游戏起不来）
     #[serde(default)]
     pub keys: bool,
+}
+
+/// 弹出 Windows 的「打开文件」对话框，让用户选自己的 prod.keys。
+///
+/// 必须在**后台线程**里调：这个对话框是模态的，会跑自己的消息循环；
+/// 直接在 Tauri 命令里调会卡住主线程。
+#[cfg(windows)]
+pub fn pick_key_file() -> Result<String, String> {
+    use windows_sys::Win32::UI::Controls::Dialogs::{GetOpenFileNameW, OPENFILENAMEW};
+    use windows_sys::Win32::UI::Input::KeyboardAndMouse::GetActiveWindow;
+
+    let mut buf = vec![0u16; 1024];
+    let filter: Vec<u16> = "密钥文件 (*.keys;*.txt)\0*.keys;*.txt\0所有文件 (*.*)\0*.*\0\0"
+        .encode_utf16()
+        .collect();
+    let title: Vec<u16> = "选择你自己的 prod.keys".encode_utf16().chain(Some(0)).collect();
+    // 默认打开桌面/下载目录（用户多半放那儿）
+    let init = std::env::var("USERPROFILE")
+        .map(|p| PathBuf::from(p).join("Downloads"))
+        .ok()
+        .filter(|p| p.is_dir())
+        .map(|p| p.to_string_lossy().to_string())
+        .unwrap_or_default();
+    let mut init_buf: Vec<u16> = init.encode_utf16().collect();
+    init_buf.resize(init.len() + 1, 0);
+
+    let mut ofn = OPENFILENAMEW {
+        lStructSize: std::mem::size_of::<OPENFILENAMEW>() as u32,
+        hwndOwner: unsafe { GetActiveWindow() },
+        lpstrFilter: filter.as_ptr(),
+        nFilterIndex: 1,
+        lpstrFile: buf.as_mut_ptr(),
+        nMaxFile: buf.len() as u32,
+        lpstrTitle: title.as_ptr(),
+        lpstrInitialDir: if init.is_empty() { std::ptr::null() } else { init_buf.as_ptr() },
+        Flags: 0x0000_0800 | 0x0000_1000 | 0x0000_0004, // PATHMUSTEXIST|FILEMUSTEXIST|HIDEREADONLY
+        ..unsafe { std::mem::zeroed() }
+    };
+    let ok = unsafe { GetOpenFileNameW(&mut ofn) };
+    if ok == 0 {
+        return Err("已取消".to_string());
+    }
+    let end = buf.iter().position(|c| *c == 0).unwrap_or(0);
+    let s = String::from_utf16_lossy(&buf[..end]);
+    if s.trim().is_empty() {
+        return Err("已取消".to_string());
+    }
+    Ok(s)
+}
+
+#[cfg(not(windows))]
+pub fn pick_key_file() -> Result<String, String> {
+    Err("仅支持 Windows".into())
+}
+
+/// 一键导入：弹框选文件 → 校验 → 复制到 user/keys/prod.keys
+pub(crate) fn pick_and_import_keys() -> Result<String, String> {
+    let picked = pick_key_file()?;
+    import_keys(&picked)
 }
 
 static RUNNING: Mutex<Option<(u32, String)>> = Mutex::new(None);
@@ -442,21 +664,10 @@ pub fn launch(game_path: &str) -> Result<String, String> {
             .to_string()
     })?;
     let mut cmd = std::process::Command::new(&exe);
-    // ★ 内置 Citron 没有 prod.keys 时，游戏一定起不来；它自己只会弹一个英文
-    //   「The keys are missing…」。这里提前拦下来，用中文说清楚放哪儿。
-    if exe.file_name().and_then(|x| x.to_str()).map(|n| n.eq_ignore_ascii_case("citron.exe")) == Some(true)
-        && keys_path().is_none()
-    {
-        let dir = keys_dir();
-        let _ = std::fs::create_dir_all(&dir);
-        let _ = std::process::Command::new("explorer").arg(&dir).spawn();
-        return Err(format!(
-            "内置模拟器还缺 prod.keys（Switch 系统密钥，属任天堂版权内容，软件不能自带）。\n\n\
-             请把你自己导出的 prod.keys 放进这个目录（已帮你打开）：\n{}\n\n\
-             放好后重新点「启动游戏」。",
-            dir.display()
-        ));
-    }
+    // ★★ 2026-10-20 实测推翻上一版：**.nro 自制程序不需要 prod.keys 也能跑**。
+    //   上一版「没密钥就拒绝启动」把本来能玩的游戏挡在门外了 —— 已删。
+    //   真正要做的是把 Citron 那两个挡路的英文弹窗（缺密钥警告 / 有新版本）
+    //   自动关掉，见 dismiss_noise()。
     cmd.arg(game_path);
     if let Some(dir) = exe.parent() {
         cmd.current_dir(dir);
@@ -477,9 +688,11 @@ pub fn launch(game_path: &str) -> Result<String, String> {
         .and_then(|x| x.to_str())
         .unwrap_or("游戏")
         .to_string();
-    // 窗口标题中文化（模拟器自己启动时会反复写标题，所以多试几次）
+    // 窗口标题中文化 + 关掉挡路的英文弹窗（模拟器启动时会反复写标题、弹框，
+    // 所以两个都要多试几次）
     #[cfg(windows)]
     {
+        dismiss_noise(pid);
         let t = title.clone();
         std::thread::spawn(move || {
             for _ in 0..4 {
@@ -731,5 +944,40 @@ mod tests {
         assert_eq!(ini_value("#eb3333"), "\"#eb3333\"");
         assert_eq!(ini_value("true"), "true");
         assert_eq!(ini_value("15"), "15");
+    }
+
+    /// 密钥文件格式校验：必须是 key = hex，且含 master_key_00
+    #[test]
+    fn prod_keys_format_check() {
+        let good = "master_key_00 = 00000000000000000000000000000000\n\
+                    header_key = 1111111111111111111111111111111111111111111111111111111111111111\n\
+                    title_kek_00 = 22222222222222222222222222222222\n\
+                    sd_key = 33333333333333333333333333333333\n\
+                    key_area_key_application_00 = 44444444444444444444444444444444\n";
+        assert!(looks_like_prod_keys(good));
+        // 没有 master_key_00
+        assert!(!looks_like_prod_keys("header_key = 1111111111111111\nsd_key = 2222222222222222\n"));
+        // 不是 key = value
+        assert!(!looks_like_prod_keys("hello world\nthis is not keys\n"));
+        // 键名对但值不是十六进制
+        assert!(!looks_like_prod_keys(
+            "master_key_00 = zzzzzzzzzzzzzzzz\na = zzzzzzzzzzzzzzzz\nb = zzzzzzzzzzzzzzzz\n\
+             c = zzzzzzzzzzzzzzzz\nd = zzzzzzzzzzzzzzzz\n"
+        ));
+    }
+
+    /// 别因为「没有密钥」就拒绝启动：.nro 自制程序不需要密钥。
+    /// （这条是回归测试：上一版真的拦了，把本来能玩的游戏挡在门外。）
+    #[test]
+    fn launch_does_not_require_keys_source_guard() {
+        let src = include_str!("mod.rs");
+        let launch_start = src.find("pub fn launch(game_path: &str)").expect("launch 不见了");
+        let launch_end = src[launch_start..].find("pub fn stop()").map(|x| launch_start + x)
+            .unwrap_or(src.len());
+        let body = &src[launch_start..launch_end];
+        assert!(
+            !body.contains("keys_path().is_none()"),
+            "launch() 里又出现『缺密钥就不启动』的拦截了 —— .nro 不需要密钥，不能拦"
+        );
     }
 }

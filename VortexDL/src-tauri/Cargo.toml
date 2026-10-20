@@ -1,6 +1,6 @@
 [package]
 name = "vortex-dl"
-version = "1.6.3"
+version = "1.6.4"
 edition = "2021"
 description = "漩涡下载器 VortexDL - 游戏资源下载与管理工具"
 rust-version = "1.80"
@@ -57,7 +57,7 @@ zip = "2"
 reqwest = { version = "0.12", default-features = false, features = ["json", "stream", "rustls-tls", "cookies", "gzip", "brotli", "deflate", "socks", "http2"] }
 # Win32_UI_Shell / Win32_UI_WindowsAndMessaging: 修改器启动要用 ShellExecuteW 提权 (runas)
 # Win32_System_Performance: 用 PDH 读 GPU 3D 引擎占用率 (PdhOpenQueryW / PdhAddEnglishCounterW)
-windows-sys = { version = "0.61", features = ["Win32_System_Console", "Win32_System_Registry", "Win32_System_Performance", "Win32_Foundation", "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging", "Win32_Globalization", "Win32_UI_Input_XboxController", "Win32_UI_Input_KeyboardAndMouse"] }
+windows-sys = { version = "0.61", features = ["Win32_System_Console", "Win32_System_Registry", "Win32_System_Performance", "Win32_Foundation", "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging", "Win32_Globalization", "Win32_UI_Input_XboxController", "Win32_UI_Input_KeyboardAndMouse", "Win32_UI_Controls_Dialogs"] }
 # ★ 离线密钥授权: 只用于 Ed25519 **验签** (公钥在 licensing.rs)。
 #   私钥只存在于 VortexDL-Keygen 工具, 主程序物理上无法签发密钥。
 #   该版本已作为 rustls 的传递依赖存在于 Cargo.lock, 无需额外下载。

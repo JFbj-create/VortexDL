@@ -2905,3 +2905,20 @@ pub fn emu_apply_preset() -> Result<String, String> {
 pub fn emu_open_guide() -> Result<(), String> {
     crate::emulator::open_guide()
 }
+
+/// 导入用户自己的 prod.keys（只会复制用户选定的本地文件，不下载不生成）
+#[tauri::command]
+pub fn emu_import_keys(path: String) -> Result<String, String> {
+    crate::emulator::import_keys(&path)
+}
+
+/// 一键导入 prod.keys：弹 Windows 文件框 → 校验格式 → 复制到 user/keys
+///
+/// ★ 必须是 async + spawn_blocking：文件框是模态的、自带消息循环，
+///   在同步命令里调会卡住主线程（Tauri 命令跑在主线程上）。
+#[tauri::command]
+pub async fn emu_pick_and_import_keys() -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(crate::emulator::pick_and_import_keys)
+        .await
+        .map_err(|e| format!("打开文件选择框失败: {}", e))?
+}

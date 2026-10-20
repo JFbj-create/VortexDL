@@ -13098,7 +13098,7 @@ window.__vxEmu = (function () {
         if (sub) {
             if (emu && emu.found) {
                 sub.textContent = emu.path
-                    + (emu.keys ? ' · 密钥已就绪 · 主机语言 简体中文' : ' · 缺 prod.keys（放进 emulator\\user\\keys 后即可启动）');
+                    + (emu.keys ? ' · 密钥已就绪 · 主机语言 简体中文' : ' · 官方游戏需要 prod.keys（点「导入密钥」）；自制 .nro 可直接玩');
             } else {
                 sub.textContent = '点右边「重新安装模拟器」从安装包释出（内置 Citron，装完即可玩）';
             }
@@ -13234,6 +13234,27 @@ window.__vxEmu = (function () {
         $('emu-guide-btn')?.addEventListener('click', async function () {
             try { await invoke('emu_open_guide'); }
             catch (err) { try { showToast('打开说明失败: ' + err, 'error', 5000); } catch (_) {} }
+        });
+        $('emu-keys-btn')?.addEventListener('click', async function (e) {
+            const b = e.currentTarget;
+            b.disabled = true;
+            const old = b.textContent;
+            b.textContent = '选择文件…';
+            try {
+                const dst = await invoke('emu_pick_and_import_keys');
+                try {
+                    showToast('密钥已导入：' + dst + '\n现在可以直接点游戏卡片启动了', 'ok', 6000);
+                } catch (_) {}
+                await render();
+            } catch (err) {
+                const msg = String(err || '');
+                if (msg.indexOf('已取消') < 0) {
+                    try { showToast('导入失败: ' + msg, 'error', 7000); } catch (_) {}
+                }
+            } finally {
+                b.disabled = false;
+                b.textContent = old;
+            }
         });
     }
 
