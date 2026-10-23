@@ -1,6 +1,6 @@
 [package]
 name = "vortex-dl"
-version = "1.7.0"
+version = "1.7.1"
 edition = "2021"
 description = "漩涡下载器 VortexDL - 游戏资源下载与管理工具"
 rust-version = "1.80"

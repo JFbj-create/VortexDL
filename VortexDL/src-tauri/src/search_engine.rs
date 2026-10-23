@@ -88,13 +88,21 @@ pub fn build_client() -> reqwest::Client {
     ins(&mut headers, "Sec-Fetch-Mode", "navigate");
     ins(&mut headers, "Sec-Fetch-Site", "none");
     ins(&mut headers, "Upgrade-Insecure-Requests", "1");
+    // ★ 性能 (2026-10-23): 显式声明编码，不能只靠 reqwest 的自动注入。
+    //   byrut 的源站对**未压缩**响应限速到 ~8KB/s（实测 382KB 要 47.7s），
+    //   带 gzip 只要 1~2s（53KB）。这是「详情页转圈十几秒才出内容」的主因。
+    //   ⚠️ 只声明 gzip：把 br 也列进去时站点会优先用 br，而 rustls+brotli
+    //   解码在本机能耗明显更差（实测 91s 超时），不要改回 "br, gzip, deflate"。
+    ins(&mut headers, "Accept-Encoding", "gzip");
     reqwest::Client::builder()
         .user_agent(USER_AGENT)
         .default_headers(headers)
         .gzip(true)
         .brotli(true)
         .connect_timeout(std::time::Duration::from_secs(10))
-        .timeout(std::time::Duration::from_secs(30))
+        // ★ 2026-10-23: 30s → 45s。首页预热与详情抓取并发时单页会挤到十几秒,
+        //   30s 上限偶尔触发; 每次重试都重新计时, 用户侧就是「转圈一分钟」。
+        .timeout(std::time::Duration::from_secs(45))
         .pool_max_idle_per_host(8)
         .tcp_keepalive(std::time::Duration::from_secs(30))
         .build()
@@ -255,6 +263,25 @@ fn contains_cjk(s: &str) -> bool {
     s.chars().any(|c| matches!(c, '\u{4E00}'..='\u{9FFF}' | '\u{3400}'..='\u{4DBF}'))
 }
 
+/// 把 byrut 的相对链接补成绝对 URL。
+///
+/// 站点大部分页面给的是绝对链接，但 `/for-adults/` 首页给的是
+/// `/54950-stranded-and-naked.html` 这种相对路径。直接丢给 reqwest 会
+/// `builder error: relative URL without a base`，详情页就全空了。
+fn absolutize_byrut(url: &str) -> String {
+    let u = url.trim();
+    if u.is_empty() || u.starts_with("http://") || u.starts_with("https://") {
+        return u.to_string();
+    }
+    if u.starts_with("//") {
+        return format!("https:{u}");
+    }
+    if u.starts_with('/') {
+        return format!("{BYRUT_BASE}{u}");
+    }
+    format!("{BYRUT_BASE}/{u}")
+}
+
 /// 从 byrut 详情页 URL 提取英文名 (slug)
 /// 例: https://byrutgame.org/42635-onimusha-way-of-the-sword.html → "Onimusha Way Of The Sword"
 fn slug_to_english_name(detail_url: &str, appid: &str) -> String {
@@ -410,7 +437,13 @@ fn parse_byrut_list(html: &str, source: &str, page: u32) -> Vec<GameCard> {
                 if !tags.iter().any(|t| t == zh) { tags.push(zh.to_string()); }
             }
         }
-        let detail_url = href_re.captures(block).map(|c| c[1].to_string()).unwrap_or_default();
+        // ★ Bug 修复 (2026-10-23): /for-adults/ 首页返回的是相对链接
+        //   (`/54950-stranded-and-naked.html`), 其余页面是绝对链接。
+        //   相对链接直接丢给 reqwest 会 `builder error` → 详情全空 →
+        //   用户只看到列表里的图标和名字。这里统一补全为绝对 URL。
+        let detail_url = href_re.captures(block)
+            .map(|c| absolutize_byrut(&c[1]))
+            .unwrap_or_default();
         // 封面图: src 为懒加载占位符 (data:image/svg...) 时回退 data-src
         let header_image = match img_re.captures(block).map(|c| c[1].to_string()) {
             Some(s) if !s.is_empty() && !s.starts_with("data:") => s,
@@ -763,9 +796,27 @@ fn merge_tagged_into_cache(cache: &mut HashMap<u32, Vec<GameCard>>, tagged: Vec<
 }
 
 fn load_disk_index() -> DiskIndex {
-    std::fs::File::open(index_file()).ok()
+    let mut idx: DiskIndex = std::fs::File::open(index_file()).ok()
         .and_then(|f| serde_json::from_reader(f).ok())
-        .unwrap_or_default()
+        .unwrap_or_default();
+    // ★ 迁移 (2026-10-23): 旧索引里可能存着相对 detail_url
+    //   (`/57628-permafrost.html`, 来自 new-pcgames 首页)。
+    //   这种卡片点开会因为后端拿不到绝对 URL 而「只有图标名字」。
+    //   加载时原地补全, 老用户的索引不用重爬。
+    let mut fixed = 0usize;
+    for cards in idx.byrut.values_mut() {
+        for c in cards.iter_mut() {
+            let abs = absolutize_byrut(&c.detail_url);
+            if abs != c.detail_url {
+                c.detail_url = abs;
+                fixed += 1;
+            }
+        }
+    }
+    if fixed > 0 {
+        crate::app_logger::log_search("INDEX_MIGRATE", &format!("修正 {} 条相对 detail_url", fixed));
+    }
+    idx
 }
 
 pub struct SearchEngine {
@@ -1863,7 +1914,7 @@ impl SearchEngine {
         if is_playzip {
             self.fetch_detail_playzip(detail_url).await
         } else {
-            self.fetch_detail_byrut(detail_url).await
+            self.fetch_detail_byrut(&absolutize_byrut(detail_url)).await
         }
     }
 
@@ -2047,8 +2098,8 @@ impl SearchEngine {
                 None => vec![],
             }
         } else {
-            // byrut: 从详情页提取 BT 种子链接
-            let detail = self.fetch_detail_byrut(detail_url).await;
+            // byrut: 从详情页提取 BT 种子链接 (相对路径同样要补全, 见 absolutize_byrut)
+            let detail = self.fetch_detail_byrut(&absolutize_byrut(detail_url)).await;
             detail.downloads
         }
     }
@@ -3144,6 +3195,44 @@ mod tests {
         assert!(!dls.is_empty(), "byrut 下载链接为空");
         assert_eq!(dls[0].link_type, "torrent");
         assert!(dls[0].url.contains("do=download"));
+    }
+
+    #[test]
+    fn absolutize_byrut_covers_all_link_forms() {
+        // 站点没有绝对链接的页会给这三种形态, 全都必须补成绝对 URL
+        assert_eq!(absolutize_byrut("/54950-a.html"), "https://byrutgame.org/54950-a.html");
+        assert_eq!(absolutize_byrut("54950-a.html"), "https://byrutgame.org/54950-a.html");
+        assert_eq!(absolutize_byrut("//cdn.byrutgame.org/x.html"), "https://cdn.byrutgame.org/x.html");
+        // 已经是绝对 URL 的不能被动到
+        let abs = "https://byrutgame.org/58080-cod-mw4.html";
+        assert_eq!(absolutize_byrut(abs), abs);
+        assert_eq!(absolutize_byrut("https://example.com/a/b.html"), "https://example.com/a/b.html");
+        assert_eq!(absolutize_byrut(""), "");
+    }
+
+    /// 回归: `new-pcgames` 首页给的是相对链接 (`/58080-...html`)。
+    /// 这是「by 资源只有图标名字、没有介绍和下载链接」的用户可见故障的根因 ——
+    /// 相对路径喂给 reqwest 直接 builder error, 详情返回全空。
+    #[test]
+    fn parse_byrut_list_absolutizes_relative_links() {
+        let html = include_str!("../__byrut_list_sample.html");
+        let cards = parse_byrut_list(html, "byrut", 1);
+        assert!(cards.len() > 10, "解析出的卡片太少: {}", cards.len());
+        for c in &cards {
+            assert!(!c.detail_url.is_empty(), "卡片缺 detail_url: {}", c.name);
+            assert!(
+                c.detail_url.starts_with("https://byrutgame.org/"),
+                "detail_url 不是绝对地址 (会导致详情页全空): {}",
+                c.detail_url
+            );
+            assert!(!c.name.is_empty(), "卡片缺名字");
+            assert!(!c.header_image.is_empty(), "卡片缺封面: {}", c.name);
+        }
+        // 直接验证原始 HTML 里确实存在相对链接 —— 否则这条测试就失去意义了
+        assert!(
+            html.contains(r#"href="/58080-call-of-duty-modern-warfare-4-2026.html""#),
+            "样本页里没有相对链接, 测试前提不成立 (请重新抓取样本)"
+        );
     }
 
     #[tokio::test]

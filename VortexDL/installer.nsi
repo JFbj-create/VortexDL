@@ -6,7 +6,7 @@
 
 !define APP_NAME "VortexDL"
 !define APP_FULL_NAME "漩涡下载器 VortexDL"
-!define APP_VERSION "1.7.0"
+!define APP_VERSION "1.7.1"
 !define APP_PUBLISHER "VortexDL"
 !define APP_EXE "VortexDL.exe"
 !define APP_URL "https://vortexdl.app"
@@ -59,7 +59,7 @@ ShowUnInstDetails show
 BrandingText "${APP_VERSION}"
 
 ; ---------- 版本信息 (在 exe 属性中显示) ----------
-VIProductVersion "1.7.0.0"
+VIProductVersion "1.7.1.0"
 VIAddVersionKey "ProductName" "${APP_FULL_NAME}"
 VIAddVersionKey "CompanyName" "${APP_PUBLISHER}"
 VIAddVersionKey "FileDescription" "${APP_FULL_NAME} 安装程序"
