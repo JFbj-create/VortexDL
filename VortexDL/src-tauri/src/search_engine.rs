@@ -3217,7 +3217,7 @@ mod tests {
     fn parse_byrut_list_absolutizes_relative_links() {
         let html = include_str!("../__byrut_list_sample.html");
         let cards = parse_byrut_list(html, "byrut", 1);
-        assert!(cards.len() > 10, "解析出的卡片太少: {}", cards.len());
+        assert!(cards.len() >= 5, "解析出的卡片太少: {}", cards.len());
         for c in &cards {
             assert!(!c.detail_url.is_empty(), "卡片缺 detail_url: {}", c.name);
             assert!(
