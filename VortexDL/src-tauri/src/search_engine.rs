@@ -33,6 +33,9 @@ pub struct DownloadLink {
     #[serde(default)] pub filename: String,
     #[serde(default)] pub version: String,
     #[serde(rename = "type", default)] pub link_type: String,
+    // mm 多分卷：前端要拿这两个字段去调 mm_download_plan
+    #[serde(default)] pub mm_gameid: i64,
+    #[serde(default)] pub mm_platform: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -1221,16 +1224,21 @@ impl SearchEngine {
         let src = if source.is_empty() { "byrut" } else { source };
         let cards = match src {
             "koyso" | "playzip" => self.browse_koyso(page).await,
+            "mm" => self.browse_mm(page).await,
             "all" => {
                 // 全部来源: koyso + byrut 同页合并, ko 优先排在前面
                 // ★ 性能: 两源并发抓取 (原本串行 await 两次网络往返 → 首屏/翻页延迟翻倍)
-                let (ko_cards, by_cards) = tokio::join!(
+                let (ko_cards, by_cards, mm_cards) = tokio::join!(
                     self.browse_koyso(page),
-                    self.browse_byrut(page)
+                    self.browse_byrut(page),
+                    self.browse_mm(page)
                 );
                 let mut seen: std::collections::HashSet<String> = ko_cards.iter().map(|g| g.appid.clone()).collect();
                 let mut cards = ko_cards;
                 for g in by_cards {
+                    if seen.insert(g.appid.clone()) { cards.push(g); }
+                }
+                for g in mm_cards {
                     if seen.insert(g.appid.clone()) { cards.push(g); }
                 }
                 // ★ 修复 (2026-09-13): ko 先入列 + by 后入列 → ko 在前 by 在后
@@ -1242,6 +1250,30 @@ impl SearchEngine {
             _ => self.browse_byrut(page).await,
         };
         cards.into_iter().filter(|g| !g.tags.iter().any(|t| t == "成人游戏")).collect()
+    }
+
+    // ============ mm 来源（槿篱游戏盒）============
+    /// 浏览：mm 的搜索接口在 keyword 为空时就是分页列表（每页 40）。
+    /// Switch 游戏在 `mm::search` 里已经过滤掉。
+    async fn browse_mm(&self, page: u32) -> Vec<GameCard> {
+        let p = page.max(1);
+        match crate::mm::search("", p, 100).await {
+            Ok((items, _total)) => items.iter().map(mm_card).collect(),
+            Err(e) => {
+                crate::app_logger::log_search("mm_browse_err", &e);
+                Vec::new()
+            }
+        }
+    }
+
+    async fn search_mm(&self, keyword: &str) -> Vec<GameCard> {
+        match crate::mm::search(keyword, 1, 100).await {
+            Ok((items, _total)) => items.iter().map(mm_card).collect(),
+            Err(e) => {
+                crate::app_logger::log_search("mm_search_err", &e);
+                Vec::new()
+            }
+        }
     }
 
     async fn browse_byrut(&self, page: u32) -> Vec<GameCard> {
@@ -1738,6 +1770,19 @@ impl SearchEngine {
             }
         }
 
+        // mm 来源（服务端搜索，直接吃中文/英文关键词，不需要先翻译）
+        if search_all || source == "mm" {
+            let mm_cards = if q.is_empty() {
+                self.browse_mm(1).await
+            } else {
+                self.search_mm(query.trim()).await
+            };
+            let have: std::collections::HashSet<String> = all.iter().map(|g| g.appid.clone()).collect();
+            for c in mm_cards {
+                if !have.contains(&c.appid) { all.push(c); }
+            }
+        }
+
         // 主列表搜索: 过滤成人游戏 (已独立到专门的成人游戏页)
         if category != "成人游戏" {
             all.retain(|g| !g.tags.iter().any(|t| t == "成人游戏"));
@@ -1837,11 +1882,18 @@ impl SearchEngine {
             }
             let orig = g.name_original.to_lowercase();
             let cn = g.name_cn.to_lowercase();
+            // mm 来源带 aliasname（官方别名/日文名），一起参与匹配
+            let alias = g
+                .extra
+                .get("mm_alias")
+                .and_then(|x| x.as_str())
+                .unwrap_or("")
+                .to_lowercase();
             let mut best = 0i32;
             for k in &queries {
                 let k = k.as_str();
                 let mut s = 0i32;
-                if name == k || orig == k || cn == k { s = s.max(1000); }
+                if name == k || orig == k || cn == k || (!alias.is_empty() && alias == k) { s = s.max(1000); }
                 else {
                     if name.starts_with(k) { s = s.max(500); }
                     if orig.starts_with(k) { s = s.max(450); }
@@ -1849,6 +1901,7 @@ impl SearchEngine {
                     if let Some(pos) = cn.find(k) { s = s.max(400 - (pos as i32).min(200)); }
                     if let Some(pos) = orig.find(k) { s = s.max(300 - (pos as i32).min(200)); }
                     if let Some(pos) = name.find(k) { s = s.max(200 - (pos as i32).min(200)); }
+                    if !alias.is_empty() { if let Some(pos) = alias.find(k) { s = s.max(280 - (pos as i32).min(200)); } }
                 }
                 best = best.max(s);
             }
@@ -1867,7 +1920,7 @@ impl SearchEngine {
                 let mut matched = 0i32;
                 for w in &en_words {
                     let w = w.as_str();
-                    if name.contains(w) || orig.contains(w) || cn.contains(w) {
+                    if name.contains(w) || orig.contains(w) || cn.contains(w) || (!alias.is_empty() && alias.contains(w)) {
                         matched += 1;
                     }
                 }
@@ -1908,6 +1961,9 @@ impl SearchEngine {
     }
 
     async fn fetch_detail_uncached(&self, source: &str, detail_url: &str) -> GameDetail {
+        if source == "mm" || detail_url.starts_with("mm:") {
+            return self.fetch_detail_mm(detail_url).await;
+        }
         let is_playzip = detail_url.contains("playzip.com")
             || detail_url.contains("koyso")
             || source == "koyso" || source == "playzip" || source == "adult";
@@ -1981,6 +2037,86 @@ impl SearchEngine {
         if desc.is_empty() { return None; }
         let img = item.get("tiny_image").and_then(|i| i.as_str()).unwrap_or("").to_string();
         Some((format!("<p>{}</p>", html_escape(desc)), img))
+    }
+
+    // ---------- mm 详情 / 下载 ----------
+    /// `mm:<gameid>|<platform>` → (gameid, platform)
+    fn parse_mm_url(u: &str) -> (i64, String) {
+        let body = u.strip_prefix("mm:").unwrap_or(u);
+        let mut it = body.split('|');
+        let gid = it.next().unwrap_or("").trim().parse::<i64>().unwrap_or(0);
+        let plat = it.next().unwrap_or("Alone").trim().to_string();
+        (gid, if plat.is_empty() { "Alone".into() } else { plat })
+    }
+
+    async fn fetch_detail_mm(&self, detail_url: &str) -> GameDetail {
+        let (gid, plat) = Self::parse_mm_url(detail_url);
+        if gid <= 0 {
+            return GameDetail::default();
+        }
+        let d = match crate::mm::detail(gid, &plat).await {
+            Ok(d) => d,
+            Err(e) => {
+                crate::app_logger::log_search("mm_detail_err", &format!("gameid={gid} {e}"));
+                return GameDetail::default();
+            }
+        };
+        let name = if !d.item.name_zh.trim().is_empty() {
+            d.item.name_zh.clone()
+        } else {
+            d.item.name_en.clone()
+        };
+        let cover = if d.item.banner.is_empty() { d.item.cover.clone() } else { d.item.banner.clone() };
+
+        // 分卷清单：用来算总大小（下载前要按「包体 + 解压」两份空间做校验）
+        let dirid = d.dir_ids.first().cloned().unwrap_or_default();
+        let mut vols: Vec<crate::mm::MmVolume> = Vec::new();
+        if !dirid.is_empty() {
+            if let Ok(v) = crate::mm::volumes(&dirid).await {
+                vols = v;
+            }
+        }
+        let total: u64 = vols.iter().map(|v| v.size).sum();
+        let downloads = if vols.is_empty() {
+            Vec::new()
+        } else {
+            vec![DownloadLink {
+                name: format!("全部分卷（{} 个）", vols.len()),
+                label: format!("下载全部 {} 个分卷（自动解压）", vols.len()),
+                url: format!("mm:{}|{}|{}", gid, plat, dirid),
+                engine: "mm".into(),
+                link_type: "mm_multi".into(),
+                size: human_size(total),
+                mm_gameid: gid,
+                mm_platform: plat.clone(),
+                ..Default::default()
+            }]
+        };
+        GameDetail {
+            title: name,
+            description: d.desc_html,
+            cover: cover.clone(),
+            header_image_large: cover,
+            size: if total > 0 { human_size(total) } else { String::new() },
+            downloads,
+            extra: serde_json::json!({
+                "mm": {
+                    "gameid": gid,
+                    "platform": plat,
+                    "dirid": dirid,
+                    "name_en": d.item.name_en,
+                    "name_zh": d.item.name_zh,
+                    "volumes": vols.len(),
+                    "total_bytes": total,
+                }
+            }),
+            ..Default::default()
+        }
+    }
+
+    /// 下载入口：只返回一条「全部下载」占位，真正的分卷由 `mm_download_plan` 现换签名。
+    async fn fetch_downloads_mm(&self, detail_url: &str) -> Vec<DownloadLink> {
+        self.fetch_detail_mm(detail_url).await.downloads
     }
 
     async fn fetch_detail_byrut(&self, detail_url: &str) -> GameDetail {
@@ -2089,6 +2225,9 @@ impl SearchEngine {
     }
 
     async fn fetch_downloads_uncached(&self, source: &str, detail_url: &str) -> Vec<DownloadLink> {
+        if source == "mm" || detail_url.starts_with("mm:") {
+            return self.fetch_downloads_mm(detail_url).await;
+        }
         let is_playzip = detail_url.contains("playzip.com")
             || detail_url.contains("koyso")
             || source == "koyso" || source == "playzip" || source == "adult";
@@ -2712,6 +2851,48 @@ impl SearchEngine {
         }
 
         result
+    }
+}
+
+/// mm::MmItem → 通用 GameCard（前端资源页无需任何改动就能显示）
+/// 人类可读大小（mm 详情里显示总包体用）
+fn human_size(n: u64) -> String {
+    const U: [&str; 5] = ["B", "KB", "MB", "GB", "TB"];
+    let mut v = n as f64;
+    let mut i = 0;
+    while v >= 1024.0 && i < U.len() - 1 {
+        v /= 1024.0;
+        i += 1;
+    }
+    if i == 0 { format!("{n} B") } else { format!("{v:.2} {}", U[i]) }
+}
+
+fn mm_card(it: &crate::mm::MmItem) -> GameCard {
+    let name = if !it.name_zh.trim().is_empty() {
+        it.name_zh.clone()
+    } else if !it.name_en.trim().is_empty() {
+        it.name_en.clone()
+    } else {
+        it.alias.clone()
+    };
+    GameCard {
+        name,
+        name_original: it.name_en.clone(),
+        name_cn: it.name_zh.clone(),
+        appid: format!("mm-{}", it.gameid),
+        source: "mm".into(),
+        // 详情用 gameid + platform 定位（详情接口只认这两个）
+        detail_url: format!("mm:{}|{}", it.gameid, it.platform),
+        header_image: it.cover.clone(),
+        category: it.tags.first().cloned().unwrap_or_default(),
+        update_time: it.update_time,
+        tags: it.tags.clone(),
+        extra: serde_json::json!({
+            "mm_gameid": it.gameid,
+            "mm_platform": it.platform,
+            "mm_banner": it.banner,
+            "mm_alias": it.alias,
+        }),
     }
 }
 

@@ -19,6 +19,7 @@ mod extractor;
 mod game_cache;
 mod game_scrape;
 mod gx;
+mod mm;
 mod game_translator;
 mod licensing;
 mod paths;
@@ -77,6 +78,8 @@ use crate::commands::{
     restart_system,
     game_scrape_site, game_scrape_pick_download,
     gx_sync, gx_status, gx_tags, gx_browse, gx_detail, gx_resources, gx_pick_download, gx_related,
+    mm_download_plan,
+    app_lite_mode,
     switch_catalog_stats, switch_refresh, switch_list, switch_detail, switch_download,
     switch_install, switch_download_dir, switch_downloaded, switch_find_local, switch_emu_status, switch_emu_launch,
     emu_info, emu_launch, emu_stop, emu_alive, emu_input,
@@ -518,6 +521,8 @@ fn main() {
             open_external_browser,
             game_scrape_site, game_scrape_pick_download,
             gx_sync, gx_status, gx_tags, gx_browse, gx_detail, gx_resources, gx_pick_download, gx_related,
+            mm_download_plan,
+            app_lite_mode,
             switch_catalog_stats, switch_refresh, switch_list, switch_detail, switch_download,
             switch_install, switch_download_dir, switch_downloaded, switch_find_local, switch_emu_status, switch_emu_launch,
             emu_info, emu_launch, emu_stop, emu_alive, emu_input,

@@ -370,41 +370,53 @@ async fn discover_from_page(
     Ok(())
 }
 
-/// 发现两个 action id（先试缓存，失败再扫）
+/// 发现 action id。
+///
+/// ★ 2026-10-26 站点改版：游戏列表改成 SSR 直出，`getGames` 这个 action 已经
+///   从所有 chunk 里消失了，只有详情页的 `getGameResources` 还在。
+///   所以这里**只要求 resources**；拿不到 games 不算失败（sync 会走 SSR 兜底）。
 async fn resolve_actions(
     c: &reqwest::Client,
     cached: &GxIndex,
     log: &(dyn Fn(&str) + Send + Sync),
 ) -> Result<(String, String), String> {
-    if !cached.action_games.is_empty() && !cached.action_resources.is_empty() {
-        // 先验证缓存还能用（用一次极小的列表请求）
-        if probe_games_action(c, &cached.action_games).await {
-            log("action id 缓存可用");
-            return Ok((cached.action_games.clone(), cached.action_resources.clone()));
-        }
-        log("action id 缓存失效，重新发现");
+    // 缓存里的 resources action 先验证一次，能用就别扫 chunk
+    if !cached.action_resources.is_empty() && probe_resources_action(c, &cached.action_resources).await {
+        log("action id 缓存可用");
+        return Ok((cached.action_games.clone(), cached.action_resources.clone()));
     }
+    let r = discover_resources_action(c, log).await?;
+    Ok((cached.action_games.clone(), r))
+}
 
+/// 扫详情页 chunk，找出当前的 getGameResources action id。
+async fn discover_resources_action(
+    c: &reqwest::Client,
+    log: &(dyn Fn(&str) + Send + Sync),
+) -> Result<String, String> {
     let mut found = std::collections::HashMap::new();
-    let want = ["getGames", "getGameResources"];
-    discover_from_page(c, &format!("{ORIGIN}/games"), &want, &mut found).await?;
-    if !found.contains_key("getGameResources") {
-        // 详情页 chunk 里才有
-        discover_from_page(c, &format!("{ORIGIN}/game/013baqnj"), &want, &mut found).await?;
-    }
-
-    let g = found.get("getGames").cloned();
-    let r = found.get("getGameResources").cloned();
-    match (g, r) {
-        (Some(g), Some(r)) => {
-            log(&format!("发现 action: getGames={} getGameResources={}", &g[..12], &r[..12]));
-            Ok((g, r))
+    let want = ["getGameResources"];
+    // 详情页优先（chunk 少、命中率最高）；再退游戏库页
+    for page in ["/game/013baqnj", "/game/caf5aa1d", "/games"] {
+        if discover_from_page(c, &format!("{ORIGIN}{page}"), &want, &mut found).await.is_ok()
+            && found.contains_key("getGameResources") {
+            break;
         }
-        (g, r) => Err(format!(
-            "没能发现 server action（getGames={:?} getGameResources={:?}）—— 站点可能改版",
-            g.map(|x| x[..12].to_string()),
-            r.map(|x| x[..12].to_string())
-        )),
+    }
+    match found.get("getGameResources") {
+        Some(id) => {
+            log(&format!("发现 action: getGameResources={}", &id[..12]));
+            Ok(id.clone())
+        }
+        None => Err("没能发现 getGameResources action —— 站点可能又改版了".to_string()),
+    }
+}
+
+/// 用一个极小的请求验证 resources action 还能用（409 = Server Action unavailable 即失效）
+async fn probe_resources_action(c: &reqwest::Client, action: &str) -> bool {
+    match call_action(c, &format!("{ORIGIN}/game/caf5aa1d"), action, "[2931]").await {
+        Ok(t) => !t.trim().is_empty() && !t.contains("Server Action unavailable"),
+        Err(_) => false,
     }
 }
 
@@ -1048,16 +1060,37 @@ fn parse_time(s: &str) -> i64 {
 pub async fn resources(slug: &str, game_id: u64) -> Result<Vec<GxResource>, String> {
     let cached = index_lock().lock().map(|g| g.clone()).unwrap_or_default();
     let c = client();
-    let action = if cached.action_resources.is_empty() {
-        let (_g, r) = resolve_actions(&c, &cached, &|_m| {}).await?;
-        r
+    let url = format!("{ORIGIN}/game/{slug}");
+    let body = format!("[{game_id}]");
+
+    // ★ 2026-10-26 修「action HTTP 409 Conflict: Server Action unavailable」：
+    //   站点每次发版都会换 action id，索引里缓存的那个一旦失效，所有游戏都读不到资源。
+    //   这里先用缓存的试；**409 / Server Action unavailable 就地重新发现再试一次**，
+    //   并把新 id 写回索引（下次直接用，不用再扫）。
+    let mut action = if cached.action_resources.is_empty() {
+        discover_resources_action(&c, &|_m| {}).await?
     } else {
         cached.action_resources.clone()
     };
-
-    let url = format!("{ORIGIN}/game/{slug}");
-    // ★ 用户交互路径：重试 3 次（弱网下这一步失败就是"读取下载资源失败"）
-    let txt = call_action_n(&c, &url, &action, &format!("[{game_id}]"), 3).await?;
+    let txt = match call_action_n(&c, &url, &action, &body, 3).await {
+        Ok(t) if !t.contains("Server Action unavailable") => t,
+        other => {
+            let why = match &other {
+                Ok(_) => "Server Action unavailable".to_string(),
+                Err(e) => e.clone(),
+            };
+            crate::app_logger::log_search("gx_action_stale", &format!("slug={slug} {why}"));
+            action = discover_resources_action(&c, &|_m| {}).await?;
+            // 把新 action 写回索引，避免每次都重扫
+            if let Ok(mut g) = index_lock().lock() {
+                g.action_resources = action.clone();
+                let snapshot = g.clone();
+                drop(g);
+                save_index_to_disk(&snapshot);
+            }
+            call_action_n(&c, &url, &action, &body, 3).await?
+        }
+    };
     let v = parse_array_payload(&txt)?;
     let arr = v.as_array().cloned().unwrap_or_default();
 
@@ -1386,6 +1419,29 @@ mod tests {
         println!("   HTTP {} content-length={:?}", r.status(), r.headers().get("content-length"));
         assert!(r.status().is_success(), "签名直链取不到: HTTP {}", r.status());
         let _ = (card,);
+    }
+
+    /// 回归（联网）：action id 缓存失效时必须自动重新发现，不能报 409。
+    /// 用非 NSFW 游戏验证匿名可取资源。
+    #[tokio::test]
+    #[ignore]
+    async fn live_resources_recovers_from_stale_action() {
+        // 故意写一个坏 action，模拟站点发版后的索引
+        {
+            let mut g = index_lock().lock().unwrap();
+            g.action_resources = "0".repeat(42);
+        }
+        let rs = resources("caf5aa1d", 2931).await.expect("409 自动恢复失败");
+        assert!(!rs.is_empty(), "资源列表为空");
+        let with_files: Vec<_> = rs.iter().filter(|r| !r.files.is_empty()).collect();
+        println!("资源 {} 条，其中可直连 {} 条", rs.len(), with_files.len());
+        assert!(!with_files.is_empty(), "没有任何 zip/rar 直链");
+        for f in with_files[0].files.iter().take(3) {
+            println!("   [可下] {} ({})", f.name, f.size);
+        }
+        // 恢复后的 action 必须写回索引
+        let now = index_lock().lock().unwrap().action_resources.clone();
+        assert_ne!(now, "0".repeat(42), "新 action 没有写回索引");
     }
 
     #[test]

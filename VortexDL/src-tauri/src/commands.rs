@@ -3059,3 +3059,79 @@ pub fn accel_open_hosts_dir() -> Result<(), String> {
     let dir = std::env::var("SystemRoot").unwrap_or_else(|_| r"C:\Windows".into());
     open_folder(format!(r"{}\System32\drivers\etc", dir))
 }
+
+// ============================================================
+// mm 来源（槿篱游戏盒）
+// ============================================================
+
+/// 解析一部 mm 游戏的下载计划：所有镜像逐一探活，取第一个「分卷能列出来且直链真能下」的。
+/// 返回的每个分卷都已换成新鲜签名直链（预签名 15 分钟过期，所以必须在点击下载时现换）。
+#[tauri::command]
+pub async fn mm_download_plan(gameid: i64, platform: String) -> Result<serde_json::Value, String> {
+    if gameid <= 0 {
+        return Err("gameid 无效".into());
+    }
+    let d = crate::mm::detail(gameid, &platform).await?;
+    if d.dir_ids.is_empty() {
+        return Err("这个游戏没有可下载的资源目录".into());
+    }
+    let mut last_err = String::new();
+    for dirid in &d.dir_ids {
+        let vols = match crate::mm::volumes(dirid).await {
+            Ok(v) => v,
+            Err(e) => { last_err = e; continue; }
+        };
+        if vols.is_empty() {
+            last_err = "分卷列表为空".into();
+            continue;
+        }
+        // 先给第一卷换签名并探活 —— 整桶 403 的镜像要直接跳过（历史坑）
+        let first_url = match crate::mm::signed_url(dirid, &vols[0].file_id).await {
+            Ok(u) => u,
+            Err(e) => { last_err = e; continue; }
+        };
+        if !crate::mm::probe(&first_url).await {
+            last_err = format!("镜像 {dirid} 的直链探活失败（多半是整桶 403）");
+            continue;
+        }
+        let total: u64 = vols.iter().map(|v| v.size).sum();
+        crate::app_logger::log_command(
+            "mm_download_plan",
+            &format!("gameid={gameid} dirid={dirid} 卷数={} 总大小={}", vols.len(), total),
+        );
+        // 逐卷换签名
+        let mut parts = Vec::with_capacity(vols.len());
+        for v in &vols {
+            let url = if v.file_id == vols[0].file_id {
+                first_url.clone()
+            } else {
+                crate::mm::signed_url(dirid, &v.file_id).await?
+            };
+            parts.push(serde_json::json!({
+                "name": v.name, "size": v.size, "url": url,
+            }));
+        }
+        return Ok(serde_json::json!({
+            "gameid": gameid,
+            "platform": d.item.platform,
+            "dirid": dirid,
+            "name_en": d.item.name_en,
+            "name_zh": d.item.name_zh,
+            "folder": crate::mm::mm_safe_folder(&d.item.name_en, &d.item.name_zh, gameid),
+            "total_bytes": total,
+            "parts": parts,
+        }));
+    }
+    Err(format!("所有镜像都不可用：{last_err}"))
+}
+
+// ============================================================
+// 轻量版：安装目录里有 lite.mode 就只显示 首页/游戏/下载/设置/修改器/喜欢
+// ============================================================
+#[tauri::command]
+pub fn app_lite_mode() -> bool {
+    std::env::current_exe()
+        .ok()
+        .and_then(|p| p.parent().map(|d| d.join("lite.mode").exists()))
+        .unwrap_or(false)
+}

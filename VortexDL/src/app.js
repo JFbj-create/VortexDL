@@ -153,6 +153,23 @@ document.addEventListener('click', function(e) {
     }
 }, false);
 
+
+// ============================================================
+// 轻量版：安装目录里有 lite.mode → 左侧只留 首页/游戏/下载/设置/修改器/喜欢
+// （站点资源/模拟器/动漫/书库/帧率/加速 全部隐藏）
+// ============================================================
+window.__vxApplyLiteMode = async function () {
+    try {
+        const lite = await invoke('app_lite_mode');
+        if (!lite) return;
+        const keep = ['home', 'game', 'downloads', 'settings', 'trainer', 'fav'];
+        document.querySelectorAll('.nav-btn').forEach(b => {
+            if (!keep.includes(b.dataset.page)) b.style.display = 'none';
+        });
+        window.__vxLite = true;
+    } catch (_) { /* 老版本没有这个命令，按完整版处理 */ }
+};
+
 // 延迟获取 Tauri API, 避免页面加载时 __TAURI__ 未注入导致崩溃
 function getInvoke() {
     // Tauri v2: 优先 __TAURI__.core.invoke, 回退 __TAURI_INTERNALS__.invoke
@@ -322,6 +339,29 @@ async function renderResourceNav() {
 // ============================================================
 
 // ★ 滚动位置记忆 (2026-10-01): 修复浏览列表后点返回/切页直接回到顶部
+
+// 下载目录名：必须全 ASCII（中文目录会让一部分游戏启动失败）。
+// 优先用英文名/原名，其次是去掉中文后的名字，最后兜底 game_<appid>。
+function vxSafeFolderName(g) {
+    g = g || {};
+    const pick = (g.name_original || '').trim() || (g.name || '').trim() || '';
+    let out = '';
+    let prevSep = false;
+    for (const ch of pick) {
+        if (/[A-Za-z0-9._-]/.test(ch)) { out += ch; prevSep = false; }
+        else {
+            if (!prevSep && out) { out += '_'; prevSep = true; }
+        }
+    }
+    out = out.replace(/^[._]+|[._]+$/g, '');
+    if (!out) {
+        const id = String(g.appid || '').replace(/[^A-Za-z0-9_-]/g, '');
+        out = id ? ('game_' + id) : ('game_' + Date.now());
+    }
+    return out.slice(0, 80);
+}
+window.vxSafeFolderName = vxSafeFolderName;
+
 function contentScroller() {
     return document.querySelector('.content');
 }
@@ -334,9 +374,18 @@ function restoreViewScroll(key) {
     const sc = contentScroller();
     if (!sc) return;
     const pos = state.viewScroll[key] || 0;
+    if (!pos) return;
     sc.scrollTop = pos;
-    // 布局稳定后再恢复一次, 避免视图刚 display 时高度未就绪导致失效
-    requestAnimationFrame(() => { sc.scrollTop = pos; });
+    // ★ 2026-10-26 修「从详情页返回列表直接跳回顶部」：
+    //   卡片是异步渲染的，刚 display 时高度不够 → scrollTop 被夹到 0，
+    //   rAF 也可能早于布局完成。按多个时间点重试，且只在高度够时才设。
+    const apply = () => {
+        if (Math.abs(sc.scrollTop - pos) > 4 && sc.scrollHeight - sc.clientHeight >= pos) {
+            sc.scrollTop = pos;
+        }
+    };
+    requestAnimationFrame(apply);
+    [50, 150, 350].forEach(ms => setTimeout(apply, ms));
 }
 
 // 通用页面切换函数
@@ -2058,6 +2107,9 @@ document.addEventListener('DOMContentLoaded', async () => {
     const savedTheme = localStorage.getItem('vortex_theme') || 'ocean';
     applyTheme(savedTheme);
 
+    // 轻量版：隐藏 6 个以外的导航（lite.mode 由轻量安装包写入）
+    try { await window.__vxApplyLiteMode(); } catch (_) {}
+
     // 收藏数量角标 + 清空按钮
     favUpdateBadge();
     document.addEventListener('click', async (e) => {
@@ -3515,6 +3567,7 @@ function renderDetail(game, detail) {
         'byrut': 'BY (Byrut)',
         'koyso': 'KO (Koyso)',
         'galgamex': 'GX (Galgamex)',
+        'mm': '槿篱游戏盒',
     }[game.source] || game.source;
 
     const content = document.getElementById('detail-content');
@@ -3662,7 +3715,7 @@ async function loadRecommendations(game) {
                 ${recs.map(g => {
                     const sourceClass = `source-${g.source}`;
                     const sourceLabel = {
-                        'byrut': 'BY', 'koyso': 'KO', 'galgamex': 'GX',
+                        'byrut': 'BY', 'koyso': 'KO', 'galgamex': 'GX', 'mm': '槿篱',
                     }[g.source] || g.source;
                     const cardKey = _registerCardGame(g);
                     return `
@@ -3729,6 +3782,143 @@ window.retryFetchDownloads = function() {
     // 复用 showDetail 重新加载 (会递增 reqToken, 自动取消旧的异步请求)
     showDetail(g.source, g.detail_url, g);
 };
+
+// ============================================================
+// mm（槿篱游戏盒）多分卷下载
+// ------------------------------------------------------------
+// 用户要求：不让用户逐个选卷 —— 点一次「下载」就把所有分卷下完，再自动解压第一卷。
+// 空间校验分两个盘：压缩包落 downloadDir、解压落 extractDir，各自都要够。
+// ============================================================
+function _vxDriveOf(path) {
+    const m = /^([A-Za-z]):/.exec(String(path || ''));
+    return m ? m[1].toUpperCase() : '';
+}
+function _vxFmtBytes(n) {
+    n = Number(n) || 0;
+    const u = ['B', 'KB', 'MB', 'GB', 'TB'];
+    let i = 0, v = n;
+    while (v >= 1024 && i < u.length - 1) { v /= 1024; i++; }
+    return i === 0 ? n + ' B' : v.toFixed(2) + ' ' + u[i];
+}
+async function _vxFreeBytes(drive) {
+    try {
+        const st = await invoke('get_system_status');
+        const d = (st && st.disks || []).find(x => String(x.letter || '').toUpperCase().replace(':', '') === drive);
+        if (!d) return null;
+        return Math.max(0, Number(d.total || 0) - Number(d.used || 0));
+    } catch (_) { return null; }
+}
+
+window.__vxMmDownloadAll = async function (dl, opt) {
+    const gameid = Number(dl.mm_gameid || 0);
+    const platform = dl.mm_platform || 'Alone';
+    if (!gameid) { vxAlert('缺少 mm 游戏 id'); return; }
+    const plan = await invoke('mm_download_plan', { gameid: gameid, platform: platform });
+    const parts = plan.parts || [];
+    if (parts.length === 0) { vxAlert('这个游戏没有分卷可下'); return; }
+    const folder = plan.folder || ('mm-' + gameid);
+    const root = String(opt.downloadDir || '').replace(/[\/]+$/, '');
+    const baseDir = opt.createFolder === false ? root : (root + '\\' + folder);
+    const extractRoot = String(opt.extractDir || opt.downloadDir || '').replace(/[\/]+$/, '');
+    const needPkg = Number(plan.total_bytes || 0);
+    const needExtract = Math.ceil(needPkg * 1.05);
+
+    // —— 空间校验（两个盘分开算）——
+    const pkgDrive = _vxDriveOf(root);
+    const extDrive = _vxDriveOf(extractRoot);
+    const pkgFree = await _vxFreeBytes(pkgDrive);
+    if (pkgFree != null && pkgFree < needPkg) {
+        vxAlert('空间不足：压缩包要放到 ' + pkgDrive + ':，需要 ' + _vxFmtBytes(needPkg) +
+                '，可用 ' + _vxFmtBytes(pkgFree) + '。请换一个下载目录。');
+        return;
+    }
+    if (extDrive !== pkgDrive) {
+        const extFree = await _vxFreeBytes(extDrive);
+        if (extFree != null && extFree < needExtract) {
+            vxAlert('空间不足：解压要放到 ' + extDrive + ':，需要约 ' + _vxFmtBytes(needExtract) +
+                    '，可用 ' + _vxFmtBytes(extFree) + '。请换一个解压目录。');
+            return;
+        }
+    } else if (pkgFree != null && pkgFree < needPkg + needExtract) {
+        vxAlert('空间不足：同一个盘既要放压缩包（' + _vxFmtBytes(needPkg) + '）又要解压（约 ' +
+                _vxFmtBytes(needExtract) + '），共需 ' + _vxFmtBytes(needPkg + needExtract) +
+                '，可用 ' + _vxFmtBytes(pkgFree) + '。请换目录。');
+        return;
+    }
+
+    closeDownloadModal();
+    navigateToPage('downloads');
+    const taskIds = [];
+    for (let i = 0; i < parts.length; i++) {
+        const part = parts[i];
+        const taskId = 'dl_' + Date.now() + '_' + Math.random().toString(36).slice(2, 10) + '_' + i;
+        const filePath = baseDir + '\\' + part.name;
+        state.downloads.set(taskId, {
+            name: part.name,
+            gameName: plan.name_zh || plan.name_en || folder,
+            cover: (state.currentDetailGame || {}).header_image || '',
+            source: 'mm',
+            downloadRoot: root,
+            url: part.url,
+            filePath: filePath,
+            progress: 0, speed: '', state: 'starting',
+            total: Number(part.size || 0), downloaded: 0,
+            taskId: taskId,
+            autoExtract: false,           // 最后统一解压第一卷，避免每卷都触发
+            extractDir: extractRoot,
+            deleteArchive: !!opt.deleteArchive,
+            createShortcut: !!opt.createShortcut,
+            mmMulti: true,
+        });
+        renderDownloadList();
+        try {
+            const real = await invoke('start_download', {
+                taskId: taskId, url: part.url, filePath: filePath, headers: null,
+            });
+            taskIds.push(real || taskId);
+            if (real && real !== taskId) {
+                const e = state.downloads.get(taskId);
+                if (e) { e.taskId = real; state.downloads.set(real, e); state.downloads.delete(taskId); }
+            }
+        } catch (e) {
+            try { showToast('分卷 ' + part.name + ' 启动失败: ' + (e && e.message || e), 'error', 4000); } catch (_) {}
+        }
+    }
+    try { showToast('已加入 ' + parts.length + ' 个分卷，全部下完后自动解压'); } catch (_) {}
+    __vxMmWatchAndExtract(taskIds, extractRoot, baseDir);
+};
+
+/// 轮询：所有分卷都 downloaded 之后解压第一卷
+window.__vxMmWatchAndExtract = function (taskIds, extractRoot, baseDir) {
+    if (!taskIds.length) return;
+    const t0 = Date.now();
+    const tick = async () => {
+        if (Date.now() - t0 > 8 * 3600 * 1000) return;   // 8 小时后放弃
+        let allDone = true, anyFail = false;
+        try {
+            const list = await invoke('get_downloads_status');
+            const map = new Map((list || []).map(x => [String(x.taskId || x.task_id || x.id), x]));
+            for (const id of taskIds) {
+                const it = map.get(String(id));
+                if (!it) { allDone = false; continue; }
+                const st = String(it.state || it.status || '');
+                if (/(error|fail|cancel)/i.test(st)) { anyFail = true; }
+                if (!/(complete|done|finished|success)/i.test(st)) allDone = false;
+            }
+        } catch (_) { allDone = false; }
+        if (anyFail) { try { showToast('有分卷下载失败，修好后点「📦 解压」', 'error', 6000); } catch (_) {} return; }
+        if (allDone) {
+            try {
+                showToast('全部分卷下载完成，开始解压…');
+                await window.extractDownloadedArchive(taskIds[0]);
+            } catch (_) {}
+            return;
+        }
+        setTimeout(tick, 5000);
+    };
+    setTimeout(tick, 5000);
+};
+
 window.onDownloadClick = function(downloadIdx) {
     try {
         const downloads = state.currentDetailDownloads;
@@ -4566,6 +4756,20 @@ document.getElementById('modal-start-download')?.addEventListener('click', async
     // ★ 新增: 桌面快捷方式开关 (默认勾选, 仅在解压成功后才会创建)
     const createShortcut = document.getElementById('modal-create-shortcut') ? document.getElementById('modal-create-shortcut').checked : true;
 
+    // mm：多分卷 —— 一次把全部卷加入下载，下完自动解压第一卷
+    if (dl && dl.type === 'mm_multi') {
+        try {
+            await __vxMmDownloadAll(dl, {
+                downloadDir, extractDir: effectiveExtractDir,
+                autoExtract, deleteArchive, createFolder, createShortcut,
+            });
+        } catch (e) {
+            vxAlert('mm 下载失败: ' + (e && e.message ? e.message : String(e)));
+            try { closeDownloadModal(); } catch (_) {}
+        }
+        return;
+    }
+
     // 这里再验证一次 (兜底后应不可能空)
     if (!downloadDir) {
         vxAlert('请选择下载目录');
@@ -4575,7 +4779,7 @@ document.getElementById('modal-start-download')?.addEventListener('click', async
     // 确定最终文件路径
     let finalDir = downloadDir;
     if (createFolder && state.currentDetailGame) {
-        const safeName = (state.currentDetailGame.name || 'game').replace(/[<>:"/\\|?*]/g, '_');
+        const safeName = vxSafeFolderName(state.currentDetailGame);
         finalDir = `${downloadDir}\\${safeName}`;
     }
     const filePath = `${finalDir}\\${dl.filename || 'download'}`;
@@ -5955,7 +6159,7 @@ window.extractDownloadedArchive = async function(taskId) {
     if (!dl.filePath) { try { showToast('这条任务没有文件路径，无法解压', 'error', 3000); } catch(_){} return; }
     const _p = String(dl.filePath).replace(/\//g, '\\');
     const _ext = (String(_p).toLowerCase().match(/\.([a-z0-9]+)$/) || [])[1] || '';
-    if (!['zip','rar','7z','tar','gz','bz2'].includes(_ext)) {
+    if (!['zip','rar','7z','tar','gz','bz2','001'].includes(_ext)) {
         try { showToast('这个文件不是压缩包，没法解压', 'error', 3000); } catch(_){}
         return;
     }
